@@ -1,7 +1,7 @@
 import { NextRequest } from "next/server";
 import { MINO_SYSTEM_PROMPT } from "@/lib/db";
 import type { ApiMessage } from "@/lib/types";
-import { getMode, type ModeId } from "@/lib/models";
+import { getMode, getModelDisplayName, type ModeId } from "@/lib/models";
 
 // ── Mino — resilient SSE proxy for Auto and Dev ─────────────────────────────
 //   OPENROUTER_API_KEY → OpenRouter Auto Router
@@ -50,7 +50,7 @@ function getProviders(requested: ModeId): ProviderConfig[] {
     ? {
         id: "auto",
         family: "openrouter",
-        label: "OpenRouter Auto",
+        label: "Mino Auto",
         url: "https://openrouter.ai/api/v1/chat/completions",
         key: openrouterKey,
         model: getMode("auto").engine,
@@ -70,10 +70,10 @@ function getProviders(requested: ModeId): ProviderConfig[] {
   // remain available as immediate fallbacks without changing the Dev mode.
   const geminiModels = [getMode("dev").engine, "gemini-3.7-flash", "gemini-3.6-flash"];
   const gemini: ProviderConfig[] = geminiKey
-    ? geminiModels.map((model, index) => ({
+    ? geminiModels.map((model) => ({
         id: "dev" as const,
         family: "gemini" as const,
-        label: index === 0 ? "Gemini 3.8 Flash" : `Gemini ${model.split("-")[1]}.${model.split("-")[2]} Flash fallback`,
+        label: getModelDisplayName(model),
         url: "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions",
         key: geminiKey,
         model,
@@ -124,6 +124,13 @@ function errorStream(message: string): Response {
   return new Response(stream, { headers: sseHeaders() });
 }
 
+function sanitizeProviderDetail(detail: string): string {
+  return detail
+    .replace(/\b(?:google\s+)?gemini(?:\s+[\d.]+)?(?:\s+flash)?\b/gi, "Mino model service")
+    .replace(/\bgoogle ai studio\b/gi, "Mino model service")
+    .replace(/\bopenrouter\b/gi, "Mino routing");
+}
+
 function extractUpstreamError(detail: string): string {
   if (!detail) return "The provider did not return an error message.";
 
@@ -139,7 +146,7 @@ function extractUpstreamError(detail: string): string {
     // Some gateways return HTML or plain text. Keep only a short, safe excerpt.
   }
 
-  return detail.replace(/\s+/g, " ").trim().slice(0, 300) || "The provider did not return an error message.";
+  return sanitizeProviderDetail(detail).replace(/\s+/g, " ").trim().slice(0, 300) || "The provider did not return an error message.";
 }
 
 function explainProviderError(error: unknown): string {
@@ -151,10 +158,10 @@ function explainProviderError(error: unknown): string {
   const detail = extractUpstreamError(error.message);
 
   if (status === 400) {
-    return `${provider.label} rejected the request (HTTP 400): ${detail} Check that the key belongs to ${provider.family === "gemini" ? "Google AI Studio" : "OpenRouter"}.`;
+    return `${provider.label} rejected the request (HTTP 400): ${detail} Check that this key belongs to the ${provider.family === "gemini" ? "Mino Dev" : "Mino Auto"} provider.`;
   }
   if (status === 401 || status === 403) {
-    return `${provider.label} rejected this key (HTTP ${status}). Make sure ${provider.family === "gemini" ? "GEMINI_API_KEY" : "OPENROUTER_API_KEY"} contains a valid key for this provider.`;
+    return `${provider.label} rejected this key (HTTP ${status}). Make sure the ${provider.family === "gemini" ? "Mino Dev" : "Mino Auto"} key is configured correctly.`;
   }
   if (status === 402) {
     return `${provider.label} needs account credit before it can answer. Add credit or use the other configured mode.`;
@@ -302,7 +309,7 @@ export async function POST(req: NextRequest): Promise<Response> {
           const upstreamError =
             typeof chunk.error === "string" ? chunk.error : chunk.error?.message;
           if (upstreamError) {
-            controller.enqueue(encodeEvent({ error: `${activeProvider!.label}: ${upstreamError}` }));
+            controller.enqueue(encodeEvent({ error: `${activeProvider!.label}: ${sanitizeProviderDetail(upstreamError)}` }));
             return;
           }
 
@@ -339,7 +346,7 @@ export async function POST(req: NextRequest): Promise<Response> {
       } catch (error) {
         const message = error instanceof Error ? error.message : "The connection was interrupted.";
         controller.enqueue(
-          encodeEvent({ error: `${activeProvider!.label} stream interrupted: ${message}` })
+          encodeEvent({ error: `${activeProvider!.label} stream interrupted: ${sanitizeProviderDetail(message)}` })
         );
       } finally {
         controller.enqueue(encoder.encode("data: [DONE]\n\n"));

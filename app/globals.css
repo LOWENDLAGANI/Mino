@@ -31,6 +31,18 @@ body {
   overscroll-behavior: none;
 }
 
+.app-surface {
+  background:
+    radial-gradient(ellipse 80% 48% at 50% 100%, rgba(27, 55, 145, 0.52) 0%, rgba(8, 20, 67, 0.35) 34%, transparent 70%),
+    linear-gradient(180deg, #030304 0%, #05050a 55%, #050b27 100%);
+}
+
+.surface-glow {
+  background:
+    radial-gradient(circle at 50% 42%, rgba(112, 94, 255, 0.08), transparent 30%),
+    radial-gradient(ellipse 70% 30% at 50% 100%, rgba(32, 77, 216, 0.2), transparent 72%);
+}
+
 /* Neutralize iOS tap highlight + inputs */
 * {
   -webkit-tap-highlight-color: transparent;

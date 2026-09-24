@@ -2,7 +2,7 @@
 // Two modes, each backed by its own server-side API key:
 //   auto — universal OpenAI-compatible router (OpenRouter "openrouter/auto"),
 //          which picks the best model for every request automatically
-//   dev  — Google Gemini, tuned for code & technical work
+//   dev  — Mino 3.8, tuned for code & technical work
 
 export type ModeId = "auto" | "dev";
 
@@ -30,7 +30,7 @@ export const MINO_MODES: ModeOption[] = [
     id: "dev",
     name: "Dev",
     tagline: "Tuned for code & technical work",
-    description: "Powered by Google Gemini",
+    description: "Mino 3.8, tuned for code and technical work",
     envVar: "GEMINI_API_KEY",
     engine: "gemini-3.8-flash",
   },
@@ -40,4 +40,13 @@ export const DEFAULT_MODE_ID: ModeId = "auto";
 
 export function getMode(id: string): ModeOption {
   return MINO_MODES.find((m) => m.id === id) ?? MINO_MODES[0];
+}
+
+/** Maps internal provider model IDs to Mino-only names shown in the product UI. */
+export function getModelDisplayName(model?: string): string {
+  if (!model) return "Mino";
+  if (model === "openrouter/auto") return "Mino Auto";
+
+  const version = model.match(/gemini-(\d+\.\d+)/)?.[1];
+  return version ? `Mino ${version}` : "Mino";
 }

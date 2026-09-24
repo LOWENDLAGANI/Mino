@@ -101,8 +101,8 @@ export default function ChatInput({ onSend, disabled, onStop }: ChatInputProps) 
   };
 
   return (
-    <div className="shrink-0 px-3 md:px-6">
-      <div className="mx-auto w-full max-w-2xl">
+    <div className="relative z-20 shrink-0 px-3 pb-4 pt-2 md:px-6 md:pb-6 md:pt-3">
+      <div className="mx-auto w-full max-w-4xl">
         {/* Errors */}
         {errors.length > 0 && (
           <div className="mb-2 rounded-lg bg-red-500/10 px-3 py-1.5 text-[12px] text-red-300 animate-rise">
@@ -152,14 +152,16 @@ export default function ChatInput({ onSend, disabled, onStop }: ChatInputProps) 
           }}
           onDragLeave={() => setDragOver(false)}
           onDrop={handleDrop}
-          className={`flex items-end gap-1 rounded-2xl border bg-raised p-1.5 pl-2 transition-colors ${
-            dragOver ? "border-accent" : "border-line focus-within:border-line-strong"
+          className={`flex min-h-16 items-end gap-1.5 rounded-[26px] border bg-[#202124]/95 p-2 pl-2 shadow-[0_18px_55px_rgba(0,0,0,0.38)] backdrop-blur-xl transition-all ${
+            dragOver
+              ? "border-[#8b7cf6]/60 shadow-[0_18px_60px_rgba(80,65,180,0.22)]"
+              : "border-white/[0.09] focus-within:border-white/[0.16]"
           }`}
         >
           {/* Attach */}
           <button
             onClick={() => fileInputRef.current?.click()}
-            className="mb-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-xl text-text-low transition-colors hover:bg-hover hover:text-text-mid"
+            className="mb-1 flex h-12 w-12 shrink-0 items-center justify-center rounded-full text-white/45 transition-colors hover:bg-white/[0.07] hover:text-white/80"
             aria-label="Attach image"
             type="button"
             title="Attach image — drag & drop or paste also works"
@@ -190,15 +192,15 @@ export default function ChatInput({ onSend, disabled, onStop }: ChatInputProps) 
             onKeyDown={handleKeyDown}
             onPaste={handlePaste}
             rows={1}
-            placeholder={compressing ? "Compressing…" : "Message Mino"}
-            className="max-h-[180px] flex-1 resize-none bg-transparent py-2 text-[16px] leading-snug text-text-hi placeholder-text-low outline-none md:text-[15px]"
+            placeholder={compressing ? "Compressing…" : "Ask Mino anything…"}
+            className="max-h-[180px] flex-1 resize-none bg-transparent py-3.5 text-[16px] leading-snug text-white/90 placeholder-white/32 outline-none md:text-[17px]"
           />
 
           {/* Send / Stop */}
           {disabled ? (
             <button
               onClick={onStop}
-              className="mb-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-hover text-text-mid transition-colors hover:text-text-hi"
+              className="mb-1 flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-white/[0.08] text-white/70 transition-colors hover:bg-white/[0.13] hover:text-white"
               aria-label="Stop generating"
               type="button"
               title="Stop generating"
@@ -211,10 +213,10 @@ export default function ChatInput({ onSend, disabled, onStop }: ChatInputProps) 
             <button
               onClick={handleSend}
               disabled={!canSend}
-              className={`mb-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-xl transition-all ${
+              className={`mb-1 flex h-12 w-12 shrink-0 items-center justify-center rounded-full transition-all ${
                 canSend
-                  ? "bg-accent text-canvas hover:brightness-110"
-                  : "text-text-low hover:bg-hover"
+                  ? "bg-[#6f5bea] text-white shadow-[0_8px_24px_rgba(111,91,234,0.35)] hover:bg-[#7b67f0]"
+                  : "text-white/25 hover:bg-white/[0.05]"
               }`}
               aria-label="Send message"
               type="button"
@@ -227,8 +229,8 @@ export default function ChatInput({ onSend, disabled, onStop }: ChatInputProps) 
         </div>
 
         {/* Hint — desktop only; keep mobile clean */}
-        <p className="hidden pb-2 pt-1.5 text-center text-[10px] text-text-low md:block">
-          Mino can make mistakes. Shift + Enter for a new line.
+        <p className="hidden pt-2 text-center text-[10px] text-white/25 md:block">
+          Created by Minetallest · Shift + Enter for a new line
         </p>
         <div className="safe-bottom md:hidden" />
       </div>

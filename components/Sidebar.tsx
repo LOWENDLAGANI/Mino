@@ -10,9 +10,8 @@ import {
   type BackupPayload,
 } from "@/lib/db";
 import type { Chat } from "@/lib/types";
-import { useEffect, useRef, useState } from "react";
-
-// ── Sidebar: chat history, backup/restore — quiet and minimal ────────────────
+import { useEffect, useRef, useState, type ReactNode } from "react";
+import MinoMark from "@/components/MinoMark";
 
 interface SidebarProps {
   activeChatId: string | null;
@@ -44,6 +43,14 @@ function timeAgo(ts: number): string {
   return new Date(ts).toLocaleDateString(undefined, { month: "short", day: "numeric" });
 }
 
+function UtilityIcon({ children }: { children: ReactNode }) {
+  return (
+    <span className="flex h-8 w-8 shrink-0 items-center justify-center text-white/55">
+      {children}
+    </span>
+  );
+}
+
 export default function Sidebar({ activeChatId, onSelectChat, onNewChat, open, onClose }: SidebarProps) {
   const chats = useLiveQuery(
     () => db.chats.orderBy("updatedAt").reverse().toArray(),
@@ -54,6 +61,8 @@ export default function Sidebar({ activeChatId, onSelectChat, onNewChat, open, o
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [confirmClear, setConfirmClear] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
+  const [showSearch, setShowSearch] = useState(false);
+  const [search, setSearch] = useState("");
 
   useEffect(() => {
     if (!notice) return;
@@ -97,60 +106,85 @@ export default function Sidebar({ activeChatId, onSelectChat, onNewChat, open, o
     <>
       {open && (
         <div
-          className="fixed inset-0 z-30 bg-black/50 md:hidden"
-          style={{ backdropFilter: "blur(2px)" }}
+          className="fixed inset-0 z-30 bg-black/65 md:hidden"
+          style={{ backdropFilter: "blur(5px)" }}
           onClick={onClose}
           aria-hidden
         />
       )}
 
       <aside
-        className={`hairline-r fixed inset-y-0 left-0 z-40 flex w-[270px] shrink-0 flex-col bg-raised transition-transform duration-200 ease-out md:static md:translate-x-0 ${
+        className={`hairline-r fixed inset-y-0 left-0 z-40 flex w-[292px] shrink-0 flex-col bg-[#050506] transition-transform duration-300 ease-out md:static md:translate-x-0 ${
           open ? "translate-x-0" : "-translate-x-full"
         }`}
       >
-        {/* Brand */}
-        <div className="safe-top flex items-center gap-2.5 px-4 pb-2 pt-4">
-          <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-accent text-[13px] font-bold text-canvas">
-            M
-          </div>
-          <div className="flex-1 leading-tight">
-            <div className="text-[13px] font-semibold tracking-tight text-text-hi">Mino</div>
-            <div className="text-[10px] text-text-low">by Minetallest</div>
-          </div>
+        <div className="safe-top flex items-center justify-between px-5 pb-5 pt-6">
+          <button onClick={onNewChat} className="flex items-center gap-3 text-left" aria-label="Start a new Mino chat">
+            <MinoMark className="h-10 w-10" />
+            <span>
+              <span className="block text-[25px] font-semibold leading-none tracking-[-0.045em] text-white">Mino</span>
+              <span className="mt-1 block text-[11px] text-white/35">by Minetallest</span>
+            </span>
+          </button>
           <button
             onClick={onClose}
-            className="flex h-8 w-8 items-center justify-center rounded-lg text-text-low hover:bg-hover hover:text-text-mid md:hidden"
+            className="flex h-9 w-9 items-center justify-center rounded-full text-white/55 transition-colors hover:bg-white/[0.07] hover:text-white md:hidden"
             aria-label="Close menu"
           >
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round">
               <path d="M6 6l12 12M18 6L6 18" />
             </svg>
           </button>
         </div>
 
-        {/* New chat */}
-        <div className="px-3 pb-2 pt-1">
+        <div className="px-4">
           <button
             onClick={onNewChat}
-            className="flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-sm text-text-mid transition-colors hover:bg-hover hover:text-text-hi"
+            className="flex w-full items-center gap-3 rounded-2xl bg-white/[0.075] px-4 py-3.5 text-[15px] font-medium text-white transition-colors hover:bg-white/[0.11]"
           >
-            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round">
-              <path d="M12 5v14M5 12h14" />
+            <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M20 11.5a7.5 7.5 0 0 1-8 7.5 8.5 8.5 0 0 1-3.6-.8L4 20l1.5-3.7A7.2 7.2 0 0 1 4 11.5 7.5 7.5 0 0 1 12 4a7.5 7.5 0 0 1 8 7.5Z" />
+              <path d="M12 8v7M8.5 11.5h7" />
             </svg>
             New chat
           </button>
         </div>
 
-        {/* History */}
-        <div className="flex-1 overflow-y-auto px-3 pb-2">
-          {(chats?.length ?? 0) > 0 && (
-            <div className="px-2.5 pb-1 pt-3 text-[10px] font-medium uppercase tracking-[0.08em] text-text-low">
-              Recents
-            </div>
-          )}
-          <ul className="space-y-px">
-            {chats?.map((chat) => {
+        <nav className="mt-5 space-y-1 px-4" aria-label="Mino utilities">
+          <button className="flex w-full items-center gap-2 rounded-xl px-2 py-2 text-left text-[14px] text-white/60 transition-colors hover:bg-white/[0.05] hover:text-white" onClick={() => setShowSearch((value) => !value)}>
+            <UtilityIcon>
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round">
+                <circle cx="10.8" cy="10.8" r="6.3" /><path d="m16 16 4 4" />
+              </svg>
+            </UtilityIcon>
+            Search chats
+          </button>
+          <button className="flex w-full items-center gap-2 rounded-xl px-2 py-2 text-left text-[14px] text-white/60 transition-colors hover:bg-white/[0.05] hover:text-white" onClick={() => fileInputRef.current?.click()}>
+            <UtilityIcon>
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinejoin="round">
+                <path d="M5 5.5A2.5 2.5 0 0 1 7.5 3H20v15H7.5A2.5 2.5 0 0 0 5 20.5v-15Z" /><path d="M5 20.5A2.5 2.5 0 0 1 7.5 18H20M9 7h6M9 10h6" />
+              </svg>
+            </UtilityIcon>
+            Library
+          </button>
+        </nav>
+
+        {showSearch && (
+          <div className="px-4 pt-4">
+            <input
+              autoFocus
+              value={search}
+              onChange={(event) => setSearch(event.target.value)}
+              placeholder="Search your chats"
+              className="w-full rounded-xl border border-white/[0.08] bg-white/[0.05] px-3 py-2.5 text-[13px] text-white outline-none placeholder:text-white/30 focus:border-[#8b7cf6]/50"
+            />
+          </div>
+        )}
+
+        <div className="mt-6 min-h-0 flex-1 overflow-y-auto px-4">
+          <div className="mb-2 px-2 text-[11px] font-medium uppercase tracking-[0.12em] text-white/30">Recent</div>
+          <ul className="space-y-1">
+            {chats?.filter((chat) => chat.title.toLowerCase().includes(search.toLowerCase())).map((chat) => {
               const active = chat.id === activeChatId;
               return (
                 <li key={chat.id}>
@@ -159,16 +193,10 @@ export default function Sidebar({ activeChatId, onSelectChat, onNewChat, open, o
                     tabIndex={0}
                     onClick={() => onSelectChat(chat.id)}
                     onKeyDown={(e) => e.key === "Enter" && onSelectChat(chat.id)}
-                    className={`group flex cursor-pointer items-center gap-2 rounded-lg px-2.5 py-2 transition-colors ${
-                      active ? "bg-hover" : "hover:bg-hover/60"
-                    }`}
+                    className={`group flex cursor-pointer items-center gap-2 rounded-xl px-3 py-3 transition-colors ${active ? "bg-white/[0.09]" : "hover:bg-white/[0.05]"}`}
                   >
-                    <span className="min-w-0 flex-1">
-                      <span className={`block truncate text-[13px] ${active ? "text-text-hi" : "text-text-body"}`}>
-                        {chat.title}
-                      </span>
-                    </span>
-                    <span className={`shrink-0 text-[10px] text-text-low transition-opacity ${active ? "" : "group-hover:opacity-0"}`}>
+                    <span className="min-w-0 flex-1 truncate text-[14px] text-white/75">{chat.title}</span>
+                    <span className={`shrink-0 text-[10px] text-white/25 transition-opacity ${active ? "opacity-100" : "opacity-0 group-hover:opacity-100"}`}>
                       {timeAgo(chat.updatedAt)}
                     </span>
                     <button
@@ -177,59 +205,27 @@ export default function Sidebar({ activeChatId, onSelectChat, onNewChat, open, o
                         void deleteChat(chat.id);
                         if (active) onNewChat();
                       }}
-                      className="hidden shrink-0 rounded p-0.5 text-text-low hover:text-red-400 group-hover:block"
+                      className="hidden shrink-0 rounded p-1 text-white/35 hover:text-red-300 group-hover:block"
                       aria-label={`Delete ${chat.title}`}
                     >
-                      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round">
-                        <path d="M6 6l12 12M18 6L6 18" />
-                      </svg>
+                      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round"><path d="M6 6l12 12M18 6L6 18" /></svg>
                     </button>
                   </div>
                 </li>
               );
             })}
           </ul>
-          {chats?.length === 0 && (
-            <p className="px-2.5 pt-3 text-[12px] leading-relaxed text-text-low">
-              No conversations yet. Everything stays on this device.
-            </p>
+          {chats?.filter((chat) => chat.title.toLowerCase().includes(search.toLowerCase())).length === 0 && (
+            <p className="px-2 py-2 text-[12px] leading-relaxed text-white/30">{search ? "No matching chats." : "Your conversations will appear here."}</p>
           )}
         </div>
 
-        {/* Footer actions */}
-        <div className="hairline-t p-3">
-          {notice && (
-            <div className="mb-2 rounded-md bg-hover px-2.5 py-1.5 text-[11px] text-text-mid animate-rise">
-              {notice}
-            </div>
-          )}
+        <div className="border-t border-white/[0.07] px-4 pb-4 pt-3">
+          {notice && <div className="mb-2 rounded-xl bg-white/[0.07] px-3 py-2 text-[11px] text-white/65 animate-rise">{notice}</div>}
           <div className="flex items-center gap-1">
-            <button
-              onClick={handleExport}
-              className="flex flex-1 items-center justify-center gap-1.5 rounded-md px-2 py-1.5 text-[11px] text-text-mid transition-colors hover:bg-hover hover:text-text-hi"
-            >
-              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M12 3v12m0 0l-4-4m4 4l4-4M4 17v2a2 2 0 002 2h12a2 2 0 002-2v-2" />
-              </svg>
-              Export
-            </button>
-            <button
-              onClick={() => fileInputRef.current?.click()}
-              className="flex flex-1 items-center justify-center gap-1.5 rounded-md px-2 py-1.5 text-[11px] text-text-mid transition-colors hover:bg-hover hover:text-text-hi"
-            >
-              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M12 15V3m0 0L8 7m4-4l4 4M4 17v2a2 2 0 002 2h12a2 2 0 002-2v-2" />
-              </svg>
-              Import
-            </button>
-            <button
-              onClick={handleClearAll}
-              className={`flex items-center justify-center gap-1.5 rounded-md px-2 py-1.5 text-[11px] transition-colors ${
-                confirmClear
-                  ? "bg-red-500/15 text-red-400"
-                  : "text-text-mid hover:bg-hover hover:text-red-400"
-              }`}
-            >
+            <button onClick={handleExport} className="flex flex-1 items-center justify-center rounded-lg px-2 py-2 text-[11px] text-white/45 transition-colors hover:bg-white/[0.06] hover:text-white">Export</button>
+            <button onClick={() => fileInputRef.current?.click()} className="flex flex-1 items-center justify-center rounded-lg px-2 py-2 text-[11px] text-white/45 transition-colors hover:bg-white/[0.06] hover:text-white">Import</button>
+            <button onClick={handleClearAll} className={`flex flex-1 items-center justify-center rounded-lg px-2 py-2 text-[11px] transition-colors ${confirmClear ? "bg-red-500/15 text-red-300" : "text-white/45 hover:bg-white/[0.06] hover:text-red-300"}`}>
               {confirmClear ? "Confirm?" : "Clear"}
             </button>
           </div>
@@ -244,9 +240,11 @@ export default function Sidebar({ activeChatId, onSelectChat, onNewChat, open, o
               e.target.value = "";
             }}
           />
-          <p className="mt-2 text-center text-[10px] text-text-low">
-            Stored locally in your browser
-          </p>
+          <div className="mt-4 flex items-center gap-2.5 border-t border-white/[0.06] pt-4">
+            <div className="flex h-8 w-8 items-center justify-center rounded-full bg-gradient-to-br from-[#b7f4ff] via-[#8c84ff] to-[#4640b6] text-[11px] font-bold text-black">M</div>
+            <span className="min-w-0 flex-1 truncate text-[12px] text-white/55">Minetallest Mc</span>
+            <span className="text-[11px] text-white/25">local only</span>
+          </div>
         </div>
       </aside>
     </>

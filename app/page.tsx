@@ -6,6 +6,7 @@ import Sidebar from "@/components/Sidebar";
 import ChatThread from "@/components/ChatThread";
 import ChatInput from "@/components/ChatInput";
 import ModeSelector from "@/components/ModelSelector";
+import MinoMark from "@/components/MinoMark";
 import {
   db,
   createChat,
@@ -36,7 +37,6 @@ export default function HomePage() {
   const [streamingId, setStreamingId] = useState<string | null>(null);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [hydrated, setHydrated] = useState(false);
-  const [pendingSuggestion, setPendingSuggestion] = useState<string | null>(null);
   const [modelNotice, setModelNotice] = useState<string | null>(null);
   const abortRef = useRef<AbortController | null>(null);
 
@@ -228,19 +228,11 @@ export default function HomePage() {
     [activeChatId, selectedMode, streamingId]
   );
 
-  useEffect(() => {
-    if (pendingSuggestion) {
-      const text = pendingSuggestion;
-      setPendingSuggestion(null);
-      void sendMessage(text, []);
-    }
-  }, [pendingSuggestion, sendMessage]);
-
   const isStreaming = streamingId !== null;
   const visibleMessages = messages.filter((m) => m.content || m.images || m.error);
 
   return (
-    <div className="flex h-[100dvh] bg-canvas text-text-body">
+    <div className="flex h-[100dvh] overflow-hidden bg-[#030304] text-text-body">
       <Sidebar
         activeChatId={activeChatId}
         onSelectChat={handleSelectChat}
@@ -249,60 +241,53 @@ export default function HomePage() {
         onClose={() => setSidebarOpen(false)}
       />
 
-      <div className="flex min-w-0 flex-1 flex-col">
-        {/* Header */}
-        <header className="safe-top hairline-b flex h-14 shrink-0 items-center gap-1.5 px-3 md:px-5">
+      <main className="app-surface relative flex min-w-0 flex-1 flex-col overflow-hidden">
+        <div className="surface-glow pointer-events-none absolute inset-0" aria-hidden />
+
+        <header className="safe-top relative z-20 flex h-16 shrink-0 items-center gap-3 px-4 md:px-6">
           <button
             onClick={() => setSidebarOpen(true)}
-            className="flex h-9 w-9 items-center justify-center rounded-lg text-text-mid transition-colors hover:bg-hover hover:text-text-hi md:hidden"
+            className="flex h-9 w-9 items-center justify-center rounded-full text-text-body transition-colors hover:bg-white/[0.06] hover:text-white md:hidden"
             aria-label="Open menu"
           >
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round">
-              <path d="M4 7h16M4 12h16M4 17h10" />
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round">
+              <path d="M4 7h16M4 12h16M4 17h16" />
             </svg>
           </button>
 
-          <div className="hidden min-w-0 items-center gap-2 md:flex">
-            <button
-              onClick={handleNewChat}
-              className="flex h-8 w-8 items-center justify-center rounded-lg text-text-mid transition-colors hover:bg-hover hover:text-text-hi"
-              aria-label="New chat"
-              title="New chat"
-            >
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round">
-                <path d="M12 5v14M5 12h14" />
-              </svg>
-            </button>
-            <span className="truncate text-sm font-medium text-text-hi">Mino</span>
-          </div>
+          <button
+            onClick={handleNewChat}
+            className="flex min-w-0 items-center gap-2.5 rounded-full py-1 pr-2 text-left transition-opacity hover:opacity-80"
+            aria-label="Start a new Mino chat"
+          >
+            <MinoMark className="h-7 w-7" />
+            <span className="truncate text-[17px] font-medium tracking-[-0.02em] text-white">Mino</span>
+          </button>
 
           <div className="flex-1" />
-
           <ModeSelector selected={selectedMode} onChange={handleModeChange} available={available} />
         </header>
 
         {modelNotice && (
           <div
             role="status"
-            className="mx-3 mt-2 flex shrink-0 items-center justify-center gap-2 rounded-lg border border-amber-400/15 bg-amber-400/[0.06] px-3 py-2 text-center text-[11px] leading-relaxed text-amber-200/80 md:mx-auto md:max-w-3xl"
+            className="relative z-10 mx-4 mt-1 flex shrink-0 items-center justify-center gap-2 self-center rounded-full border border-white/[0.07] bg-white/[0.045] px-3.5 py-2 text-center text-[11px] leading-relaxed text-white/55 backdrop-blur-md md:max-w-xl"
           >
-            <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-amber-300/80" />
+            <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-[#9ee7ff]" />
             <span>{modelNotice}</span>
           </div>
         )}
 
-        {/* Thread */}
-        <ChatThread
-          messages={visibleMessages}
-          streamingId={streamingId}
-          isEmpty={visibleMessages.length === 0}
-          suggestedMode={hydrated ? selectedMode : DEFAULT_MODE_ID}
-          onSuggestionClick={(text) => setPendingSuggestion(text)}
-        />
-
-        {/* Input */}
-        <ChatInput onSend={sendMessage} disabled={isStreaming} onStop={stopStreaming} />
-      </div>
+        <div className="relative z-10 flex min-h-0 flex-1 flex-col">
+          <ChatThread
+            messages={visibleMessages}
+            streamingId={streamingId}
+            isEmpty={visibleMessages.length === 0}
+            suggestedMode={hydrated ? selectedMode : DEFAULT_MODE_ID}
+          />
+          <ChatInput onSend={sendMessage} disabled={isStreaming} onStop={stopStreaming} />
+        </div>
+      </main>
     </div>
   );
 }

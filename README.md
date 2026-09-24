@@ -7,7 +7,7 @@ Built with **Next.js 14 (App Router)**, **TypeScript**, **Tailwind CSS**, and **
 ## Features
 
 - **Zero-login persistence** — chats, messages, and image attachments are stored client-side in IndexedDB via Dexie (no 5MB localStorage quota issues)
-- **Two modes** — **Auto** routes every message to the best model via OpenRouter's `openrouter/auto`; **Dev** uses Google Gemini, tuned for code & technical work. Each is powered by its own server-side API key, with automatic fallback if one is missing.
+- **Two modes** — **Mino Auto** routes every message to the best available model; **Mino Dev** uses Mino 3.8, tuned for code and technical work. Each mode is powered by its own server-side API key, with automatic fallback if one is missing.
 - **Secure API keys** — keys are only ever read server-side in the `/api/chat` Route Handler
 - **Strict persona** — the Mino system prompt is prepended server-side to *every* completion request; the client cannot bypass it
 - **Multimodal** — attach images via file picker, drag-and-drop, or clipboard paste; compressed client-side on `<canvas>` (max 1024px, JPEG q0.8) before upload
@@ -32,14 +32,14 @@ Set either (or both) via `process.env` — locally in `.env.local`, or in Vercel
 
 | Variable | Mode | Provider |
 |---|---|---|
-| `OPENROUTER_API_KEY` | **Auto** | OpenRouter `openrouter/auto` — universal router that picks the best model per message |
-| `GEMINI_API_KEY` | **Dev** | Google Gemini (`gemini-3.8-flash` via the OpenAI-compatible endpoint) |
+| `OPENROUTER_API_KEY` | **Mino Auto** | Universal routing that picks the best available model per message |
+| `GEMINI_API_KEY` | **Mino Dev** | Mino 3.8 model access via the compatible endpoint |
 
-Get keys: [openrouter.ai/keys](https://openrouter.ai/keys) · [aistudio.google.com/apikey](https://aistudio.google.com/apikey)
+Get keys from the providers linked in your deployment environment. The product UI always identifies models as Mino Auto or Mino 3.8.
 
 Resilience behavior:
 - Requested mode's key missing → Mino uses the other configured key; the chat keeps working.
-- Provider outage or rate limit before streaming starts → Mino retries stable Gemini fallbacks (3.7 Flash, then 3.6 Flash) and the other configured provider as needed, with a small automatic model-change notice in the chat header.
+- Provider outage or rate limit before streaming starts → Mino retries stable Mino 3.7 and Mino 3.6 fallbacks, then the other configured route as needed, with a small automatic model-change notice in the chat header.
 - Both providers unavailable → the conversation shows the provider name, HTTP status, and a safe diagnostic instead of the generic “Mino hit an error” message.
 - No keys at all → chat UI still works and displays a setup notice in the conversation instead of an error page.
 
@@ -51,10 +51,10 @@ No database or runtime configuration needed — push the repo to Vercel and add 
 
 ```
 app/
-  api/chat/route.ts    # SSE streaming proxy to OpenRouter (server-side key + persona)
+  api/chat/route.ts    # SSE streaming proxy with server-side keys and Mino persona
   layout.tsx           # Root layout, dark theme
   page.tsx             # Main chat orchestration: state, streaming, model switching
-  globals.css          # Tailwind + dark Slate/Zinc design system
+  globals.css          # Tailwind + Mino dark blue design system
 components/
   Sidebar.tsx          # IndexedDB chat history, backup/restore
   ChatThread.tsx       # Streaming message list, markdown, image rendering
@@ -70,4 +70,4 @@ lib/
 
 ## Privacy
 
-All conversations and attachments are stored exclusively in your browser's IndexedDB. Nothing is persisted server-side; only the current request payload is proxied to the selected provider (OpenRouter or Google Gemini).
+All conversations and attachments are stored exclusively in your browser's IndexedDB. Nothing is persisted server-side; only the current request payload is proxied to the selected route.
