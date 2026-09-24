@@ -2,7 +2,6 @@
 
 import type { ChatMessage } from "@/lib/types";
 import Markdown from "./Markdown";
-import { getMode } from "@/lib/models";
 import { useEffect, useRef, useState } from "react";
 
 // ── ChatThread: quiet, editorial message list (no bubbles) ──────────────────
@@ -40,12 +39,12 @@ function CopyMessageButton({ text }: { text: string }) {
 function MessageRow({ msg, streaming }: { msg: ChatMessage; streaming: boolean }) {
   const isUser = msg.role === "user";
   const modeFor = (engine?: string) =>
-    engine?.startsWith("gemini") ? "Dev" : "Auto";
+    engine?.includes("gemini") ? "Dev" : "Auto";
 
   // User: right-aligned, subtle tinted pill
   if (isUser) {
     return (
-      <div className="flex justify-end animate-rise">
+      <div className="flex flex-col items-end animate-rise">
         <div className="max-w-[85%] md:max-w-[75%]">
           {msg.images && msg.images.length > 0 && (
             <div className="mb-2 flex flex-wrap justify-end gap-2">
@@ -68,7 +67,7 @@ function MessageRow({ msg, streaming }: { msg: ChatMessage; streaming: boolean }
           )}
         </div>
         {msg.error && (
-          <div className="mt-1 w-full rounded-lg border border-red-500/20 bg-red-500/5 px-3 py-2 text-[12px] text-red-300">
+          <div className="mt-1 w-full max-w-[85%] rounded-lg border border-red-500/20 bg-red-500/5 px-3 py-2 text-[12px] text-red-300 md:max-w-[75%]">
             {msg.error}
           </div>
         )}

@@ -57,7 +57,7 @@ export default function ChatInput({ onSend, disabled, onStop }: ChatInputProps) 
   };
 
   const handleSend = () => {
-    if (disabled) return;
+    // While streaming the send button becomes Stop.
     if (disabled) {
       onStop?.();
       return;
@@ -192,7 +192,6 @@ export default function ChatInput({ onSend, disabled, onStop }: ChatInputProps) 
             rows={1}
             placeholder={compressing ? "Compressing…" : "Message Mino"}
             className="max-h-[180px] flex-1 resize-none bg-transparent py-2 text-[16px] leading-snug text-text-hi placeholder-text-low outline-none md:text-[15px]"
-            disabled={false}
           />
 
           {/* Send / Stop */}

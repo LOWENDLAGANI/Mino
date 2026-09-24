@@ -18,6 +18,7 @@ import {
   saveSelectedMode,
 } from "@/lib/db";
 import { DEFAULT_MODE_ID, getMode, type ModeId } from "@/lib/models";
+// getMode is used for the assistant message engine label below.
 import type { ApiContentPart, ApiMessage, ChatMessage, ImageAttachment } from "@/lib/types";
 
 // ── Mino — main client orchestration: modes, streaming, chats ────────────────
@@ -52,11 +53,11 @@ export default function HomePage() {
     setHydrated(true);
   }, []);
 
-  // Probe which modes have keys configured server-side.
+  // Probe which modes have keys configured server-side (may be empty).
   useEffect(() => {
     const handler = (e: Event) => {
       const detail = (e as CustomEvent).detail as ModeId[];
-      if (Array.isArray(detail) && detail.length > 0) setAvailable(detail);
+      if (Array.isArray(detail)) setAvailable(detail);
     };
     window.addEventListener("mino:availability", handler);
     return () => window.removeEventListener("mino:availability", handler);
@@ -121,7 +122,6 @@ export default function HomePage() {
       const history = await db.messages.where("chatId").equals(chatId).sortBy("createdAt");
       const apiMessages: ApiMessage[] = history
         .filter((m) => !m.error && (m.content ?? "").trim().length > 0)
-        .filter((m) => m.role !== "assistant" || !m.error)
         .map((m) => ({ role: m.role, content: m.content }));
 
       const assistantMsg = await addMessage({
@@ -161,6 +161,8 @@ export default function HomePage() {
             const evt = JSON.parse(data) as { content?: string; error?: string; usage?: SessionUsage };
             if (evt.error) {
               sawError = true;
+              // Surface mid-stream errors when nothing has been rendered yet.
+              if (!full.trim()) await setMessageError(assistantMsg.id, evt.error);
               return;
             }
             if (evt.content) {
@@ -216,7 +218,6 @@ export default function HomePage() {
 
   const isStreaming = streamingId !== null;
   const visibleMessages = messages.filter((m) => m.content || m.images || m.error);
-  const activeMode = getMode(selectedMode);
 
   return (
     <div className="flex h-[100dvh] bg-canvas text-text-body">
