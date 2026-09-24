@@ -1,0 +1,119 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  color-scheme: dark;
+}
+
+html,
+body {
+  height: 100%;
+}
+
+body {
+  @apply bg-ink-950 text-zinc-200 antialiased;
+}
+
+/* ── Scrollbars ─────────────────────────────────────────────────────────── */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: #2a2d35 transparent;
+}
+*::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+*::-webkit-scrollbar-thumb {
+  background: #2a2d35;
+  border-radius: 8px;
+}
+*::-webkit-scrollbar-thumb:hover {
+  background: #3a3e49;
+}
+*::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+/* ── Markdown prose (chat messages) ─────────────────────────────────────── */
+.prose-chat {
+  @apply text-[15px] leading-relaxed;
+}
+.prose-chat p {
+  @apply my-2 first:mt-0 last:mb-0;
+}
+.prose-chat h1,
+.prose-chat h2,
+.prose-chat h3,
+.prose-chat h4 {
+  @apply mb-2 mt-4 font-semibold text-zinc-100 first:mt-0;
+}
+.prose-chat h1 { @apply text-xl; }
+.prose-chat h2 { @apply text-lg; }
+.prose-chat h3 { @apply text-base; }
+.prose-chat ul {
+  @apply my-2 list-disc space-y-1 pl-5;
+}
+.prose-chat ol {
+  @apply my-2 list-decimal space-y-1 pl-5;
+}
+.prose-chat a {
+  @apply text-blue-400 underline decoration-blue-400/30 underline-offset-2 transition-colors hover:decoration-blue-400;
+}
+.prose-chat blockquote {
+  @apply my-2 border-l-2 border-zinc-700 pl-3 text-zinc-400;
+}
+.prose-chat hr {
+  @apply my-4 border-zinc-800;
+}
+.prose-chat table {
+  @apply my-2 w-full border-collapse text-sm;
+}
+.prose-chat th,
+.prose-chat td {
+  @apply border border-zinc-800 px-2.5 py-1.5 text-left;
+}
+.prose-chat th {
+  @apply bg-ink-800 font-semibold text-zinc-200;
+}
+.prose-chat code:not(pre code) {
+  @apply rounded border border-ink-600 bg-ink-800 px-1 py-0.5 font-mono text-[0.85em] text-amber-300;
+}
+.prose-chat pre {
+  @apply overflow-x-auto rounded-b-xl bg-[#0b0c0f] p-4 font-mono text-[13px] leading-relaxed;
+}
+.prose-chat pre code {
+  @apply bg-transparent p-0 text-inherit;
+}
+
+/* Code block wrapper with header + copy button */
+.code-block {
+  @apply my-3 overflow-hidden rounded-xl border border-ink-600 bg-[#0b0c0f];
+}
+.code-block-header {
+  @apply flex items-center justify-between border-b border-ink-600 bg-ink-850 px-3 py-1.5;
+}
+.code-block-lang {
+  @apply font-mono text-[11px] uppercase tracking-wider text-zinc-500;
+}
+.copy-btn {
+  @apply flex items-center gap-1 rounded-md px-2 py-1 font-mono text-[11px] text-zinc-400 transition-colors hover:bg-ink-700 hover:text-zinc-200;
+}
+
+/* Streaming cursor */
+.stream-cursor::after {
+  content: "▍";
+  @apply ml-0.5 inline-block animate-pulse-dot text-zinc-400;
+}
+
+/* Assorted helpers */
+.text-glow {
+  text-shadow: 0 0 24px rgba(120, 130, 255, 0.35);
+}
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+.no-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
