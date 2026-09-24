@@ -17,6 +17,7 @@ export const maxDuration = 60;
 
 interface ProviderConfig {
   id: ModeId;
+  family: "openrouter" | "gemini";
   label: string;
   url: string;
   key: string;
@@ -48,6 +49,7 @@ function getProviders(requested: ModeId): ProviderConfig[] {
   const openrouter: ProviderConfig | null = openrouterKey
     ? {
         id: "auto",
+        family: "openrouter",
         label: "OpenRouter Auto",
         url: "https://openrouter.ai/api/v1/chat/completions",
         key: openrouterKey,
@@ -63,23 +65,26 @@ function getProviders(requested: ModeId): ProviderConfig[] {
       }
     : null;
 
-  const gemini: ProviderConfig | null = geminiKey
-    ? {
-        id: "dev",
-        label: "Gemini 3.8 Flash",
+  // Gemini 3.8 is the preferred stable model, but Google can return a temporary
+  // 503 while a model has no serving capacity. 3.7 and 3.6 are also stable and
+  // remain available as immediate fallbacks without changing the Dev mode.
+  const geminiModels = [getMode("dev").engine, "gemini-3.7-flash", "gemini-3.6-flash"];
+  const gemini: ProviderConfig[] = geminiKey
+    ? geminiModels.map((model, index) => ({
+        id: "dev" as const,
+        family: "gemini" as const,
+        label: index === 0 ? "Gemini 3.8 Flash" : `Gemini ${model.split("-")[1]}.${model.split("-")[2]} Flash fallback`,
         url: "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions",
         key: geminiKey,
-        model: getMode("dev").engine,
+        model,
         // Google documents low reasoning for the OpenAI-compatible Gemini 3 API.
         // It reduces latency while preserving the model's coding capability.
         extraBody: { reasoning_effort: "low" },
-      }
-    : null;
+      }))
+    : [];
 
-  if (requested === "dev") {
-    return [gemini, openrouter].filter((provider): provider is ProviderConfig => provider !== null);
-  }
-  return [openrouter, gemini].filter((provider): provider is ProviderConfig => provider !== null);
+  if (requested === "dev") return [...gemini, ...(openrouter ? [openrouter] : [])];
+  return [...(openrouter ? [openrouter] : []), ...gemini];
 }
 
 function sseHeaders(): HeadersInit {
@@ -146,10 +151,10 @@ function explainProviderError(error: unknown): string {
   const detail = extractUpstreamError(error.message);
 
   if (status === 400) {
-    return `${provider.label} rejected the request (HTTP 400): ${detail} Check that the key belongs to ${provider.label === "Gemini 3.8 Flash" ? "Google AI Studio" : "OpenRouter"}.`;
+    return `${provider.label} rejected the request (HTTP 400): ${detail} Check that the key belongs to ${provider.family === "gemini" ? "Google AI Studio" : "OpenRouter"}.`;
   }
   if (status === 401 || status === 403) {
-    return `${provider.label} rejected this key (HTTP ${status}). Make sure ${provider.label === "Gemini 3.8 Flash" ? "GEMINI_API_KEY" : "OPENROUTER_API_KEY"} contains a valid key for this provider.`;
+    return `${provider.label} rejected this key (HTTP ${status}). Make sure ${provider.family === "gemini" ? "GEMINI_API_KEY" : "OPENROUTER_API_KEY"} contains a valid key for this provider.`;
   }
   if (status === 402) {
     return `${provider.label} needs account credit before it can answer. Add credit or use the other configured mode.`;
@@ -232,10 +237,13 @@ export async function POST(req: NextRequest): Promise<Response> {
   let upstream: Response | null = null;
   let activeProvider: ProviderConfig | null = null;
   const failures: unknown[] = [];
+  const exhaustedFamilies = new Set<ProviderConfig["family"]>();
 
-  // Retry with the other configured provider on network errors and pre-stream
-  // HTTP failures. The first response body that succeeds is streamed untouched.
+  // Retry temporary failures with the next stable Gemini model, then with the
+  // other configured provider. Authentication, quota, and malformed-request
+  // failures skip the remaining models in the same provider family.
   for (const provider of providers) {
+    if (exhaustedFamilies.has(provider.family)) continue;
     try {
       upstream = await callProvider(provider, messages, req.signal);
       activeProvider = provider;
@@ -243,17 +251,18 @@ export async function POST(req: NextRequest): Promise<Response> {
     } catch (error) {
       if (req.signal.aborted) throw error;
       failures.push(error);
+      const isProviderError = error instanceof ProviderError;
+      const terminalStatus = isProviderError && [400, 401, 402, 403].includes(error.status);
+      if (!isProviderError || terminalStatus) exhaustedFamilies.add(provider.family);
     }
   }
 
   if (!upstream || !activeProvider) {
-    const first = explainProviderError(failures[0]);
-    if (failures.length > 1) {
-      return errorStream(
-        `${first} Mino also tried the other configured provider: ${explainProviderError(failures[1])}`
-      );
-    }
-    return errorStream(first);
+    return errorStream(
+      failures.map((failure, index) =>
+        `${index > 0 ? "Mino also tried " : ""}${explainProviderError(failure)}`
+      ).join(" ")
+    );
   }
 
   const encoder = new TextEncoder();
@@ -263,7 +272,13 @@ export async function POST(req: NextRequest): Promise<Response> {
 
   const stream = new ReadableStream<Uint8Array>({
     async start(controller) {
-      controller.enqueue(encodeEvent({ mode: activeProvider!.id, provider: activeProvider!.label }));
+      controller.enqueue(
+        encodeEvent({
+          mode: activeProvider!.id,
+          provider: activeProvider!.label,
+          model: activeProvider!.model,
+        })
+      );
       const reader = providerBody.getReader();
       let buffer = "";
 

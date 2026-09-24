@@ -39,7 +39,7 @@ Get keys: [openrouter.ai/keys](https://openrouter.ai/keys) · [aistudio.google.c
 
 Resilience behavior:
 - Requested mode's key missing → Mino uses the other configured key; the chat keeps working.
-- Provider outage, rejected request, or rate limit before streaming starts → Mino automatically retries the other configured provider.
+- Provider outage or rate limit before streaming starts → Mino retries stable Gemini fallbacks (3.7 Flash, then 3.6 Flash) and the other configured provider as needed, with a small automatic model-change notice in the chat header.
 - Both providers unavailable → the conversation shows the provider name, HTTP status, and a safe diagnostic instead of the generic “Mino hit an error” message.
 - No keys at all → chat UI still works and displays a setup notice in the conversation instead of an error page.
 

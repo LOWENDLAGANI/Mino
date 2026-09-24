@@ -37,6 +37,7 @@ export default function HomePage() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [hydrated, setHydrated] = useState(false);
   const [pendingSuggestion, setPendingSuggestion] = useState<string | null>(null);
+  const [modelNotice, setModelNotice] = useState<string | null>(null);
   const abortRef = useRef<AbortController | null>(null);
 
   const messages = useLiveQuery(
@@ -65,6 +66,7 @@ export default function HomePage() {
 
   const handleModeChange = (mode: ModeId) => {
     setSelectedMode(mode);
+    setModelNotice(null);
     saveSelectedMode(mode);
   };
 
@@ -73,6 +75,7 @@ export default function HomePage() {
     setStreamingId(null);
     setActiveChatId(null);
     setSidebarOpen(false);
+    setModelNotice(null);
   }, []);
 
   const handleSelectChat = useCallback((chatId: string) => {
@@ -80,6 +83,7 @@ export default function HomePage() {
     setStreamingId(null);
     setActiveChatId(chatId);
     setSidebarOpen(false);
+    setModelNotice(null);
   }, []);
 
   const stopStreaming = useCallback(() => {
@@ -122,6 +126,7 @@ export default function HomePage() {
         return [{ role: message.role, content: message.content }];
       });
 
+      setModelNotice(null);
       const assistantMsg = await addMessage({
         chatId,
         role: "assistant",
@@ -160,7 +165,20 @@ export default function HomePage() {
           const data = trimmed.slice(5).trim();
           if (!data || data === "[DONE]") return;
           try {
-            const evt = JSON.parse(data) as { content?: string; error?: string; usage?: SessionUsage };
+            const evt = JSON.parse(data) as {
+              content?: string;
+              error?: string;
+              model?: string;
+              usage?: SessionUsage;
+            };
+            if (evt.model) {
+              await db.messages.update(assistantMsg.id, { model: evt.model });
+              if (evt.model !== getMode(selectedMode).engine) {
+                setModelNotice(
+                  "The model was changed automatically because the current model is experiencing a problem."
+                );
+              }
+            }
             if (evt.error) {
               sawError = true;
               // Preserve any partial answer, but always show why streaming stopped.
@@ -262,6 +280,16 @@ export default function HomePage() {
 
           <ModeSelector selected={selectedMode} onChange={handleModeChange} available={available} />
         </header>
+
+        {modelNotice && (
+          <div
+            role="status"
+            className="mx-3 mt-2 flex shrink-0 items-center justify-center gap-2 rounded-lg border border-amber-400/15 bg-amber-400/[0.06] px-3 py-2 text-center text-[11px] leading-relaxed text-amber-200/80 md:mx-auto md:max-w-3xl"
+          >
+            <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-amber-300/80" />
+            <span>{modelNotice}</span>
+          </div>
+        )}
 
         {/* Thread */}
         <ChatThread
