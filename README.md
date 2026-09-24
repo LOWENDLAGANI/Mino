@@ -38,9 +38,10 @@ Set either (or both) via `process.env` — locally in `.env.local`, or in Vercel
 Get keys: [openrouter.ai/keys](https://openrouter.ai/keys) · [aistudio.google.com/apikey](https://aistudio.google.com/apikey)
 
 Resilience behavior:
-- Requested mode's key missing → silently falls back to the other key; the chat keeps working.
+- Requested mode's key missing → Mino uses the other configured key; the chat keeps working.
+- Provider outage, rejected request, or rate limit before streaming starts → Mino automatically retries the other configured provider.
+- Both providers unavailable → the conversation shows the provider name, HTTP status, and a safe diagnostic instead of the generic “Mino hit an error” message.
 - No keys at all → chat UI still works and displays a setup notice in the conversation instead of an error page.
-- Invalid key or rate limit → friendly in-chat message suggesting to switch modes.
 
 ## Deploying to Vercel
 
@@ -69,4 +70,4 @@ lib/
 
 ## Privacy
 
-All conversations and attachments are stored exclusively in your browser's IndexedDB. Nothing is persisted server-side; only the current request payload is proxied to OpenRouter.
+All conversations and attachments are stored exclusively in your browser's IndexedDB. Nothing is persisted server-side; only the current request payload is proxied to the selected provider (OpenRouter or Google Gemini).

@@ -107,22 +107,20 @@ export default function HomePage() {
       });
       await maybeAutoTitle(chatId, text || "Image conversation");
 
-      // Multimodal payload (OpenAI-compatible format).
-      let content: string | ApiContentPart[] = text;
-      if (images.length > 0) {
-        const parts: ApiContentPart[] = [];
-        if (text) parts.push({ type: "text", text });
-        for (const img of images) {
-          parts.push({ type: "image_url", image_url: { url: img.url } });
-        }
-        content = parts;
-      }
-      const apiUserMessage: ApiMessage = { role: "user", content };
-
       const history = await db.messages.where("chatId").equals(chatId).sortBy("createdAt");
-      const apiMessages: ApiMessage[] = history
-        .filter((m) => !m.error && (m.content ?? "").trim().length > 0)
-        .map((m) => ({ role: m.role, content: m.content }));
+      const apiMessages: ApiMessage[] = history.flatMap((message): ApiMessage[] => {
+        if (message.error || (message.role !== "user" && message.role !== "assistant")) return [];
+        if (message.role === "user" && message.images?.length) {
+          const parts: ApiContentPart[] = [];
+          if (message.content.trim()) parts.push({ type: "text", text: message.content });
+          for (const image of message.images) {
+            parts.push({ type: "image_url", image_url: { url: image.url } });
+          }
+          return [{ role: "user", content: parts }];
+        }
+        if (!message.content.trim()) return [];
+        return [{ role: message.role, content: message.content }];
+      });
 
       const assistantMsg = await addMessage({
         chatId,
@@ -140,11 +138,15 @@ export default function HomePage() {
         const res = await fetch("/api/chat", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ messages: [...apiMessages, apiUserMessage], mode: selectedMode }),
+          body: JSON.stringify({ messages: apiMessages, mode: selectedMode }),
           signal: controller.signal,
         });
 
-        // Even non-OK responses are handled gracefully below — never crash the UI.
+        if (!res.ok) {
+          const payload = (await res.json().catch(() => null)) as { error?: string } | null;
+          throw new Error(payload?.error || `Mino request failed (HTTP ${res.status})`);
+        }
+
         const reader = res.body?.getReader();
         if (!reader) throw new Error("No response stream");
 
@@ -161,8 +163,8 @@ export default function HomePage() {
             const evt = JSON.parse(data) as { content?: string; error?: string; usage?: SessionUsage };
             if (evt.error) {
               sawError = true;
-              // Surface mid-stream errors when nothing has been rendered yet.
-              if (!full.trim()) await setMessageError(assistantMsg.id, evt.error);
+              // Preserve any partial answer, but always show why streaming stopped.
+              await setMessageError(assistantMsg.id, evt.error);
               return;
             }
             if (evt.content) {
