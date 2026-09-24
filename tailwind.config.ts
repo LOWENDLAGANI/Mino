@@ -9,15 +9,17 @@ const config: Config = {
   theme: {
     extend: {
       colors: {
-        ink: {
-          950: "#09090b",
-          900: "#0c0d10",
-          850: "#101114",
-          800: "#14161a",
-          700: "#1c1e24",
-          600: "#262932",
-          500: "#343843",
-        },
+        accent: "#7c7cf4",
+        "accent-dim": "#5d5dc4",
+        canvas: "#0a0a0b",
+        raised: "#101012",
+        hover: "#161618",
+        line: "rgba(255, 255, 255, 0.07)",
+        "line-strong": "rgba(255, 255, 255, 0.12)",
+        "text-hi": "#f4f4f5",
+        "text-body": "#d4d4d8",
+        "text-mid": "#8b8b92",
+        "text-low": "#57575e",
       },
       fontFamily: {
         sans: [

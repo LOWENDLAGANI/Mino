@@ -11,7 +11,7 @@ export const metadata: Metadata = {
         url:
           "data:image/svg+xml," +
           encodeURIComponent(
-            `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32"><rect width="32" height="32" rx="8" fill="#6366f1"/><text x="16" y="22" font-family="Arial" font-size="17" font-weight="bold" fill="white" text-anchor="middle">M</text></svg>`
+            `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32"><rect width="32" height="32" rx="8" fill="#7c7cf4"/><text x="16" y="22" font-family="Arial" font-size="17" font-weight="bold" fill="#0a0a0b" text-anchor="middle">M</text></svg>`
           ),
         type: "image/svg+xml",
       },
@@ -20,15 +20,17 @@ export const metadata: Metadata = {
 };
 
 export const viewport: Viewport = {
-  themeColor: "#09090b",
+  themeColor: "#0a0a0b",
   width: "device-width",
   initialScale: 1,
+  maximumScale: 1,
+  viewportFit: "cover",
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="en" className="dark">
-      <body className="h-dvh overflow-hidden">{children}</body>
+      <body className="h-[100dvh]">{children}</body>
     </html>
   );
 }

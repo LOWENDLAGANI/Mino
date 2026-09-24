@@ -2,16 +2,16 @@
 
 import type { ChatMessage } from "@/lib/types";
 import Markdown from "./Markdown";
-import { getModel } from "@/lib/models";
+import { getMode } from "@/lib/models";
 import { useEffect, useRef, useState } from "react";
 
-// ── ChatThread: streaming message list with markdown + base64 image rendering ──
+// ── ChatThread: quiet, editorial message list (no bubbles) ──────────────────
 
 interface ChatThreadProps {
   messages: ChatMessage[];
   streamingId: string | null;
   isEmpty: boolean;
-  suggestedModel: string;
+  suggestedMode: string;
   onSuggestionClick: (text: string) => void;
 }
 
@@ -28,117 +28,121 @@ function CopyMessageButton({ text }: { text: string }) {
           // ignore
         }
       }}
-      className="rounded p-1 text-zinc-600 transition-colors hover:text-zinc-300"
+      className="flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[11px] text-text-low transition-colors hover:bg-hover hover:text-text-mid"
       aria-label="Copy message"
       type="button"
     >
-      {copied ? (
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-          <path d="M20 6L9 17l-5-5" />
-        </svg>
-      ) : (
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-          <rect x="9" y="9" width="13" height="13" rx="2" />
-          <path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1" />
-        </svg>
-      )}
+      {copied ? "Copied" : "Copy"}
     </button>
   );
 }
 
-function Avatar({ role }: { role: ChatMessage["role"] }) {
-  if (role === "user") {
-    return (
-      <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full border border-ink-500 bg-ink-700 text-[11px] font-semibold text-zinc-300">
-        You
-      </div>
-    );
-  }
-  return (
-    <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-indigo-500 to-violet-600 text-[11px] font-bold text-white shadow-md shadow-indigo-950/60">
-      M
-    </div>
-  );
-}
-
-function MessageBubble({ msg, streaming }: { msg: ChatMessage; streaming: boolean }) {
+function MessageRow({ msg, streaming }: { msg: ChatMessage; streaming: boolean }) {
   const isUser = msg.role === "user";
-  return (
-    <div className={`group flex gap-3 ${isUser ? "flex-row-reverse" : ""} animate-fade-in-up`}>
-      <Avatar role={msg.role} />
-      <div className={`max-w-[85%] min-w-0 md:max-w-[75%] ${isUser ? "items-end" : ""} flex flex-col gap-1.5`}>
-        {/* Attached image thumbnails */}
-        {msg.images && msg.images.length > 0 && (
-          <div className={`flex flex-wrap gap-2 ${isUser ? "justify-end" : ""}`}>
-            {msg.images.map((img, i) => (
-              // eslint-disable-next-line @next/next/no-img-element
-              <img
-                key={i}
-                src={img.url}
-                alt={img.name || `attachment ${i + 1}`}
-                className="h-28 max-w-[220px] cursor-zoom-in rounded-xl border border-ink-600 object-cover transition-transform hover:scale-[1.02]"
-                onClick={() => window.open(img.url, "_blank")}
-              />
-            ))}
-          </div>
-        )}
+  const modeFor = (engine?: string) =>
+    engine?.startsWith("gemini") ? "Dev" : "Auto";
 
-        {/* Text bubble */}
-        {msg.content && (
-          <div
-            className={
-              isUser
-                ? "rounded-2xl rounded-tr-md border border-indigo-900/50 bg-indigo-950/40 px-4 py-2.5 text-[15px] leading-relaxed text-zinc-100"
-                : "rounded-2xl rounded-tl-md border border-ink-600 bg-ink-800 px-4 py-3 text-zinc-200"
-            }
-          >
-            {isUser ? (
+  // User: right-aligned, subtle tinted pill
+  if (isUser) {
+    return (
+      <div className="flex justify-end animate-rise">
+        <div className="max-w-[85%] md:max-w-[75%]">
+          {msg.images && msg.images.length > 0 && (
+            <div className="mb-2 flex flex-wrap justify-end gap-2">
+              {msg.images.map((img, i) => (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img
+                  key={i}
+                  src={img.url}
+                  alt={img.name || `attachment ${i + 1}`}
+                  className="h-24 w-auto max-w-[200px] cursor-zoom-in rounded-xl border border-line object-cover"
+                  onClick={() => window.open(img.url, "_blank")}
+                />
+              ))}
+            </div>
+          )}
+          {msg.content && (
+            <div className="inline-block rounded-2xl rounded-br-md bg-hover px-4 py-2.5 text-[15px] leading-relaxed text-text-hi">
               <p className="whitespace-pre-wrap break-words">{msg.content}</p>
-            ) : (
-              <div className={streaming ? "stream-cursor" : ""}>
-                <Markdown content={msg.content} />
-              </div>
-            )}
-          </div>
-        )}
-
-        {/* Error banner */}
+            </div>
+          )}
+        </div>
         {msg.error && (
-          <div className="rounded-xl border border-red-900/60 bg-red-950/40 px-3 py-2 text-xs leading-relaxed text-red-300">
+          <div className="mt-1 w-full rounded-lg border border-red-500/20 bg-red-500/5 px-3 py-2 text-[12px] text-red-300">
             {msg.error}
           </div>
         )}
-
-        {/* Meta row */}
-        <div className={`flex items-center gap-2 px-1 text-[10px] text-zinc-600 ${isUser ? "justify-end" : ""}`}>
-          {!isUser && msg.model && <span className="font-mono">{getModel(msg.model).name}</span>}
-          {msg.usage && (
-            <span className="font-mono">
-              {msg.usage.total.toLocaleString()} tokens
-            </span>
-          )}
-          {!isUser && msg.content && <CopyMessageButton text={msg.content} />}
-        </div>
       </div>
+    );
+  }
+
+  // Assistant: full-width, no bubble, name + content
+  return (
+    <div className="group animate-rise">
+      <div className="mb-1.5 flex items-center gap-2">
+        <div className="flex h-5 w-5 items-center justify-center rounded-md bg-accent text-[10px] font-bold text-canvas">
+          M
+        </div>
+        <span className="text-[12px] font-medium text-text-mid">
+          {msg.model ? modeFor(msg.model) : "Mino"}
+        </span>
+        {msg.usage && (
+          <span className="text-[10px] text-text-low">
+            {msg.usage.total.toLocaleString()} tok
+          </span>
+        )}
+        {msg.content && !streaming && (
+          <span className="opacity-0 transition-opacity group-hover:opacity-100">
+            <CopyMessageButton text={msg.content} />
+          </span>
+        )}
+      </div>
+
+      {msg.images && msg.images.length > 0 && (
+        <div className="mb-2 flex flex-wrap gap-2">
+          {msg.images.map((img, i) => (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img
+              key={i}
+              src={img.url}
+              alt={img.name || `attachment ${i + 1}`}
+              className="h-24 w-auto max-w-[200px] cursor-zoom-in rounded-xl border border-line object-cover"
+              onClick={() => window.open(img.url, "_blank")}
+            />
+          ))}
+        </div>
+      )}
+
+      {msg.content && (
+        <div className={streaming ? "stream-cursor" : ""}>
+          <Markdown content={msg.content} />
+        </div>
+      )}
+
+      {msg.error && (
+        <div className="mt-1 rounded-lg border border-red-500/20 bg-red-500/5 px-3 py-2 text-[12px] leading-relaxed text-red-300">
+          {msg.error}
+        </div>
+      )}
     </div>
   );
 }
 
 const SUGGESTIONS = [
-  "Explain how IndexedDB works in 3 bullet points",
-  "Write a TypeScript debounce function",
-  "What's in this image? (attach one below)",
-  "Draft a short launch tweet for Mino AI",
+  { label: "Explain", prompt: "Explain how IndexedDB works in three short bullet points." },
+  { label: "Code", prompt: "Write a TypeScript debounce function with cancel support." },
+  { label: "Analyze", prompt: "I'll attach an image — describe what's in it in detail." },
+  { label: "Write", prompt: "Draft a concise launch announcement for a local-first AI chat app." },
 ];
 
 function TypingDots() {
   return (
-    <div className="flex gap-1.5 py-2 px-4">
+    <div className="flex items-center gap-1 py-1">
       {[0, 1, 2].map((i) => (
         <span
           key={i}
-          className="h-1.5 w-1.5 animate-pulse-dot rounded-full bg-zinc-500"
-          style={{ animationDelay: `${i * 0.2}s` }}
+          className="h-1 w-1 animate-blink rounded-full bg-text-mid"
+          style={{ animationDelay: `${i * 0.18}s` }}
         />
       ))}
     </div>
@@ -149,16 +153,15 @@ export default function ChatThread({
   messages,
   streamingId,
   isEmpty,
-  suggestedModel,
+  suggestedMode,
   onSuggestionClick,
 }: ChatThreadProps) {
   const bottomRef = useRef<HTMLDivElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
-  const stickToBottomRef = useRef(true);
+  const stickRef = useRef(true);
 
-  // Only auto-scroll when the user is already near the bottom.
   useEffect(() => {
-    if (stickToBottomRef.current) {
+    if (stickRef.current) {
       bottomRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
     }
   }, [messages]);
@@ -166,29 +169,31 @@ export default function ChatThread({
   const handleScroll = () => {
     const el = containerRef.current;
     if (!el) return;
-    stickToBottomRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 120;
+    stickRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 120;
   };
 
   if (isEmpty) {
     return (
-      <div className="flex flex-1 flex-col items-center justify-center px-4 pb-24">
-        <div className="mb-4 flex h-14 w-14 items-center justify-center rounded-2xl bg-gradient-to-br from-indigo-500 to-violet-600 text-2xl font-bold text-white shadow-2xl shadow-indigo-950/60 text-glow">
+      <div className="flex flex-1 flex-col items-center justify-center px-5 pb-10">
+        <div className="mb-5 flex h-11 w-11 items-center justify-center rounded-xl bg-accent text-lg font-bold text-canvas">
           M
         </div>
-        <h1 className="text-2xl font-semibold tracking-tight text-zinc-100">
-          Mino
+        <h1 className="text-[22px] font-semibold tracking-tight text-text-hi">
+          How can I help?
         </h1>
-        <p className="mt-1 text-sm text-zinc-500">
-          Created by Minetallest · {getModel(suggestedModel).name}
+        <p className="mt-1.5 text-[13px] text-text-mid">
+          {suggestedMode === "dev" ? "Dev · Gemini" : "Auto · best model for you"} · private, on-device history
         </p>
-        <div className="mt-8 grid w-full max-w-xl grid-cols-1 gap-2 sm:grid-cols-2">
+
+        <div className="mt-8 grid w-full max-w-md grid-cols-2 gap-2 sm:max-w-lg">
           {SUGGESTIONS.map((s) => (
             <button
-              key={s}
-              onClick={() => onSuggestionClick(s)}
-              className="rounded-xl border border-ink-600 bg-ink-850 px-4 py-3 text-left text-sm text-zinc-400 transition-all hover:border-indigo-800 hover:bg-ink-800 hover:text-zinc-200"
+              key={s.label}
+              onClick={() => onSuggestionClick(s.prompt)}
+              className="rounded-xl border border-line px-3.5 py-3 text-left transition-colors hover:bg-hover"
             >
-              {s}
+              <span className="block text-[12px] font-medium text-text-hi">{s.label}</span>
+              <span className="mt-0.5 block truncate text-[11px] text-text-low">{s.prompt}</span>
             </button>
           ))}
         </div>
@@ -197,20 +202,25 @@ export default function ChatThread({
   }
 
   return (
-    <div ref={containerRef} onScroll={handleScroll} className="flex-1 overflow-y-auto px-4 py-6">
-      <div className="mx-auto flex max-w-3xl flex-col gap-6">
-        {messages.map((msg) => (
-          <MessageBubble key={msg.id} msg={msg} streaming={msg.id === streamingId} />
-        ))}
-        {streamingId && !messages.find((m) => m.id === streamingId)?.content && (
-          <div className="flex gap-3">
-            <Avatar role="assistant" />
-            <div className="rounded-2xl rounded-tl-md border border-ink-600 bg-ink-800">
+    <div ref={containerRef} onScroll={handleScroll} className="flex-1 overflow-y-auto">
+      <div className="mx-auto w-full max-w-2xl px-4 pb-8 pt-6 md:px-6">
+        <div className="flex flex-col gap-7">
+          {messages.map((msg) => (
+            <MessageRow key={msg.id} msg={msg} streaming={msg.id === streamingId} />
+          ))}
+          {streamingId && !messages.find((m) => m.id === streamingId)?.content && (
+            <div className="animate-rise">
+              <div className="mb-1.5 flex items-center gap-2">
+                <div className="flex h-5 w-5 items-center justify-center rounded-md bg-accent text-[10px] font-bold text-canvas">
+                  M
+                </div>
+                <span className="text-[12px] font-medium text-text-mid">Mino</span>
+              </div>
               <TypingDots />
             </div>
-          </div>
-        )}
-        <div ref={bottomRef} />
+          )}
+          <div ref={bottomRef} className="h-px" />
+        </div>
       </div>
     </div>
   );

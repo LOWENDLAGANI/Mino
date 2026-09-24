@@ -125,22 +125,25 @@ export async function importBackup(payload: BackupPayload): Promise<{ chats: num
   return { chats: payload.chats.length, messages: payload.messages.length };
 }
 
-// ── Model preference (persisted outside Dexie to survive before DB open) ────
+// ── Mode preference (persisted outside Dexie to survive before DB open) ─────
 
-const MODEL_KEY = "mino:selected-model";
+import type { ModeId } from "./models";
 
-export function loadSelectedModel(): string {
-  if (typeof window === "undefined") return "anthropic/claude-3.5-sonnet";
+const MODE_KEY = "mino:selected-mode";
+
+export function loadSelectedMode(): ModeId {
+  if (typeof window === "undefined") return "auto";
   try {
-    return window.localStorage.getItem(MODEL_KEY) ?? "anthropic/claude-3.5-sonnet";
+    const v = window.localStorage.getItem(MODE_KEY);
+    return v === "dev" ? "dev" : "auto";
   } catch {
-    return "anthropic/claude-3.5-sonnet";
+    return "auto";
   }
 }
 
-export function saveSelectedModel(modelId: string): void {
+export function saveSelectedMode(mode: ModeId): void {
   try {
-    window.localStorage.setItem(MODEL_KEY, modelId);
+    window.localStorage.setItem(MODE_KEY, mode);
   } catch {
     // non-fatal: preference simply won't persist
   }

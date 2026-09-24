@@ -1,47 +1,43 @@
-// ── Mino model catalog (vision-capable OpenRouter models) ───────────────────
+// ── Mino mode catalog ────────────────────────────────────────────────────────
+// Two modes, each backed by its own server-side API key:
+//   auto — universal OpenAI-compatible router (OpenRouter "openrouter/auto"),
+//          which picks the best model for every request automatically
+//   dev  — Google Gemini, tuned for code & technical work
 
-export interface ModelOption {
-  id: string;
+export type ModeId = "auto" | "dev";
+
+export interface ModeOption {
+  id: ModeId;
   name: string;
-  vendor: string;
+  tagline: string;
   description: string;
+  /** Server-side env var that enables this mode */
+  envVar: string;
+  /** Underlying default model (informational, shown in UI) */
+  engine: string;
 }
 
-export const MINO_MODELS: ModelOption[] = [
+export const MINO_MODES: ModeOption[] = [
   {
-    id: "anthropic/claude-3.5-sonnet",
-    name: "Claude 3.5 Sonnet",
-    vendor: "Anthropic",
-    description: "Balanced flagship — great at code & reasoning",
+    id: "auto",
+    name: "Auto",
+    tagline: "Best model, chosen for you",
+    description: "Routes every message to the strongest available model",
+    envVar: "OPENROUTER_API_KEY",
+    engine: "openrouter/auto",
   },
   {
-    id: "openai/gpt-4o",
-    name: "GPT-4o",
-    vendor: "OpenAI",
-    description: "Fast multimodal all-rounder",
-  },
-  {
-    id: "google/gemini-2.0-flash-001",
-    name: "Gemini 2.0 Flash",
-    vendor: "Google",
-    description: "Very fast, huge context window",
-  },
-  {
-    id: "deepseek/deepseek-r1",
-    name: "DeepSeek R1",
-    vendor: "DeepSeek",
-    description: "Deep step-by-step reasoning",
+    id: "dev",
+    name: "Dev",
+    tagline: "Tuned for code & technical work",
+    description: "Powered by Google Gemini",
+    envVar: "GEMINI_API_KEY",
+    engine: "google/gemini-2.0-flash-001",
   },
 ];
 
-export const DEFAULT_MODEL_ID = MINO_MODELS[0].id;
+export const DEFAULT_MODE_ID: ModeId = "auto";
 
-export function getModel(id: string): ModelOption {
-  return MINO_MODELS.find((m) => m.id === id) ?? MINO_MODELS[0];
-}
-
-/** Rough client-side token estimate (~4 chars per token) for the live meter. */
-export function estimateTokens(text: string): number {
-  if (!text) return 0;
-  return Math.ceil(text.length / 4);
+export function getMode(id: string): ModeOption {
+  return MINO_MODES.find((m) => m.id === id) ?? MINO_MODES[0];
 }

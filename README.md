@@ -7,8 +7,8 @@ Built with **Next.js 14 (App Router)**, **TypeScript**, **Tailwind CSS**, and **
 ## Features
 
 - **Zero-login persistence** — chats, messages, and image attachments are stored client-side in IndexedDB via Dexie (no 5MB localStorage quota issues)
-- **Multi-provider models** — Anthropic Claude 3.5 Sonnet (default), OpenAI GPT-4o, Google Gemini 2.0 Flash, DeepSeek R1, via [OpenRouter](https://openrouter.ai)
-- **Secure API key** — the OpenRouter key is only ever read server-side in the `/api/chat` Route Handler
+- **Two modes** — **Auto** routes every message to the best model via OpenRouter's `openrouter/auto`; **Dev** uses Google Gemini, tuned for code & technical work. Each is powered by its own server-side API key, with automatic fallback if one is missing.
+- **Secure API keys** — keys are only ever read server-side in the `/api/chat` Route Handler
 - **Strict persona** — the Mino system prompt is prepended server-side to *every* completion request; the client cannot bypass it
 - **Multimodal** — attach images via file picker, drag-and-drop, or clipboard paste; compressed client-side on `<canvas>` (max 1024px, JPEG q0.8) before upload
 - **Streaming** — real-time word-by-word responses over Server-Sent Events
@@ -24,21 +24,27 @@ bun run dev
 
 Open http://localhost:3000.
 
-### API key
+### API keys
 
-The app needs an OpenRouter API key, read from `process.env.OPENROUTER_API_KEY`:
+Mino has two modes, each with its own key. **The site never breaks if one (or both) is missing** — it shows a friendly notice in chat and falls back to whichever key exists.
 
-- **Local dev** — create a `.env.local` file in the project root:
-  ```
-  OPENROUTER_API_KEY=your_key_here
-  ```
-- **Vercel** — add `OPENROUTER_API_KEY` in Project → Settings → Environment Variables.
+Set either (or both) via `process.env` — locally in `.env.local`, or in Vercel → Settings → Environment Variables:
 
-Get a key at [openrouter.ai/keys](https://openrouter.ai/keys).
+| Variable | Mode | Provider |
+|---|---|---|
+| `OPENROUTER_API_KEY` | **Auto** | OpenRouter `openrouter/auto` — universal router that picks the best model per message |
+| `GEMINI_API_KEY` | **Dev** | Google Gemini (`gemini-2.0-flash` via the OpenAI-compatible endpoint) |
+
+Get keys: [openrouter.ai/keys](https://openrouter.ai/keys) · [aistudio.google.com/apikey](https://aistudio.google.com/apikey)
+
+Resilience behavior:
+- Requested mode's key missing → silently falls back to the other key; the chat keeps working.
+- No keys at all → chat UI still works and displays a setup notice in the conversation instead of an error page.
+- Invalid key or rate limit → friendly in-chat message suggesting to switch modes.
 
 ## Deploying to Vercel
 
-No database or runtime configuration needed — push the repo to Vercel and set the single environment variable above. `/api/chat` runs as a Node.js Route Handler; the rest is static.
+No database or runtime configuration needed — push the repo to Vercel and add the environment variables listed above (one is enough). `/api/chat` runs as a Node.js Route Handler; the rest is static.
 
 ## Project structure
 
