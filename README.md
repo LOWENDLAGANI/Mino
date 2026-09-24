@@ -33,7 +33,7 @@ Set either (or both) via `process.env` — locally in `.env.local`, or in Vercel
 | Variable | Mode | Provider |
 |---|---|---|
 | `OPENROUTER_API_KEY` | **Auto** | OpenRouter `openrouter/auto` — universal router that picks the best model per message |
-| `GEMINI_API_KEY` | **Dev** | Google Gemini (`gemini-2.0-flash` via the OpenAI-compatible endpoint) |
+| `GEMINI_API_KEY` | **Dev** | Google Gemini (`gemini-3.8-flash` via the OpenAI-compatible endpoint) |
 
 Get keys: [openrouter.ai/keys](https://openrouter.ai/keys) · [aistudio.google.com/apikey](https://aistudio.google.com/apikey)
 

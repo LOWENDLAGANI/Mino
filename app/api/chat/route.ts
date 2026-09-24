@@ -39,7 +39,7 @@ function resolveProvider(requested: ModeId): { provider: ProviderConfig | null; 
       provider: {
         url: "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions",
         key: geminiKey,
-        model: "gemini-2.0-flash",
+        model: getMode("dev").engine,
       },
     };
   }
@@ -79,7 +79,7 @@ function resolveProvider(requested: ModeId): { provider: ProviderConfig | null; 
       provider: {
         url: "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions",
         key: geminiKey,
-        model: "gemini-2.0-flash",
+        model: getMode("dev").engine,
       },
     };
   }

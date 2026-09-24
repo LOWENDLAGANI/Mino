@@ -32,7 +32,7 @@ export const MINO_MODES: ModeOption[] = [
     tagline: "Tuned for code & technical work",
     description: "Powered by Google Gemini",
     envVar: "GEMINI_API_KEY",
-    engine: "google/gemini-2.0-flash-001",
+    engine: "gemini-3.8-flash",
   },
 ];
 
