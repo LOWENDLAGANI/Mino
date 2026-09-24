@@ -7,6 +7,7 @@ import ChatThread from "@/components/ChatThread";
 import ChatInput from "@/components/ChatInput";
 import ModeSelector from "@/components/ModelSelector";
 import MinoMark from "@/components/MinoMark";
+import MinoTutorial from "@/components/MinoTutorial";
 import {
   db,
   createChat,
@@ -38,6 +39,7 @@ export default function HomePage() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [hydrated, setHydrated] = useState(false);
   const [modelNotice, setModelNotice] = useState<string | null>(null);
+  const [tutorialFinished, setTutorialFinished] = useState(false);
   const abortRef = useRef<AbortController | null>(null);
 
   const messages = useLiveQuery(
@@ -89,6 +91,9 @@ export default function HomePage() {
   const stopStreaming = useCallback(() => {
     abortRef.current?.abort();
   }, []);
+
+  const openSidebar = useCallback(() => setSidebarOpen(true), []);
+  const finishTutorial = useCallback(() => setTutorialFinished(true), []);
 
   // ── Streaming send ─────────────────────────────────────────────────────────
   const sendMessage = useCallback(
@@ -249,6 +254,7 @@ export default function HomePage() {
             onClick={() => setSidebarOpen(true)}
             className="flex h-9 w-9 items-center justify-center rounded-full text-text-body transition-colors hover:bg-white/[0.06] hover:text-white md:hidden"
             aria-label="Open menu"
+            data-tutorial="mobile-menu"
           >
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round">
               <path d="M4 7h16M4 12h16M4 17h16" />
@@ -288,6 +294,14 @@ export default function HomePage() {
           <ChatInput onSend={sendMessage} disabled={isStreaming} onStop={stopStreaming} />
         </div>
       </main>
+
+      {!tutorialFinished && (
+        <MinoTutorial
+          sidebarOpen={sidebarOpen}
+          onOpenSidebar={openSidebar}
+          onFinished={finishTutorial}
+        />
+      )}
     </div>
   );
 }

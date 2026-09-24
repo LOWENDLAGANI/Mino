@@ -101,7 +101,7 @@ export default function ChatInput({ onSend, disabled, onStop }: ChatInputProps) 
   };
 
   return (
-    <div className="relative z-20 shrink-0 px-3 pb-4 pt-2 md:px-6 md:pb-6 md:pt-3">
+    <div className="relative z-20 shrink-0 px-3 pb-4 pt-2 md:px-6 md:pb-6 md:pt-3" data-tutorial="composer">
       <div className="mx-auto w-full max-w-4xl">
         {/* Errors */}
         {errors.length > 0 && (

@@ -32,7 +32,7 @@ export default function ModeSelector({ selected, onChange, available }: ModeSele
   };
 
   return (
-    <details ref={detailsRef} className="group relative">
+    <details ref={detailsRef} className="group relative" data-tutorial="model-selector">
       <summary className="flex h-10 cursor-pointer list-none items-center gap-2 rounded-full px-2.5 text-[14px] font-medium text-white/85 transition-colors hover:bg-white/[0.06] [&::-webkit-details-marker]:hidden">
         <span className="max-w-[120px] truncate sm:max-w-none">{getModelDisplayName(activeMode.engine)}</span>
         <svg
