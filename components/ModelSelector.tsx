@@ -17,9 +17,14 @@ export default function ModeSelector({ selected, onChange, available }: ModeSele
   useEffect(() => {
     fetch("/api/chat")
       .then((response) => (response.ok ? response.json() : null))
-      .then((data: { available?: ModeId[] } | null) => {
+      .then((data: { available?: ModeId[]; searchAvailable?: boolean } | null) => {
         if (data?.available) {
-          window.dispatchEvent(new CustomEvent("mino:availability", { detail: data.available }));
+          window.dispatchEvent(new CustomEvent("mino:availability", {
+            detail: {
+              available: data.available,
+              searchAvailable: Boolean(data.searchAvailable),
+            },
+          }));
         }
       })
       .catch(() => undefined)

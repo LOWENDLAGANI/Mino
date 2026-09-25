@@ -1,6 +1,15 @@
 // ── Mino shared types ────────────────────────────────────────────────────────
 
 export type Role = "user" | "assistant" | "system";
+export type SearchMode = "auto" | "always" | "off";
+
+export interface SearchSource {
+  id: string;
+  title: string;
+  url: string;
+  snippet: string;
+  publishedDate?: string;
+}
 
 export interface ImageAttachment {
   /** base64 data URL (image/jpeg after client-side compression) */
@@ -16,6 +25,8 @@ export interface ChatMessage {
   content: string;
   images?: ImageAttachment[];
   model?: string;
+  searchQuery?: string;
+  sources?: SearchSource[];
   /** tokens billed for this completion, when reported by the API */
   usage?: { prompt: number; completion: number; total: number };
   error?: string;

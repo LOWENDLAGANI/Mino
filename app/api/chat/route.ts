@@ -1,7 +1,8 @@
 import { NextRequest } from "next/server";
 import { MINO_SYSTEM_PROMPT } from "@/lib/db";
-import type { ApiMessage } from "@/lib/types";
+import type { ApiMessage, SearchMode, SearchSource } from "@/lib/types";
 import { getMode, getModelDisplayName, type ModeId } from "@/lib/models";
+import { formatSearchContext, searchWeb, shouldUseWebSearch } from "@/lib/webSearch";
 
 // ── Mino — resilient SSE proxy for Auto and Dev ─────────────────────────────
 //   OPENROUTER_API_KEY → OpenRouter Auto Router
@@ -29,6 +30,7 @@ interface ProviderConfig {
 interface ChatRequestBody {
   messages: ApiMessage[];
   mode?: string;
+  searchMode?: SearchMode;
 }
 
 class ProviderError extends Error {
@@ -182,7 +184,8 @@ function explainProviderError(error: unknown): string {
 async function callProvider(
   provider: ProviderConfig,
   messages: ApiMessage[],
-  signal: AbortSignal
+  signal: AbortSignal,
+  searchContext: string
 ): Promise<Response> {
   const response = await fetch(provider.url, {
     method: "POST",
@@ -194,7 +197,13 @@ async function callProvider(
     },
     body: JSON.stringify({
       model: provider.model,
-      messages: [{ role: "system", content: MINO_SYSTEM_PROMPT }, ...messages],
+      messages: [
+        {
+          role: "system",
+          content: [MINO_SYSTEM_PROMPT, searchContext].filter(Boolean).join("\n\n"),
+        },
+        ...messages,
+      ],
       stream: true,
       ...provider.extraBody,
     }),
@@ -224,6 +233,7 @@ export async function POST(req: NextRequest): Promise<Response> {
   }
 
   const requested: ModeId = body.mode === "dev" ? "dev" : "auto";
+  const searchMode: SearchMode = body.searchMode === "always" || body.searchMode === "off" ? body.searchMode : "auto";
   const providers = getProviders(requested);
 
   if (providers.length === 0) {
@@ -241,6 +251,20 @@ export async function POST(req: NextRequest): Promise<Response> {
     return Response.json({ error: "At least one user message is required" }, { status: 400 });
   }
 
+  const latestUserMessage = [...messages].reverse().find((message) => message.role === "user");
+  const latestUserText =
+    typeof latestUserMessage?.content === "string" ? latestUserMessage.content : "";
+  const searchRequested = shouldUseWebSearch(latestUserText, searchMode);
+  let searchSources: SearchSource[] = [];
+  if (searchRequested) {
+    try {
+      searchSources = await searchWeb(latestUserText);
+    } catch {
+      // Search is an enhancement: keep the chat available if the search service is down.
+    }
+  }
+  const searchContext = formatSearchContext(searchSources);
+
   let upstream: Response | null = null;
   let activeProvider: ProviderConfig | null = null;
   const failures: unknown[] = [];
@@ -252,7 +276,7 @@ export async function POST(req: NextRequest): Promise<Response> {
   for (const provider of providers) {
     if (exhaustedFamilies.has(provider.family)) continue;
     try {
-      upstream = await callProvider(provider, messages, req.signal);
+      upstream = await callProvider(provider, messages, req.signal, searchContext);
       activeProvider = provider;
       break;
     } catch (error) {
@@ -279,6 +303,17 @@ export async function POST(req: NextRequest): Promise<Response> {
 
   const stream = new ReadableStream<Uint8Array>({
     async start(controller) {
+      if (searchRequested) {
+        controller.enqueue(
+          encodeEvent({
+            search: {
+              used: searchSources.length > 0,
+              query: latestUserText,
+              sources: searchSources,
+            },
+          })
+        );
+      }
       controller.enqueue(
         encodeEvent({
           mode: activeProvider!.id,
@@ -367,5 +402,5 @@ export async function GET(): Promise<Response> {
   const available: ModeId[] = [];
   if (process.env.OPENROUTER_API_KEY?.trim()) available.push("auto");
   if (process.env.GEMINI_API_KEY?.trim()) available.push("dev");
-  return Response.json({ available });
+  return Response.json({ available, searchAvailable: Boolean(process.env.TAVILY_API_KEY?.trim()) });
 }

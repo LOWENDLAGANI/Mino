@@ -43,6 +43,50 @@ function CopyMessageButton({ text }: { text: string }) {
   );
 }
 
+function SearchSources({ sources }: { sources: NonNullable<ChatMessage["sources"]> }) {
+  if (sources.length === 0) return null;
+  return (
+    <div className="mt-4 rounded-2xl border border-[#9ee7ff]/10 bg-[#9ee7ff]/[0.035] p-3">
+      <div className="mb-2 flex items-center gap-2 text-[10px] font-semibold uppercase tracking-[0.12em] text-[#9ee7ff]/70">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+          <circle cx="12" cy="12" r="8.5" /><path d="M3.8 12h16.4M12 3.5c2.1 2.3 3.2 5.1 3.2 8.5s-1.1 6.2-3.2 8.5c-2.1-2.3-3.2-5.1-3.2-8.5S9.9 5.8 12 3.5Z" />
+        </svg>
+        Web sources
+      </div>
+      <div className="space-y-1.5">
+        {sources.map((source) => {
+          let host = source.url;
+          try {
+            host = new URL(source.url).hostname.replace(/^www\./, "");
+          } catch {
+            // Keep the original URL if it is not parseable.
+          }
+          return (
+            <a
+              key={source.id}
+              href={source.url}
+              target="_blank"
+              rel="noreferrer"
+              className="group/source flex items-start gap-2 rounded-xl px-2 py-1.5 transition-colors hover:bg-white/[0.05]"
+            >
+              <span className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-white/[0.07] text-[9px] text-white/55">
+                {source.id}
+              </span>
+              <span className="min-w-0 flex-1">
+                <span className="block truncate text-[12px] text-white/70 group-hover/source:text-white">{source.title}</span>
+                <span className="mt-0.5 block truncate text-[10px] text-white/30">{host}</span>
+              </span>
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" className="mt-1 shrink-0 text-white/25" aria-hidden="true">
+                <path d="M14 5h5v5M19 5l-8 8" /><path d="M18 13v4a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4" />
+              </svg>
+            </a>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 function MessageRow({ msg, streaming }: { msg: ChatMessage; streaming: boolean }) {
   if (msg.role === "user") {
     return (
@@ -114,6 +158,8 @@ function MessageRow({ msg, streaming }: { msg: ChatMessage; streaming: boolean }
           <Markdown content={msg.content} />
         </div>
       )}
+
+      {msg.sources && <SearchSources sources={msg.sources} />}
 
       {msg.error && (
         <div className="mt-2 rounded-xl border border-red-400/15 bg-red-500/[0.06] px-3 py-2 text-[12px] leading-relaxed text-red-200/80">

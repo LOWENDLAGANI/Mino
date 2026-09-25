@@ -21,7 +21,14 @@ import {
 } from "@/lib/db";
 import { DEFAULT_MODE_ID, getMode, type ModeId } from "@/lib/models";
 // getMode is used for the assistant message engine label below.
-import type { ApiContentPart, ApiMessage, ChatMessage, ImageAttachment } from "@/lib/types";
+import type {
+  ApiContentPart,
+  ApiMessage,
+  ChatMessage,
+  ImageAttachment,
+  SearchMode,
+  SearchSource,
+} from "@/lib/types";
 
 // ── Mino — main client orchestration: modes, streaming, chats ────────────────
 
@@ -39,6 +46,8 @@ export default function HomePage() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [hydrated, setHydrated] = useState(false);
   const [modelNotice, setModelNotice] = useState<string | null>(null);
+  const [searchMode, setSearchMode] = useState<SearchMode>("auto");
+  const [searchAvailable, setSearchAvailable] = useState(false);
   const [tutorialFinished, setTutorialFinished] = useState(false);
   const abortRef = useRef<AbortController | null>(null);
 
@@ -59,8 +68,12 @@ export default function HomePage() {
   // Probe which modes have keys configured server-side (may be empty).
   useEffect(() => {
     const handler = (e: Event) => {
-      const detail = (e as CustomEvent).detail as ModeId[];
-      if (Array.isArray(detail)) setAvailable(detail);
+      const detail = (e as CustomEvent).detail as {
+        available?: ModeId[];
+        searchAvailable?: boolean;
+      };
+      if (Array.isArray(detail.available)) setAvailable(detail.available);
+      if (typeof detail.searchAvailable === "boolean") setSearchAvailable(detail.searchAvailable);
     };
     window.addEventListener("mino:availability", handler);
     return () => window.removeEventListener("mino:availability", handler);
@@ -148,7 +161,7 @@ export default function HomePage() {
         const res = await fetch("/api/chat", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ messages: apiMessages, mode: selectedMode }),
+          body: JSON.stringify({ messages: apiMessages, mode: selectedMode, searchMode }),
           signal: controller.signal,
         });
 
@@ -175,6 +188,7 @@ export default function HomePage() {
               error?: string;
               model?: string;
               usage?: SessionUsage;
+              search?: { used: boolean; query?: string; sources?: SearchSource[] };
             };
             if (evt.model) {
               await db.messages.update(assistantMsg.id, { model: evt.model });
@@ -196,6 +210,15 @@ export default function HomePage() {
             }
             if (evt.usage) {
               await setMessageUsage(assistantMsg.id, evt.usage);
+            }
+            if (evt.search) {
+              await db.messages.update(assistantMsg.id, {
+                searchQuery: evt.search.query,
+                sources: evt.search.sources ?? [],
+              });
+              if (!evt.search.used && searchMode !== "off") {
+                setModelNotice("Mino checked the web but could not find a usable source.");
+              }
             }
           } catch (err) {
             if (err instanceof Error && err.message !== "Stream interrupted") throw err;
@@ -230,7 +253,7 @@ export default function HomePage() {
         abortRef.current = null;
       }
     },
-    [activeChatId, selectedMode, streamingId]
+    [activeChatId, searchMode, selectedMode, streamingId]
   );
 
   const isStreaming = streamingId !== null;
@@ -291,7 +314,14 @@ export default function HomePage() {
             isEmpty={visibleMessages.length === 0}
             suggestedMode={hydrated ? selectedMode : DEFAULT_MODE_ID}
           />
-          <ChatInput onSend={sendMessage} disabled={isStreaming} onStop={stopStreaming} />
+          <ChatInput
+            onSend={sendMessage}
+            disabled={isStreaming}
+            onStop={stopStreaming}
+            searchMode={searchMode}
+            onSearchModeChange={setSearchMode}
+            searchAvailable={searchAvailable}
+          />
         </div>
       </main>
 

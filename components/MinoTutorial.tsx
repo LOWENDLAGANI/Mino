@@ -12,6 +12,7 @@ type TutorialTarget =
   | "sidebar-recent"
   | "sidebar-data"
   | "model-selector"
+  | "search-toggle"
   | "composer";
 
 interface TutorialStep {
@@ -43,36 +44,42 @@ const STEPS: TutorialStep[] = [
     body: "Use the model menu in the top bar. Mino Auto chooses the best available model for each prompt, while Mino Dev is tuned for code and technical work. Your choice is remembered on this device.",
   },
   {
+    target: "search-toggle",
+    eyebrow: "04 · Stay current",
+    title: "Let Mino check the web",
+    body: "Web search is automatic by default for current, time-sensitive, or uncertain questions. You can also force it on for every message, or turn it off when you want Mino to work only from the conversation.",
+  },
+  {
     target: "mobile-menu",
     fallbackTarget: "sidebar-new-chat",
-    eyebrow: "04 · Open your workspace",
+    eyebrow: "05 · Open your workspace",
     title: "Everything is one tap away",
     body: "On small screens, the menu button opens your Mino workspace. From there you can start a new chat, find recent conversations, and manage the data stored on this device.",
   },
   {
     target: "sidebar-new-chat",
-    eyebrow: "05 · Start a fresh conversation",
+    eyebrow: "06 · Start a fresh conversation",
     title: "New chat keeps things clear",
     body: "Use New chat whenever you want a clean slate. Your current conversation is cleared without deleting anything from Recent.",
     mobileSidebar: true,
   },
   {
     target: "sidebar-recent",
-    eyebrow: "06 · Keep chats organized",
+    eyebrow: "07 · Keep chats organized",
     title: "Your work stays close",
     body: "Recent chats are saved locally. Reopen any conversation to continue where you left off, or use the small delete control to remove an individual chat.",
     mobileSidebar: true,
   },
   {
     target: "sidebar-utilities",
-    eyebrow: "07 · Find and move your work",
+    eyebrow: "08 · Find and move your work",
     title: "Search or bring in a backup",
     body: "Search chats filters your recent titles as you type. Library opens a Mino JSON backup for import, while Export saves a copy of your chats and messages. Clear removes the local data after confirmation.",
     mobileSidebar: true,
   },
   {
     target: "sidebar-data",
-    eyebrow: "08 · Yours, on this device",
+    eyebrow: "09 · Yours, on this device",
     title: "Local-first by default",
     body: "Mino stores chats and messages locally in your browser, so your workspace stays available without an account. The account footer and data controls are here whenever you want to manage that local copy.",
     mobileSidebar: true,

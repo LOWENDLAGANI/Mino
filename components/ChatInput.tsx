@@ -1,6 +1,6 @@
 "use client";
 
-import type { ImageAttachment } from "@/lib/types";
+import type { ImageAttachment, SearchMode } from "@/lib/types";
 import { compressFiles, formatBytes } from "@/lib/imageUtils";
 import { useRef, useState, type ClipboardEvent, type DragEvent, type KeyboardEvent } from "react";
 
@@ -10,11 +10,21 @@ interface ChatInputProps {
   onSend: (text: string, images: ImageAttachment[]) => void;
   disabled: boolean;
   onStop?: () => void;
+  searchMode: SearchMode;
+  onSearchModeChange: (mode: SearchMode) => void;
+  searchAvailable: boolean;
 }
 
 const MAX_IMAGES = 4;
 
-export default function ChatInput({ onSend, disabled, onStop }: ChatInputProps) {
+export default function ChatInput({
+  onSend,
+  disabled,
+  onStop,
+  searchMode,
+  onSearchModeChange,
+  searchAvailable,
+}: ChatInputProps) {
   const [text, setText] = useState("");
   const [attachments, setAttachments] = useState<ImageAttachment[]>([]);
   const [compressing, setCompressing] = useState(false);
@@ -55,6 +65,12 @@ export default function ChatInput({ onSend, disabled, onStop }: ChatInputProps) 
     setAttachments((prev) => prev.filter((_, i) => i !== index));
     setErrors([]);
   };
+
+  const cycleSearchMode = () => {
+    onSearchModeChange(searchMode === "auto" ? "always" : searchMode === "always" ? "off" : "auto");
+  };
+
+  const searchLabel = !searchAvailable ? "Web setup" : searchMode === "auto" ? "Web: Auto" : searchMode === "always" ? "Web: On" : "Web: Off";
 
   const handleSend = () => {
     // While streaming the send button becomes Stop.
@@ -143,6 +159,32 @@ export default function ChatInput({ onSend, disabled, onStop }: ChatInputProps) 
             )}
           </div>
         )}
+
+        {/* Search mode */}
+        <div className="mb-2 flex items-center justify-between gap-3 px-1">
+          <span className="text-[10px] text-white/25">Mino can check the web when a question needs current facts.</span>
+          <button
+            type="button"
+            onClick={cycleSearchMode}
+            data-tutorial="search-toggle"
+            className={`flex shrink-0 items-center gap-1.5 rounded-full border px-2.5 py-1.5 text-[10px] font-medium transition-colors ${
+              searchAvailable
+                ? "border-white/[0.08] bg-white/[0.04] text-white/55 hover:border-white/[0.16] hover:text-white/85"
+                : "border-amber-300/15 bg-amber-300/[0.06] text-amber-200/65"
+            }`}
+            title={
+              searchAvailable
+                ? "Cycle automatic, always-on, or off web search"
+                : "Web search becomes available after TAVILY_API_KEY is configured"
+            }
+            aria-label={`Web search mode: ${searchLabel}`}
+          >
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <circle cx="12" cy="12" r="8.5" /><path d="M3.8 12h16.4M12 3.5c2.1 2.3 3.2 5.1 3.2 8.5s-1.1 6.2-3.2 8.5c-2.1-2.3-3.2-5.1-3.2-8.5S9.9 5.8 12 3.5Z" />
+            </svg>
+            {searchLabel}
+          </button>
+        </div>
 
         {/* Composer */}
         <div
