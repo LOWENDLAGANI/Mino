@@ -52,7 +52,7 @@ export async function maybeAutoTitle(chatId: string, firstUserText: string): Pro
   const clean = firstUserText.replace(/\s+/g, " ").trim();
   if (!clean) return;
   const title = clean.length > 42 ? `${clean.slice(0, 42)}…` : clean;
-  await db.chats.update(chatId, { title });
+  await db.chats.update(chatId, { title, updatedAt: Date.now() });
 }
 
 export async function deleteChat(chatId: string): Promise<void> {
@@ -72,25 +72,25 @@ export async function clearAllData(): Promise<void> {
 // ── Message operations ───────────────────────────────────────────────────────
 
 export async function addMessage(msg: Omit<ChatMessage, "id" | "createdAt">): Promise<ChatMessage> {
-  const full: ChatMessage = { ...msg, id: uid(), createdAt: Date.now() };
+  const full: ChatMessage = { ...msg, id: uid(), createdAt: Date.now(), updatedAt: Date.now() };
   await db.messages.add(full);
   await touchChat(full.chatId);
   return full;
 }
 
 export async function updateMessageContent(id: string, content: string): Promise<void> {
-  await db.messages.update(id, { content });
+  await db.messages.update(id, { content, updatedAt: Date.now() });
 }
 
 export async function setMessageError(id: string, error: string): Promise<void> {
-  await db.messages.update(id, { error });
+  await db.messages.update(id, { error, updatedAt: Date.now() });
 }
 
 export async function setMessageUsage(
   id: string,
   usage: { prompt: number; completion: number; total: number }
 ): Promise<void> {
-  await db.messages.update(id, { usage });
+  await db.messages.update(id, { usage, updatedAt: Date.now() });
 }
 
 // ── Backup / restore ─────────────────────────────────────────────────────────

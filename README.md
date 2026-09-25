@@ -1,12 +1,12 @@
 # Mino
 
-A private, local-first AI assistant by **Minetallest**. Multi-model chat with vision, streaming responses, markdown rendering, optional anonymous cloud history, and no account required.
+A private, local-first AI assistant by **Minetallest**. Multi-model chat with vision, streaming responses, markdown rendering, automatic anonymous cloud history, and no account required.
 
 Built with **Next.js 14 (App Router)**, **TypeScript**, **Tailwind CSS**, and **Dexie.js**.
 
 ## Features
 
-- **Zero-login persistence** — chats, messages, and image attachments are stored client-side in IndexedDB via Dexie; Firebase sync is optional and uses an anonymous Firebase identity, not a user account
+- **Zero-login persistence** — chats and messages are cached in IndexedDB via Dexie and automatically synchronized to the signed-in anonymous Firebase identity when Firebase is configured; no user account is required
 - **Two modes** — **Mino Auto** routes every message to the best available model; **Mino Dev** uses Mino 3.8, tuned for code and technical work. Each mode is powered by its own server-side API key, with automatic fallback if one is missing.
 - **Secure API keys** — keys are only ever read server-side in the `/api/chat` Route Handler
 - **Strict persona** — the Mino system prompt is prepended server-side to *every* completion request; the client cannot bypass it
@@ -37,9 +37,11 @@ Set either (or both) via `process.env` — locally in `.env.local`, or in Vercel
 | `GEMINI_API_KEY` | **Mino Dev** | Mino 3.8 model access via the compatible endpoint |
 | `TAVILY_API_KEY` | **Web search** | Enables explicit web research and source links |
 
-### Optional Firebase history
+### Automatic Firebase history
 
-Mino remains fully local-first without Firebase. To sync chat text and metadata for an anonymous device identity:
+When Firebase is configured, Mino automatically signs in with a hidden anonymous identity and syncs every chat to that identity’s Firestore namespace. There is no in-app opt-out. The local Dexie cache remains the fast/offline UI source, while Firestore realtime listeners restore the same user’s chats and messages from the database. Without Firebase configuration, Mino still works local-only.
+
+To enable automatic sync:
 
 1. Create a Firebase project, enable Firestore, and enable **Anonymous** under Authentication → Sign-in method.
 2. Add a Web app in Firebase and provide these variables in the Freebuff Keys/API keys UI or your deployment environment:
@@ -61,7 +63,7 @@ Resilience behavior:
 
 ## Deploying to Vercel
 
-No database is required for local-only use. To enable optional history sync, add the Firebase variables above and deploy the included `firestore.rules`. `/api/chat` remains a Node.js Route Handler; Firebase is initialized only in the browser when configured.
+Add the Firebase variables above and deploy the included `firestore.rules` to enable automatic history sync. `/api/chat` remains a Node.js Route Handler; Firebase is initialized only in the browser when configured. If Firebase is not configured, the app remains local-only.
 
 ## Project structure
 
@@ -82,6 +84,8 @@ lib/
   imageUtils.ts        # Canvas compression (1024px, JPEG q0.8)
   models.ts            # Model catalog + token estimator
   webSearch.ts         # Server-side current-web search and source formatting
+  firebaseHistory.ts   # Automatic anonymous Firebase history sync and realtime restore
+  settings.ts           # Local response, instruction, and appearance preferences
   types.ts             # Shared TypeScript types
 ```
 

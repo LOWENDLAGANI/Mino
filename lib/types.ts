@@ -40,6 +40,7 @@ export interface ChatMessage {
   usage?: { prompt: number; completion: number; total: number };
   error?: string;
   createdAt: number;
+  updatedAt?: number;
 }
 
 export interface Chat {

@@ -40,7 +40,7 @@ import {
   type Appearance,
   type ResponseLength,
 } from "@/lib/settings";
-import { firebaseConfigured, syncFirebaseHistory } from "@/lib/firebaseHistory";
+import { firebaseConfigured, subscribeFirebaseHistory, syncFirebaseHistory } from "@/lib/firebaseHistory";
 
 // ── Mino — main client orchestration: modes, streaming, chats ────────────────
 
@@ -93,6 +93,11 @@ export default function HomePage() {
     saveAppearance(nextAppearance);
     setHydrated(true);
   }, []);
+
+  useEffect(() => {
+    if (!hydrated || !firebaseConfigured) return;
+    return subscribeFirebaseHistory(() => setHistoryStatus("error"));
+  }, [hydrated]);
 
   useEffect(() => {
     if (!hydrated || !firebaseConfigured) return;
@@ -351,7 +356,7 @@ export default function HomePage() {
 
           <div className="flex-1" />
           {firebaseConfigured && (
-            <span className="hidden text-[10px] text-white/25 sm:inline" title="Optional anonymous Firebase history sync">
+            <span className="hidden text-[10px] text-white/25 sm:inline" title="Automatic anonymous Firebase history sync">
               {historyStatus === "syncing" ? "Syncing history…" : historyStatus === "error" ? "History sync unavailable" : historyStatus === "synced" ? "History synced" : "Local history"}
             </span>
           )}
