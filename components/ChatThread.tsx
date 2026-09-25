@@ -11,6 +11,9 @@ interface ChatThreadProps {
   streamingId: string | null;
   isEmpty: boolean;
   suggestedMode: string;
+  onRegenerate: (assistantId: string) => void;
+  onEditMessage: (messageId: string, content: string) => void;
+  onCopyConversation: () => void;
 }
 
 const STREAMING_MESSAGES = [
@@ -87,10 +90,20 @@ function SearchSources({ sources }: { sources: NonNullable<ChatMessage["sources"
   );
 }
 
-function MessageRow({ msg, streaming }: { msg: ChatMessage; streaming: boolean }) {
+function MessageActions({ onRegenerate }: { onRegenerate: () => void }) {
+  return (
+    <button onClick={onRegenerate} className="rounded-md px-1.5 py-0.5 text-[11px] text-text-low transition-colors hover:bg-hover hover:text-text-mid" type="button">
+      Retry
+    </button>
+  );
+}
+
+function MessageRow({ msg, streaming, onRegenerate, onEditMessage }: { msg: ChatMessage; streaming: boolean; onRegenerate: () => void; onEditMessage: (content: string) => void }) {
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(msg.content);
   if (msg.role === "user") {
     return (
-      <div className="flex flex-col items-end animate-rise">
+      <div className="group flex flex-col items-end animate-rise">
         <div className="max-w-[88%] md:max-w-[76%]">
           {msg.images && msg.images.length > 0 && (
             <div className="mb-2 flex flex-wrap justify-end gap-2">
@@ -106,10 +119,23 @@ function MessageRow({ msg, streaming }: { msg: ChatMessage; streaming: boolean }
               ))}
             </div>
           )}
-          {msg.content && (
+          {msg.documents && msg.documents.length > 0 && (
+            <div className="mb-2 flex flex-wrap justify-end gap-1.5">
+              {msg.documents.map((document) => <span key={document.name} className="rounded-lg border border-white/10 bg-white/[0.06] px-2 py-1 text-[10px] text-white/55">📄 {document.name}</span>)}
+            </div>
+          )}
+          {msg.content && !editing && (
             <div className="inline-block rounded-[22px] rounded-br-md bg-white/[0.075] px-4 py-2.5 text-[15px] leading-relaxed text-white/90 backdrop-blur-sm">
               <p className="whitespace-pre-wrap break-words">{msg.content}</p>
             </div>
+          )}
+          {editing ? (
+            <div className="w-full rounded-2xl border border-[#8b7cf6]/40 bg-black/20 p-2">
+              <textarea value={draft} onChange={(event) => setDraft(event.target.value)} rows={3} className="w-full resize-none bg-transparent p-1 text-[14px] text-white outline-none" autoFocus />
+              <div className="flex justify-end gap-2 text-[11px]"><button type="button" onClick={() => { setEditing(false); setDraft(msg.content); }} className="px-2 py-1 text-white/40">Cancel</button><button type="button" onClick={() => onEditMessage(draft.trim())} className="rounded-lg bg-[#6f5bea] px-2.5 py-1 text-white">Edit & send</button></div>
+            </div>
+          ) : (
+            <button type="button" onClick={() => setEditing(true)} className="mt-1 self-end text-[10px] text-white/25 opacity-100 transition-opacity hover:text-white/70 md:opacity-0 md:group-hover:opacity-100">Edit</button>
           )}
         </div>
         {msg.error && (
@@ -132,7 +158,8 @@ function MessageRow({ msg, streaming }: { msg: ChatMessage; streaming: boolean }
           <span className="text-[10px] text-text-low">{msg.usage.total.toLocaleString()} tok</span>
         )}
         {msg.content && !streaming && (
-          <span className="opacity-0 transition-opacity group-hover:opacity-100">
+          <span className="flex items-center gap-1 opacity-100 transition-opacity md:opacity-0 md:group-hover:opacity-100">
+            <MessageActions onRegenerate={onRegenerate} />
             <CopyMessageButton text={msg.content} />
           </span>
         )}
@@ -187,11 +214,12 @@ function TypingDots({ message }: { message: string }) {
   );
 }
 
-export default function ChatThread({ messages, streamingId, isEmpty, suggestedMode }: ChatThreadProps) {
+export default function ChatThread({ messages, streamingId, isEmpty, suggestedMode, onRegenerate, onEditMessage, onCopyConversation }: ChatThreadProps) {
   const bottomRef = useRef<HTMLDivElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const stickRef = useRef(true);
   const [loadingMessage, setLoadingMessage] = useState<string>(STREAMING_MESSAGES[0]);
+  const [showSourceHistory, setShowSourceHistory] = useState(false);
 
   useEffect(() => {
     if (streamingId) {
@@ -209,6 +237,12 @@ export default function ChatThread({ messages, streamingId, isEmpty, suggestedMo
     const el = containerRef.current;
     if (!el) return;
     stickRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 120;
+  };
+
+  const allSources = messages.flatMap((message) => message.sources ?? []);
+  const copySources = async () => {
+    const text = allSources.map((source) => `${source.title}\n${source.url}`).join("\n\n");
+    if (text) await navigator.clipboard.writeText(text).catch(() => undefined);
   };
 
   if (isEmpty) {
@@ -234,10 +268,22 @@ export default function ChatThread({ messages, streamingId, isEmpty, suggestedMo
 
   return (
     <div ref={containerRef} onScroll={handleScroll} className="min-h-0 flex-1 overflow-y-auto">
-      <div className="mx-auto w-full max-w-3xl px-4 pb-8 pt-6 md:px-7 md:pt-9">
+      <div className="mx-auto w-full max-w-3xl px-4 pb-8 pt-4 md:px-7 md:pt-6">
+        <div className="mb-5 flex items-center justify-end gap-1 text-[10px] text-white/30">
+          <button type="button" onClick={onCopyConversation} className="rounded-lg px-2 py-1.5 transition-colors hover:bg-white/[0.06] hover:text-white/70">Copy chat</button>
+          {allSources.length > 0 && <button type="button" onClick={() => setShowSourceHistory((value) => !value)} className="rounded-lg px-2 py-1.5 transition-colors hover:bg-white/[0.06] hover:text-white/70">Sources ({allSources.length})</button>}
+          {showSourceHistory && <button type="button" onClick={() => void copySources()} className="rounded-lg px-2 py-1.5 transition-colors hover:bg-white/[0.06] hover:text-white/70">Copy links</button>}
+        </div>
+        {showSourceHistory && <div className="mb-5 rounded-2xl border border-[#9ee7ff]/10 bg-[#9ee7ff]/[0.035] p-3 animate-rise"><div className="mb-2 text-[10px] font-semibold uppercase tracking-[0.12em] text-[#9ee7ff]/70">Source history</div><div className="space-y-1">{allSources.map((source, index) => <a key={`${source.url}-${index}`} href={source.url} target="_blank" rel="noreferrer" className="block truncate px-2 py-1 text-[11px] text-white/55 hover:text-white/85">{source.title} <span className="text-white/25">· {source.url}</span></a>)}</div></div>}
         <div className="flex flex-col gap-8">
           {messages.map((msg) => (
-            <MessageRow key={msg.id} msg={msg} streaming={msg.id === streamingId} />
+            <MessageRow
+              key={msg.id}
+              msg={msg}
+              streaming={msg.id === streamingId}
+              onRegenerate={() => onRegenerate(msg.id)}
+              onEditMessage={(content) => onEditMessage(msg.id, content)}
+            />
           ))}
           {streamingId && !messages.find((m) => m.id === streamingId)?.content && (
             <div className="animate-rise">

@@ -1,21 +1,53 @@
 "use client";
 
-import type { ImageAttachment, SearchMode } from "@/lib/types";
+import type { DocumentAttachment, ImageAttachment, SearchMode } from "@/lib/types";
+import type { Appearance, ResponseLength } from "@/lib/settings";
 import { compressFiles, formatBytes } from "@/lib/imageUtils";
 import { useEffect, useRef, useState, type ClipboardEvent, type DragEvent, type KeyboardEvent } from "react";
 
 // ── ChatInput: floating composer with attachments — minimal, mobile-first ───
 
 interface ChatInputProps {
-  onSend: (text: string, images: ImageAttachment[]) => void;
+  onSend: (text: string, images: ImageAttachment[], documents?: DocumentAttachment[]) => void;
   disabled: boolean;
   onStop?: () => void;
   searchMode: SearchMode;
   onSearchModeChange: (mode: SearchMode) => void;
   searchAvailable: boolean;
+  responseLength: ResponseLength;
+  onResponseLengthChange: (value: ResponseLength) => void;
+  customInstructions: string;
+  onCustomInstructionsChange: (value: string) => void;
+  appearance: Appearance;
+  onAppearanceChange: (value: Appearance) => void;
 }
 
 const MAX_IMAGES = 4;
+const MAX_DOCUMENTS = 3;
+const MAX_DOCUMENT_SIZE = 100_000;
+const DOCUMENT_TYPES = new Set([
+  "text/plain", "text/markdown", "text/csv", "application/json", "application/javascript",
+  "text/typescript", "text/x-python", "text/html", "text/css", "text/sql",
+]);
+
+type SpeechRecognition = {
+  continuous: boolean;
+  interimResults: boolean;
+  lang: string;
+  onresult: ((event: { results: ArrayLike<{ 0: { transcript: string } }> }) => void) | null;
+  onend: (() => void) | null;
+  onerror: (() => void) | null;
+  start: () => void;
+  stop: () => void;
+};
+type SpeechWindow = Window & { SpeechRecognition?: new () => SpeechRecognition; webkitSpeechRecognition?: new () => SpeechRecognition };
+
+const PROMPT_PRESETS = [
+  { label: "Explain simply", prompt: "Explain this in simple terms: " },
+  { label: "Review my code", prompt: "Review this code and suggest concrete improvements:\n\n" },
+  { label: "Brainstorm ideas", prompt: "Brainstorm 10 thoughtful ideas around: " },
+  { label: "Write a plan", prompt: "Create a clear step-by-step plan for: " },
+];
 
 const SEARCH_OPTIONS: Array<{ id: SearchMode; label: string; description: string }> = [
   { id: "auto", label: "Auto", description: "Only when asked" },
@@ -30,9 +62,17 @@ export default function ChatInput({
   searchMode,
   onSearchModeChange,
   searchAvailable,
+  responseLength,
+  onResponseLengthChange,
+  customInstructions,
+  onCustomInstructionsChange,
+  appearance,
+  onAppearanceChange,
 }: ChatInputProps) {
   const [text, setText] = useState("");
   const [attachments, setAttachments] = useState<ImageAttachment[]>([]);
+  const [documents, setDocuments] = useState<DocumentAttachment[]>([]);
+  const [isListening, setIsListening] = useState(false);
   const [compressing, setCompressing] = useState(false);
   const [dragOver, setDragOver] = useState(false);
   const [errors, setErrors] = useState<string[]>([]);
@@ -40,6 +80,7 @@ export default function ChatInput({
   const fileInputRef = useRef<HTMLInputElement>(null);
   const toolsRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const recognitionRef = useRef<SpeechRecognition | null>(null);
 
   useEffect(() => {
     if (!showTools) return;
@@ -50,7 +91,7 @@ export default function ChatInput({
     return () => document.removeEventListener("pointerdown", handlePointerDown);
   }, [showTools]);
 
-  const canSend = (text.trim().length > 0 || attachments.length > 0) && !compressing;
+  const canSend = (text.trim().length > 0 || attachments.length > 0 || documents.length > 0) && !compressing;
 
   const addFiles = async (files: File[]) => {
     const imageFiles = files.filter((f) => f.type.startsWith("image/"));
@@ -78,9 +119,64 @@ export default function ChatInput({
     }
   };
 
+  const addDocuments = async (files: File[]) => {
+    const supported = files.filter((file) => DOCUMENT_TYPES.has(file.type) || /\.(txt|md|csv|json|js|jsx|ts|tsx|py|html|css|sql)$/i.test(file.name));
+    if (supported.length === 0) {
+      setErrors(["Text and code files are supported (up to 100 KB each)"]);
+      return;
+    }
+    const room = MAX_DOCUMENTS - documents.length;
+    if (room <= 0) {
+      setErrors([`Max ${MAX_DOCUMENTS} documents per message`]);
+      return;
+    }
+    const next: DocumentAttachment[] = [];
+    for (const file of supported.slice(0, room)) {
+      if (file.size > MAX_DOCUMENT_SIZE) {
+        setErrors([`${file.name} is larger than 100 KB`]);
+        continue;
+      }
+      const fullText = await file.text();
+      next.push({ name: file.name, size: file.size, text: fullText.slice(0, MAX_DOCUMENT_SIZE), truncated: fullText.length > MAX_DOCUMENT_SIZE });
+    }
+    setDocuments((prev) => [...prev, ...next]);
+  };
+
   const removeAttachment = (index: number) => {
     setAttachments((prev) => prev.filter((_, i) => i !== index));
     setErrors([]);
+  };
+
+  const removeDocument = (index: number) => setDocuments((prev) => prev.filter((_, i) => i !== index));
+
+  const toggleVoice = () => {
+    const speechWindow = window as SpeechWindow;
+    const Recognition = speechWindow.SpeechRecognition ?? speechWindow.webkitSpeechRecognition;
+    if (!Recognition) {
+      setErrors(["Voice input is not supported in this browser"]);
+      return;
+    }
+    if (isListening) {
+      recognitionRef.current?.stop();
+      setIsListening(false);
+      return;
+    }
+    const recognition = new Recognition();
+    recognition.continuous = false;
+    recognition.interimResults = false;
+    recognition.lang = navigator.language || "en-US";
+    recognition.onresult = (event) => {
+      const transcript = event.results[0]?.[0]?.transcript;
+      if (transcript) handleTextChange(`${text}${text ? " " : ""}${transcript}`);
+    };
+    recognition.onend = () => setIsListening(false);
+    recognition.onerror = () => {
+      setIsListening(false);
+      setErrors(["Voice input could not be started"]);
+    };
+    recognitionRef.current = recognition;
+    recognition.start();
+    setIsListening(true);
   };
 
   const searchLabel = !searchAvailable
@@ -94,9 +190,10 @@ export default function ChatInput({
       return;
     }
     if (!canSend) return;
-    onSend(text.trim(), attachments);
+    onSend(text.trim(), attachments, documents);
     setText("");
     setAttachments([]);
+    setDocuments([]);
     setErrors([]);
     if (textareaRef.current) textareaRef.current.style.height = "auto";
   };
@@ -111,7 +208,9 @@ export default function ChatInput({
   const handleDrop = (e: DragEvent<HTMLDivElement>) => {
     e.preventDefault();
     setDragOver(false);
-    void addFiles(Array.from(e.dataTransfer.files));
+    const files = Array.from(e.dataTransfer.files);
+    void addFiles(files);
+    void addDocuments(files);
   };
 
   const handlePaste = (e: ClipboardEvent<HTMLTextAreaElement>) => {
@@ -119,6 +218,7 @@ export default function ChatInput({
     if (files.length > 0) {
       e.preventDefault();
       void addFiles(files);
+      void addDocuments(files);
     }
   };
 
@@ -175,6 +275,20 @@ export default function ChatInput({
           </div>
         )}
 
+        {documents.length > 0 && (
+          <div className="mb-2 flex flex-wrap gap-2 animate-rise">
+            {documents.map((document, i) => (
+              <div key={`${document.name}-${i}`} className="flex max-w-full items-center gap-2 rounded-xl border border-line bg-white/[0.05] px-3 py-2">
+                <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-[#9ee7ff]/10 text-[#9ee7ff]">
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round"><path d="M6 3.5h8l4 4V20.5H6z" /><path d="M14 3.5v4h4M9 12h6M9 15h6" /></svg>
+                </span>
+                <span className="min-w-0"><span className="block max-w-[150px] truncate text-[11px] text-white/75">{document.name}</span><span className="text-[9px] text-white/35">{formatBytes(document.size)}{document.truncated ? " · truncated" : ""}</span></span>
+                <button type="button" onClick={() => removeDocument(i)} className="ml-1 text-white/30 hover:text-red-300" aria-label={`Remove ${document.name}`}><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M6 6l12 12M18 6L6 18" /></svg></button>
+              </div>
+            ))}
+          </div>
+        )}
+
         {/* Composer */}
         <div
           onDragOver={(e) => {
@@ -198,12 +312,11 @@ export default function ChatInput({
               aria-label="Open tools menu"
               aria-expanded={showTools}
               type="button"
-              title="Open Gallery and web search tools"
+              title="Open message tools"
             >
-              <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">
-                <rect x="3" y="3" width="18" height="18" rx="4" />
-                <circle cx="9" cy="9" r="1.6" />
-                <path d="M21 15.5l-4.5-4.5L5 21" />
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">
+                <circle cx="12" cy="12" r="8.5" className="opacity-40" />
+                <path d="M12 8v8M8 12h8" />
               </svg>
             </button>
             {showTools && (
@@ -223,6 +336,23 @@ export default function ChatInput({
                     </svg>
                   </span>
                   <span className="min-w-0 flex-1"><span className="block text-[13px] font-medium text-white/85">Gallery</span><span className="mt-0.5 block text-[10px] text-white/35">Attach images from your device</span></span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowTools(false);
+                    document.getElementById("mino-document-picker")?.click();
+                  }}
+                  className="flex w-full items-center gap-3 rounded-xl px-2 py-2.5 text-left transition-colors hover:bg-white/[0.07]"
+                >
+                  <span className="flex h-8 w-8 items-center justify-center rounded-xl bg-[#b7f4ff]/10 text-[#b7f4ff]">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round"><path d="M6 3.5h8l4 4V20.5H6z" /><path d="M14 3.5v4h4M9 12h6M9 15h6" /></svg>
+                  </span>
+                  <span className="min-w-0 flex-1"><span className="block text-[13px] font-medium text-white/85">Files</span><span className="mt-0.5 block text-[10px] text-white/35">Attach text or code (100 KB max)</span></span>
+                </button>
+                <button type="button" onClick={toggleVoice} className={`flex w-full items-center gap-3 rounded-xl px-2 py-2.5 text-left transition-colors hover:bg-white/[0.07] ${isListening ? "bg-red-500/10" : ""}`}>
+                  <span className="flex h-8 w-8 items-center justify-center rounded-xl bg-[#ff9ee7]/10 text-[#ff9ee7]"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round"><rect x="9" y="3" width="6" height="11" rx="3" /><path d="M5.5 11.5a6.5 6.5 0 0 0 13 0M12 18v3M8 21h8" /></svg></span>
+                  <span className="min-w-0 flex-1"><span className="block text-[13px] font-medium text-white/85">{isListening ? "Listening…" : "Voice input"}</span><span className="mt-0.5 block text-[10px] text-white/35">Use your microphone when available</span></span>
                 </button>
                 <div className="my-2 border-t border-white/[0.07]" />
                 <div className="px-2 pb-1.5 pt-1">
@@ -249,6 +379,28 @@ export default function ChatInput({
                   </div>
                   <p className="mt-2 text-[10px] leading-relaxed text-white/30">Auto stays quiet for general knowledge questions.</p>
                 </div>
+                <div className="my-2 border-t border-white/[0.07]" />
+                <div className="px-2 pb-1.5 pt-1">
+                  <div className="mb-2 text-[10px] font-semibold uppercase tracking-[0.14em] text-white/35">Quick starts</div>
+                  <div className="grid grid-cols-2 gap-1">
+                    {PROMPT_PRESETS.map((preset) => (
+                      <button key={preset.label} type="button" onClick={() => { handleTextChange(text ? `${text}\n${preset.prompt}` : preset.prompt); setShowTools(false); textareaRef.current?.focus(); }} className="rounded-lg bg-white/[0.04] px-2 py-2 text-left text-[10px] text-white/55 transition-colors hover:bg-white/[0.09] hover:text-white/85">
+                        {preset.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                <div className="my-2 border-t border-white/[0.07]" />
+                <div className="space-y-2 px-2 pb-1.5 pt-1">
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="text-[11px] font-medium text-white/75">Response length</span>
+                    <select value={responseLength} onChange={(event) => onResponseLengthChange(event.target.value as ResponseLength)} className="rounded-lg border border-white/[0.08] bg-white/[0.05] px-2 py-1 text-[10px] text-white/70 outline-none">
+                      <option value="short">Short</option><option value="balanced">Balanced</option><option value="detailed">Detailed</option>
+                    </select>
+                  </div>
+                  <label className="block text-[10px] text-white/45">Custom instructions <textarea value={customInstructions} onChange={(event) => onCustomInstructionsChange(event.target.value.slice(0, 1200))} rows={2} placeholder="e.g. Prefer concise examples…" className="mt-1 w-full resize-none rounded-lg border border-white/[0.08] bg-black/20 px-2 py-1.5 text-[10px] leading-relaxed text-white/70 outline-none placeholder:text-white/25 focus:border-[#8b7cf6]/50" /></label>
+                  <div className="flex items-center justify-between gap-2 pt-1"><span className="text-[10px] text-white/45">Appearance</span><div className="flex rounded-lg bg-black/20 p-0.5"><button type="button" onClick={() => onAppearanceChange("dark")} className={`rounded-md px-2 py-1 text-[9px] ${appearance === "dark" ? "bg-white/[0.1] text-white/80" : "text-white/35"}`}>Dark</button><button type="button" onClick={() => onAppearanceChange("light")} className={`rounded-md px-2 py-1 text-[9px] ${appearance === "light" ? "bg-white/[0.1] text-white/80" : "text-white/35"}`}>Light</button></div></div>
+                </div>
               </div>
             )}
             <input
@@ -259,6 +411,17 @@ export default function ChatInput({
               className="hidden"
               onChange={(e) => {
                 void addFiles(Array.from(e.target.files ?? []));
+                e.target.value = "";
+              }}
+            />
+            <input
+              id="mino-document-picker"
+              type="file"
+              accept=".txt,.md,.csv,.json,.js,.jsx,.ts,.tsx,.py,.html,.css,.sql"
+              multiple
+              className="hidden"
+              onChange={(e) => {
+                void addDocuments(Array.from(e.target.files ?? []));
                 e.target.value = "";
               }}
             />

@@ -18,12 +18,21 @@ export interface ImageAttachment {
   size: number;
 }
 
+export interface DocumentAttachment {
+  /** Plain text extracted from a supported text/code file. */
+  name: string;
+  size: number;
+  text: string;
+  truncated?: boolean;
+}
+
 export interface ChatMessage {
   id: string;
   chatId: string;
   role: Role;
   content: string;
   images?: ImageAttachment[];
+  documents?: DocumentAttachment[];
   model?: string;
   searchQuery?: string;
   sources?: SearchSource[];

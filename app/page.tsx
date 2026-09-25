@@ -25,10 +25,22 @@ import type {
   ApiContentPart,
   ApiMessage,
   ChatMessage,
+  DocumentAttachment,
   ImageAttachment,
   SearchMode,
   SearchSource,
 } from "@/lib/types";
+import {
+  loadAppearance,
+  loadCustomInstructions,
+  loadResponseLength,
+  saveAppearance,
+  saveCustomInstructions,
+  saveResponseLength,
+  type Appearance,
+  type ResponseLength,
+} from "@/lib/settings";
+import { firebaseConfigured, syncFirebaseHistory } from "@/lib/firebaseHistory";
 
 // ── Mino — main client orchestration: modes, streaming, chats ────────────────
 
@@ -36,6 +48,11 @@ interface SessionUsage {
   prompt: number;
   completion: number;
   total: number;
+}
+
+interface SendOptions {
+  editMessageId?: string;
+  regenerateAssistantId?: string;
 }
 
 export default function HomePage() {
@@ -49,7 +66,12 @@ export default function HomePage() {
   const [searchMode, setSearchMode] = useState<SearchMode>("auto");
   const [searchAvailable, setSearchAvailable] = useState(false);
   const [tutorialFinished, setTutorialFinished] = useState(false);
+  const [responseLength, setResponseLength] = useState<ResponseLength>("balanced");
+  const [customInstructions, setCustomInstructions] = useState("");
+  const [appearance, setAppearance] = useState<Appearance>("dark");
+  const [historyStatus, setHistoryStatus] = useState<"local" | "syncing" | "synced" | "error">("local");
   const abortRef = useRef<AbortController | null>(null);
+  const historyTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const messages = useLiveQuery(
     async () => {
@@ -60,10 +82,31 @@ export default function HomePage() {
     [] as ChatMessage[]
   );
 
+  const chats = useLiveQuery(() => db.chats.orderBy("updatedAt").reverse().toArray(), [], []);
+
   useEffect(() => {
     setSelectedMode(loadSelectedMode());
+    setResponseLength(loadResponseLength());
+    setCustomInstructions(loadCustomInstructions());
+    const nextAppearance = loadAppearance();
+    setAppearance(nextAppearance);
+    saveAppearance(nextAppearance);
     setHydrated(true);
   }, []);
+
+  useEffect(() => {
+    if (!hydrated || !firebaseConfigured) return;
+    if (historyTimerRef.current) clearTimeout(historyTimerRef.current);
+    historyTimerRef.current = setTimeout(() => {
+      setHistoryStatus("syncing");
+      void syncFirebaseHistory()
+        .then((result) => setHistoryStatus(result.synced ? "synced" : "local"))
+        .catch(() => setHistoryStatus("error"));
+    }, 900);
+    return () => {
+      if (historyTimerRef.current) clearTimeout(historyTimerRef.current);
+    };
+  }, [hydrated, chats, messages]);
 
   // Probe which modes have keys configured server-side (may be empty).
   useEffect(() => {
@@ -83,6 +126,21 @@ export default function HomePage() {
     setSelectedMode(mode);
     setModelNotice(null);
     saveSelectedMode(mode);
+  };
+
+  const handleResponseLengthChange = (value: ResponseLength) => {
+    setResponseLength(value);
+    saveResponseLength(value);
+  };
+
+  const handleCustomInstructionsChange = (value: string) => {
+    setCustomInstructions(value);
+    saveCustomInstructions(value);
+  };
+
+  const handleAppearanceChange = (value: Appearance) => {
+    setAppearance(value);
+    saveAppearance(value);
   };
 
   const handleNewChat = useCallback(() => {
@@ -110,34 +168,49 @@ export default function HomePage() {
 
   // ── Streaming send ─────────────────────────────────────────────────────────
   const sendMessage = useCallback(
-    async (text: string, images: ImageAttachment[]) => {
+    async (text: string, images: ImageAttachment[], documents: DocumentAttachment[] = [], options?: SendOptions) => {
       if (streamingId) return;
-      if (!text && images.length === 0) return;
+      if (!text && images.length === 0 && documents.length === 0 && !options) return;
 
       let chatId = activeChatId;
-      if (!chatId) {
-        const chat = await createChat();
-        chatId = chat.id;
-        setActiveChatId(chatId);
+      if (options?.editMessageId) {
+        const original = await db.messages.get(options.editMessageId);
+        if (!original) return;
+        chatId = original.chatId;
+        await db.messages.update(original.id, { content: text, images: images.length ? images : undefined, documents: documents.length ? documents : undefined });
+        await db.messages.where("chatId").equals(chatId).filter((message) => message.createdAt > original.createdAt).delete();
+      } else if (options?.regenerateAssistantId) {
+        const original = await db.messages.get(options.regenerateAssistantId);
+        if (!original) return;
+        chatId = original.chatId;
+        await db.messages.where("chatId").equals(chatId).filter((message) => message.createdAt >= original.createdAt).delete();
+      } else {
+        if (!chatId) {
+          const chat = await createChat();
+          chatId = chat.id;
+          setActiveChatId(chatId);
+        }
+        await addMessage({
+          chatId,
+          role: "user",
+          content: text,
+          images: images.length > 0 ? images : undefined,
+          documents: documents.length > 0 ? documents : undefined,
+        });
+        await maybeAutoTitle(chatId, text || "Attachment conversation");
       }
-
-      await addMessage({
-        chatId,
-        role: "user",
-        content: text,
-        images: images.length > 0 ? images : undefined,
-      });
-      await maybeAutoTitle(chatId, text || "Image conversation");
+      if (!chatId) return;
+      setActiveChatId(chatId);
 
       const history = await db.messages.where("chatId").equals(chatId).sortBy("createdAt");
       const apiMessages: ApiMessage[] = history.flatMap((message): ApiMessage[] => {
         if (message.error || (message.role !== "user" && message.role !== "assistant")) return [];
-        if (message.role === "user" && message.images?.length) {
+        if (message.role === "user" && (message.images?.length || message.documents?.length)) {
           const parts: ApiContentPart[] = [];
-          if (message.content.trim()) parts.push({ type: "text", text: message.content });
-          for (const image of message.images) {
-            parts.push({ type: "image_url", image_url: { url: image.url } });
-          }
+          const documentText = message.documents?.map((document) => `Attachment ${document.name}:\n${document.text}`).join("\n\n");
+          const textContent = [message.content, documentText].filter(Boolean).join("\n\n");
+          if (textContent) parts.push({ type: "text", text: textContent });
+          for (const image of message.images ?? []) parts.push({ type: "image_url", image_url: { url: image.url } });
           return [{ role: "user", content: parts }];
         }
         if (!message.content.trim()) return [];
@@ -145,62 +218,41 @@ export default function HomePage() {
       });
 
       setModelNotice(null);
-      const assistantMsg = await addMessage({
-        chatId,
-        role: "assistant",
-        content: "",
-        model: getMode(selectedMode).engine,
-      });
+      const assistantMsg = await addMessage({ chatId, role: "assistant", content: "", model: getMode(selectedMode).engine });
       setStreamingId(assistantMsg.id);
 
       const controller = new AbortController();
       abortRef.current = controller;
-
       let sawError = false;
       try {
         const res = await fetch("/api/chat", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ messages: apiMessages, mode: selectedMode, searchMode }),
+          body: JSON.stringify({ messages: apiMessages, mode: selectedMode, searchMode, responseLength, customInstructions }),
           signal: controller.signal,
         });
-
         if (!res.ok) {
           const payload = (await res.json().catch(() => null)) as { error?: string } | null;
           throw new Error(payload?.error || `Mino request failed (HTTP ${res.status})`);
         }
-
         const reader = res.body?.getReader();
         if (!reader) throw new Error("No response stream");
-
         const decoder = new TextDecoder();
         let buffer = "";
         let full = "";
-
         const flushLine = async (line: string) => {
           const trimmed = line.trim();
           if (!trimmed.startsWith("data:")) return;
           const data = trimmed.slice(5).trim();
           if (!data || data === "[DONE]") return;
           try {
-            const evt = JSON.parse(data) as {
-              content?: string;
-              error?: string;
-              model?: string;
-              usage?: SessionUsage;
-              search?: { used: boolean; query?: string; sources?: SearchSource[] };
-            };
+            const evt = JSON.parse(data) as { content?: string; error?: string; model?: string; usage?: SessionUsage; search?: { used: boolean; query?: string; sources?: SearchSource[] } };
             if (evt.model) {
               await db.messages.update(assistantMsg.id, { model: evt.model });
-              if (evt.model !== getMode(selectedMode).engine) {
-                setModelNotice(
-                  "The model was changed automatically because the current model is experiencing a problem."
-                );
-              }
+              if (evt.model !== getMode(selectedMode).engine) setModelNotice("The model was changed automatically because the current model is experiencing a problem.");
             }
             if (evt.error) {
               sawError = true;
-              // Preserve any partial answer, but always show why streaming stopped.
               await setMessageError(assistantMsg.id, evt.error);
               return;
             }
@@ -208,23 +260,15 @@ export default function HomePage() {
               full += evt.content;
               await updateMessageContent(assistantMsg.id, full);
             }
-            if (evt.usage) {
-              await setMessageUsage(assistantMsg.id, evt.usage);
-            }
+            if (evt.usage) await setMessageUsage(assistantMsg.id, evt.usage);
             if (evt.search) {
-              await db.messages.update(assistantMsg.id, {
-                searchQuery: evt.search.query,
-                sources: evt.search.sources ?? [],
-              });
-              if (!evt.search.used && searchMode !== "off") {
-                setModelNotice("Mino checked the web but could not find a usable source.");
-              }
+              await db.messages.update(assistantMsg.id, { searchQuery: evt.search.query, sources: evt.search.sources ?? [] });
+              if (!evt.search.used && searchMode !== "off") setModelNotice("Mino checked the web but could not find a usable source.");
             }
           } catch (err) {
             if (err instanceof Error && err.message !== "Stream interrupted") throw err;
           }
         };
-
         for (;;) {
           const { done, value } = await reader.read();
           if (done) break;
@@ -234,16 +278,10 @@ export default function HomePage() {
           for (const line of lines) await flushLine(line);
         }
         if (buffer.trim()) await flushLine(buffer);
-
-        if (!full.trim() && !sawError) {
-          await setMessageError(assistantMsg.id, "Mino returned an empty response. Try again.");
-        }
+        if (!full.trim() && !sawError) await setMessageError(assistantMsg.id, "Mino returned an empty response. Try again.");
       } catch (err) {
         const aborted = err instanceof DOMException && err.name === "AbortError";
-        if (!aborted) {
-          const message = err instanceof Error ? err.message : "Something went wrong";
-          await setMessageError(assistantMsg.id, message);
-        }
+        if (!aborted) await setMessageError(assistantMsg.id, err instanceof Error ? err.message : "Something went wrong");
         if (aborted) {
           const msg = await db.messages.get(assistantMsg.id);
           if (msg && !msg.content) await db.messages.delete(assistantMsg.id);
@@ -253,8 +291,26 @@ export default function HomePage() {
         abortRef.current = null;
       }
     },
-    [activeChatId, searchMode, selectedMode, streamingId]
+    [activeChatId, customInstructions, responseLength, searchMode, selectedMode, streamingId]
   );
+
+  const handleRegenerate = useCallback((assistantId: string) => {
+    void sendMessage("", [], [], { regenerateAssistantId: assistantId });
+  }, [sendMessage]);
+
+  const handleEditMessage = useCallback((messageId: string, content: string) => {
+    void sendMessage(content, [], [], { editMessageId: messageId });
+  }, [sendMessage]);
+
+  const handleCopyConversation = useCallback(async () => {
+    const text = messages.map((message) => `${message.role === "user" ? "You" : "Mino"}: ${message.content}`).join("\n\n");
+    try {
+      await navigator.clipboard.writeText(text);
+      setModelNotice("Conversation copied to your clipboard");
+    } catch {
+      setModelNotice("Clipboard access is unavailable in this browser");
+    }
+  }, [messages]);
 
   const isStreaming = streamingId !== null;
   const visibleMessages = messages.filter((m) => m.content || m.images || m.error);
@@ -294,6 +350,11 @@ export default function HomePage() {
           </button>
 
           <div className="flex-1" />
+          {firebaseConfigured && (
+            <span className="hidden text-[10px] text-white/25 sm:inline" title="Optional anonymous Firebase history sync">
+              {historyStatus === "syncing" ? "Syncing history…" : historyStatus === "error" ? "History sync unavailable" : historyStatus === "synced" ? "History synced" : "Local history"}
+            </span>
+          )}
           <ModeSelector selected={selectedMode} onChange={handleModeChange} available={available} />
         </header>
 
@@ -313,6 +374,9 @@ export default function HomePage() {
             streamingId={streamingId}
             isEmpty={visibleMessages.length === 0}
             suggestedMode={hydrated ? selectedMode : DEFAULT_MODE_ID}
+            onRegenerate={handleRegenerate}
+            onEditMessage={handleEditMessage}
+            onCopyConversation={handleCopyConversation}
           />
           <ChatInput
             onSend={sendMessage}
@@ -321,6 +385,12 @@ export default function HomePage() {
             searchMode={searchMode}
             onSearchModeChange={setSearchMode}
             searchAvailable={searchAvailable}
+            responseLength={responseLength}
+            onResponseLengthChange={handleResponseLengthChange}
+            customInstructions={customInstructions}
+            onCustomInstructionsChange={handleCustomInstructionsChange}
+            appearance={appearance}
+            onAppearanceChange={handleAppearanceChange}
           />
         </div>
       </main>

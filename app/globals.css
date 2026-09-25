@@ -16,6 +16,30 @@
   --accent: #7c7cf4;
 }
 
+html.light {
+  color-scheme: light;
+  --bg: #f6f6fa;
+  --bg-raised: #ffffff;
+  --bg-hover: #eeeef5;
+  --line: rgba(25, 25, 35, 0.1);
+  --line-strong: rgba(25, 25, 35, 0.16);
+  --text-hi: #18181b;
+  --text: #3f3f46;
+  --text-mid: #71717a;
+  --text-low: #a1a1aa;
+  --accent: #6758d8;
+}
+
+html.light body { background: var(--bg); }
+html.light .app-surface { background: linear-gradient(180deg, #fbfbfe 0%, #f5f5fb 55%, #eef1ff 100%); }
+html.light .surface-glow { background: radial-gradient(circle at 50% 42%, rgba(124, 124, 244, 0.1), transparent 30%), radial-gradient(ellipse 70% 30% at 50% 100%, rgba(124, 124, 244, 0.1), transparent 72%); }
+html.light aside { background: #fbfbff !important; }
+html.light .text-white { color: #18181b !important; }
+html.light [class*="text-white/"] { color: rgba(63, 63, 70, 0.78) !important; }
+html.light [class*="bg-white/"] { background-color: rgba(35, 35, 55, 0.055) !important; }
+html.light [class*="border-white/"] { border-color: rgba(25, 25, 35, 0.12) !important; }
+html.light [class*="bg-black/"] { background-color: rgba(25, 25, 35, 0.06) !important; }
+
 html,
 body {
   height: 100%;

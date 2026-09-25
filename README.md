@@ -1,12 +1,12 @@
 # Mino
 
-A private, local-first AI assistant by **Minetallest**. Multi-model chat with vision, streaming responses, and markdown rendering — all chat data lives in your browser (IndexedDB), never on a server.
+A private, local-first AI assistant by **Minetallest**. Multi-model chat with vision, streaming responses, markdown rendering, optional anonymous cloud history, and no account required.
 
 Built with **Next.js 14 (App Router)**, **TypeScript**, **Tailwind CSS**, and **Dexie.js**.
 
 ## Features
 
-- **Zero-login persistence** — chats, messages, and image attachments are stored client-side in IndexedDB via Dexie (no 5MB localStorage quota issues)
+- **Zero-login persistence** — chats, messages, and image attachments are stored client-side in IndexedDB via Dexie; Firebase sync is optional and uses an anonymous Firebase identity, not a user account
 - **Two modes** — **Mino Auto** routes every message to the best available model; **Mino Dev** uses Mino 3.8, tuned for code and technical work. Each mode is powered by its own server-side API key, with automatic fallback if one is missing.
 - **Secure API keys** — keys are only ever read server-side in the `/api/chat` Route Handler
 - **Strict persona** — the Mino system prompt is prepended server-side to *every* completion request; the client cannot bypass it
@@ -14,7 +14,7 @@ Built with **Next.js 14 (App Router)**, **TypeScript**, **Tailwind CSS**, and **
 - **Streaming** — real-time word-by-word responses over Server-Sent Events
 - **Web search** — Mino stays off for general knowledge questions and searches when you explicitly request it or say an answer may be wrong, with source links shown in the response; the composer supports Auto, On, and Off modes
 - **Markdown + code** — syntax-highlighted code blocks (Prism) with per-block copy button
-- **Chat management** — sidebar history, auto-titled chats, JSON backup export/import, clear-all-data
+- **Chat management** — pin and rename chats, retry/edit-and-resend, copy chats, source history, quick prompt presets, response-length control, custom instructions, voice input, and text/code file attachments
 
 ## Getting started
 
@@ -37,6 +37,19 @@ Set either (or both) via `process.env` — locally in `.env.local`, or in Vercel
 | `GEMINI_API_KEY` | **Mino Dev** | Mino 3.8 model access via the compatible endpoint |
 | `TAVILY_API_KEY` | **Web search** | Enables explicit web research and source links |
 
+### Optional Firebase history
+
+Mino remains fully local-first without Firebase. To sync chat text and metadata for an anonymous device identity:
+
+1. Create a Firebase project, enable Firestore, and enable **Anonymous** under Authentication → Sign-in method.
+2. Add a Web app in Firebase and provide these variables in the Freebuff Keys/API keys UI or your deployment environment:
+
+`NEXT_PUBLIC_FIREBASE_API_KEY`, `NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN`, `NEXT_PUBLIC_FIREBASE_PROJECT_ID`, `NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET`, `NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID`, `NEXT_PUBLIC_FIREBASE_APP_ID`
+
+3. Deploy `firestore.rules` with the Firebase CLI. The rules allow each anonymous Firebase user to access only that user’s chat documents.
+
+The browser creates a hidden anonymous Firebase session and syncs chat titles, text, model metadata, and sources. Images and document contents stay in the local Dexie cache because base64 image payloads can exceed Firestore’s document limit. Clearing local data does not delete the remote anonymous history; use the Firebase console if you need to remove it.
+
 Get keys from the providers linked in your deployment environment. The product UI always identifies models as Mino Auto or Mino 3.8.
 
 Resilience behavior:
@@ -48,7 +61,7 @@ Resilience behavior:
 
 ## Deploying to Vercel
 
-No database or runtime configuration needed — push the repo to Vercel and add the environment variables listed above (one is enough). `/api/chat` runs as a Node.js Route Handler; the rest is static.
+No database is required for local-only use. To enable optional history sync, add the Firebase variables above and deploy the included `firestore.rules`. `/api/chat` remains a Node.js Route Handler; Firebase is initialized only in the browser when configured.
 
 ## Project structure
 
@@ -74,4 +87,4 @@ lib/
 
 ## Privacy
 
-All conversations and attachments are stored exclusively in your browser's IndexedDB. Nothing is persisted server-side; only the current request payload is proxied to the selected route. When web search is enabled, the current question is sent to the search service to retrieve source context for that request.
+Conversations and attachments are stored locally in IndexedDB. If Firebase history is configured, chat text and metadata are also synced to the signed-in anonymous device identity; no account or email is required. When web search is enabled, the current question is sent to the search service to retrieve source context for that request.
