@@ -6,7 +6,7 @@ Built with **Next.js 14 (App Router)**, **TypeScript**, **Tailwind CSS**, and **
 
 ## Features
 
-- **Zero-login persistence** — chats and messages are cached in IndexedDB via Dexie and automatically synchronized to the signed-in anonymous Firebase identity when Firebase is configured; no user account is required
+- **Zero-login persistence** — chats and messages load only from the current browser’s IndexedDB via Dexie; Firebase Realtime Database is used only to log chat text under the anonymous user identity
 - **Two modes** — **Mino Auto** routes every message to the best available model; **Mino Dev** uses Mino 3.8, tuned for code and technical work. Each mode is powered by its own server-side API key, with automatic fallback if one is missing.
 - **Secure API keys** — keys are only ever read server-side in the `/api/chat` Route Handler
 - **Strict persona** — the Mino system prompt is prepended server-side to *every* completion request; the client cannot bypass it
@@ -37,20 +37,20 @@ Set either (or both) via `process.env` — locally in `.env.local`, or in Vercel
 | `GEMINI_API_KEY` | **Mino Dev** | Mino 3.8 model access via the compatible endpoint |
 | `TAVILY_API_KEY` | **Web search** | Enables explicit web research and source links |
 
-### Automatic Firebase history
+### Automatic Firebase logging
 
-When Firebase is configured, Mino automatically signs in with a hidden anonymous identity and syncs every chat to that identity’s Firestore namespace. There is no in-app opt-out. The local Dexie cache remains the fast/offline UI source, while Firestore realtime listeners restore the same user’s chats and messages from the database. Without Firebase configuration, Mino still works local-only.
+When Firebase is configured, Mino automatically signs in with a hidden anonymous identity and logs local chat text to that identity’s Realtime Database namespace. Previous chats are loaded only from the current browser’s local Dexie database; Mino never reads chat history back from Firebase. The Realtime Database rules are write-only, so the client cannot read another user’s logs or use the database as chat history.
 
-To enable automatic sync:
+To enable automatic logging:
 
-1. Create a Firebase project, enable Firestore, and enable **Anonymous** under Authentication → Sign-in method.
+1. Create a Firebase project, create a **Realtime Database**, and enable **Anonymous** under Authentication → Sign-in method.
 2. Add a Web app in Firebase and provide these variables in the Freebuff Keys/API keys UI or your deployment environment:
 
-`NEXT_PUBLIC_FIREBASE_API_KEY`, `NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN`, `NEXT_PUBLIC_FIREBASE_PROJECT_ID`, `NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET`, `NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID`, `NEXT_PUBLIC_FIREBASE_APP_ID`
+`NEXT_PUBLIC_FIREBASE_API_KEY`, `NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN`, `NEXT_PUBLIC_FIREBASE_DATABASE_URL`, `NEXT_PUBLIC_FIREBASE_PROJECT_ID`, `NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET`, `NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID`, `NEXT_PUBLIC_FIREBASE_APP_ID`
 
-3. Deploy `firestore.rules` with the Firebase CLI. The rules allow each anonymous Firebase user to access only that user’s chat documents.
+3. In Firebase Console → Realtime Database → Rules, paste the contents of `database.rules.json` and publish. You do not need the Firebase CLI or an Admin SDK/private key. The rules deny all database reads and allow writes only under the signed-in anonymous user’s UID.
 
-The browser creates a hidden anonymous Firebase session and syncs chat titles, text, model metadata, and sources. Images and document contents stay in the local Dexie cache because base64 image payloads can exceed Firestore’s document limit. Clearing local data does not delete the remote anonymous history; use the Firebase console if you need to remove it.
+The browser creates a hidden anonymous Firebase session and logs chat titles, text, model metadata, and sources. Images and document contents stay in the local Dexie cache because base64 image payloads can make database writes unnecessarily large. Clearing local data does not load or restore chats from the database; use the Firebase console if you need to remove logged data.
 
 Get keys from the providers linked in your deployment environment. The product UI always identifies models as Mino Auto or Mino 3.8.
 
@@ -63,7 +63,7 @@ Resilience behavior:
 
 ## Deploying to Vercel
 
-Add the Firebase variables above and deploy the included `firestore.rules` to enable automatic history sync. `/api/chat` remains a Node.js Route Handler; Firebase is initialized only in the browser when configured. If Firebase is not configured, the app remains local-only.
+Add the Firebase variables above and paste `database.rules.json` into the Firebase Realtime Database Rules editor to enable automatic logging. `/api/chat` remains a Node.js Route Handler; Firebase is initialized only in the browser when configured. If Firebase is not configured, the app remains local-only.
 
 ## Project structure
 
@@ -84,11 +84,12 @@ lib/
   imageUtils.ts        # Canvas compression (1024px, JPEG q0.8)
   models.ts            # Model catalog + token estimator
   webSearch.ts         # Server-side current-web search and source formatting
-  firebaseHistory.ts   # Automatic anonymous Firebase history sync and realtime restore
+  firebaseHistory.ts   # Anonymous write-only Firebase chat logging
   settings.ts           # Local response, instruction, and appearance preferences
   types.ts             # Shared TypeScript types
+database.rules.json    # Realtime Database rules for anonymous-user isolation
 ```
 
 ## Privacy
 
-Conversations and attachments are stored locally in IndexedDB. If Firebase history is configured, chat text and metadata are also synced to the signed-in anonymous device identity; no account or email is required. When web search is enabled, the current question is sent to the search service to retrieve source context for that request.
+Conversations and attachments are loaded only from the current browser’s IndexedDB. If Firebase logging is configured, chat text and metadata are also written to the signed-in anonymous device identity, but the database is not read by the app. No account or email is required. When web search is enabled, the current question is sent to the search service to retrieve source context for that request.

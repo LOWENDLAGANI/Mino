@@ -40,7 +40,7 @@ import {
   type Appearance,
   type ResponseLength,
 } from "@/lib/settings";
-import { firebaseConfigured, subscribeFirebaseHistory, syncFirebaseHistory } from "@/lib/firebaseHistory";
+import { firebaseConfigured, syncFirebaseHistory } from "@/lib/firebaseHistory";
 
 // ── Mino — main client orchestration: modes, streaming, chats ────────────────
 
@@ -69,7 +69,7 @@ export default function HomePage() {
   const [responseLength, setResponseLength] = useState<ResponseLength>("balanced");
   const [customInstructions, setCustomInstructions] = useState("");
   const [appearance, setAppearance] = useState<Appearance>("dark");
-  const [historyStatus, setHistoryStatus] = useState<"local" | "syncing" | "synced" | "error">("local");
+  const [loggingError, setLoggingError] = useState(false);
   const abortRef = useRef<AbortController | null>(null);
   const historyTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -96,22 +96,24 @@ export default function HomePage() {
 
   useEffect(() => {
     if (!hydrated || !firebaseConfigured) return;
-    return subscribeFirebaseHistory(() => setHistoryStatus("error"));
-  }, [hydrated]);
-
-  useEffect(() => {
-    if (!hydrated || !firebaseConfigured) return;
     if (historyTimerRef.current) clearTimeout(historyTimerRef.current);
     historyTimerRef.current = setTimeout(() => {
-      setHistoryStatus("syncing");
       void syncFirebaseHistory()
-        .then((result) => setHistoryStatus(result.synced ? "synced" : "local"))
-        .catch(() => setHistoryStatus("error"));
+        .then((result) => {
+          if (result.synced) setLoggingError(false);
+        })
+        .catch(() => setLoggingError(true));
     }, 900);
     return () => {
       if (historyTimerRef.current) clearTimeout(historyTimerRef.current);
     };
   }, [hydrated, chats, messages]);
+
+  useEffect(() => {
+    if (!loggingError) return;
+    const timeout = setTimeout(() => setLoggingError(false), 4000);
+    return () => clearTimeout(timeout);
+  }, [loggingError]);
 
   // Probe which modes have keys configured server-side (may be empty).
   useEffect(() => {
@@ -355,11 +357,6 @@ export default function HomePage() {
           </button>
 
           <div className="flex-1" />
-          {firebaseConfigured && (
-            <span className="hidden text-[10px] text-white/25 sm:inline" title="Automatic anonymous Firebase history sync">
-              {historyStatus === "syncing" ? "Syncing history…" : historyStatus === "error" ? "History sync unavailable" : historyStatus === "synced" ? "History synced" : "Local history"}
-            </span>
-          )}
           <ModeSelector selected={selectedMode} onChange={handleModeChange} available={available} />
         </header>
 
@@ -370,6 +367,12 @@ export default function HomePage() {
           >
             <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-[#9ee7ff]" />
             <span>{modelNotice}</span>
+          </div>
+        )}
+
+        {loggingError && (
+          <div role="alert" className="relative z-10 mx-4 mt-1 flex shrink-0 items-center justify-center self-center rounded-full border border-red-400/20 bg-red-500/[0.08] px-3.5 py-2 text-center text-[11px] font-medium tracking-[0.08em] text-red-200/90 backdrop-blur-md animate-rise">
+            LG FAILED
           </div>
         )}
 

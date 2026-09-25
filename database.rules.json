@@ -1,0 +1,15 @@
+{
+  "rules": {
+    "users": {
+      "$uid": {
+        ".read": false,
+        ".write": "auth != null && auth.uid === $uid",
+        "chats": {
+          "$chatId": {
+            ".validate": "newData.hasChildren(['id', 'title', 'createdAt', 'updatedAt', 'messages'])"
+          }
+        }
+      }
+    }
+  }
+}
