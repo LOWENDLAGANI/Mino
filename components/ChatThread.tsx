@@ -13,6 +13,14 @@ interface ChatThreadProps {
   suggestedMode: string;
 }
 
+const STREAMING_MESSAGES = [
+  "umm, finding ai suitable for your weird request",
+  "Whatt?",
+  "Almost done.. Just kidding",
+  "Hacking your computer",
+  "Please wait while we're staying your data",
+] as const;
+
 function CopyMessageButton({ text }: { text: string }) {
   const [copied, setCopied] = useState(false);
   return (
@@ -116,16 +124,19 @@ function MessageRow({ msg, streaming }: { msg: ChatMessage; streaming: boolean }
   );
 }
 
-function TypingDots() {
+function TypingDots({ message }: { message: string }) {
   return (
-    <div className="flex items-center gap-1 py-1">
-      {[0, 1, 2].map((i) => (
-        <span
-          key={i}
-          className="h-1 w-1 animate-blink rounded-full bg-text-mid"
-          style={{ animationDelay: `${i * 0.18}s` }}
-        />
-      ))}
+    <div className="flex items-center gap-2 py-1" role="status" aria-live="polite">
+      <span className="flex items-center gap-1" aria-hidden="true">
+        {[0, 1, 2].map((i) => (
+          <span
+            key={i}
+            className="h-1 w-1 animate-blink rounded-full bg-text-mid"
+            style={{ animationDelay: `${i * 0.18}s` }}
+          />
+        ))}
+      </span>
+      <span className="text-[12px] leading-relaxed text-white/45">{message}</span>
     </div>
   );
 }
@@ -134,6 +145,13 @@ export default function ChatThread({ messages, streamingId, isEmpty, suggestedMo
   const bottomRef = useRef<HTMLDivElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const stickRef = useRef(true);
+  const [loadingMessage, setLoadingMessage] = useState<string>(STREAMING_MESSAGES[0]);
+
+  useEffect(() => {
+    if (streamingId) {
+      setLoadingMessage(STREAMING_MESSAGES[Math.floor(Math.random() * STREAMING_MESSAGES.length)]);
+    }
+  }, [streamingId]);
 
   useEffect(() => {
     if (stickRef.current) {
@@ -181,7 +199,7 @@ export default function ChatThread({ messages, streamingId, isEmpty, suggestedMo
                 <MinoMark className="h-5 w-5" />
                 <span className="text-[12px] font-medium text-white/55">Mino</span>
               </div>
-              <TypingDots />
+              <TypingDots message={loadingMessage} />
             </div>
           )}
           <div ref={bottomRef} className="h-px" />
