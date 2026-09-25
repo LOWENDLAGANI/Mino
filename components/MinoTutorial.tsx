@@ -12,7 +12,7 @@ type TutorialTarget =
   | "sidebar-recent"
   | "sidebar-data"
   | "model-selector"
-  | "search-toggle"
+  | "gallery-button"
   | "composer";
 
 interface TutorialStep {
@@ -44,10 +44,10 @@ const STEPS: TutorialStep[] = [
     body: "Use the model menu in the top bar. Mino Auto chooses the best available model for each prompt, while Mino Dev is tuned for code and technical work. Your choice is remembered on this device.",
   },
   {
-    target: "search-toggle",
-    eyebrow: "04 · Stay current",
-    title: "Let Mino check the web",
-    body: "Web search stays quiet for general knowledge questions. Mino searches only when you explicitly ask for web research, or when you say the previous answer may be wrong, outdated, or confusing. You can also force it on for every message, or turn it off completely.",
+    target: "gallery-button",
+    eyebrow: "04 · Add your tools",
+    title: "Everything useful, one tap away",
+    body: "Open this compact tools menu to attach images from your Gallery or choose how Mino handles web search. Auto stays quiet for general knowledge questions, while On and Off give you direct control.",
   },
   {
     target: "mobile-menu",
