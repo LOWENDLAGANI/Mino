@@ -12,7 +12,7 @@ Built with **Next.js 14 (App Router)**, **TypeScript**, **Tailwind CSS**, and **
 - **Strict persona** — the Mino system prompt is prepended server-side to *every* completion request; the client cannot bypass it
 - **Multimodal** — attach images via file picker, drag-and-drop, or clipboard paste; compressed client-side on `<canvas>` (max 1024px, JPEG q0.8) before upload
 - **Streaming** — real-time word-by-word responses over Server-Sent Events
-- **Web search** — Mino can automatically search for current or time-sensitive answers, with source links shown in the response; the composer also supports Auto, On, and Off modes
+- **Web search** — Mino stays off for general knowledge questions and searches when you explicitly request it or say an answer may be wrong, with source links shown in the response; the composer supports Auto, On, and Off modes
 - **Markdown + code** — syntax-highlighted code blocks (Prism) with per-block copy button
 - **Chat management** — sidebar history, auto-titled chats, JSON backup export/import, clear-all-data
 
@@ -35,7 +35,7 @@ Set either (or both) via `process.env` — locally in `.env.local`, or in Vercel
 |---|---|---|
 | `OPENROUTER_API_KEY` | **Mino Auto** | Universal routing that picks the best available model per message |
 | `GEMINI_API_KEY` | **Mino Dev** | Mino 3.8 model access via the compatible endpoint |
-| `TAVILY_API_KEY` | **Web search** | Enables automatic current-web search and source links |
+| `TAVILY_API_KEY` | **Web search** | Enables explicit web research and source links |
 
 Get keys from the providers linked in your deployment environment. The product UI always identifies models as Mino Auto or Mino 3.8.
 

@@ -162,7 +162,7 @@ export default function ChatInput({
 
         {/* Search mode */}
         <div className="mb-2 flex items-center justify-between gap-3 px-1">
-          <span className="text-[10px] text-white/25">Mino can check the web when a question needs current facts.</span>
+          <span className="text-[10px] text-white/25">Web search runs only when you ask for it or say the answer may be wrong.</span>
           <button
             type="button"
             onClick={cycleSearchMode}

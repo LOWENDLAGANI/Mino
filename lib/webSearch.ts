@@ -3,12 +3,13 @@ import type { SearchMode, SearchSource } from "./types";
 const SEARCH_RESULT_LIMIT = 5;
 const SEARCH_SNIPPET_LIMIT = 700;
 
-const CURRENT_WEB_PATTERNS = [
-  /\b(latest|current|currently|today|tonight|tomorrow|yesterday|recent|recently|newest|this week|this month|this year)\b/i,
-  /\b(news|weather|forecast|temperature|exchange rate|stock price|market price|score|standings|election|president|prime minister)\b/i,
-  /\b(what happened|who won|release date|released|version|update|availability|available now|price|cost|hours|opening hours)\b/i,
-  /\b(search|look up|find online|on the web|according to|source|sources|cite|verify|fact check|fact-check)\b/i,
-  /\b(outdated|up to date|up-to-date|are you sure|you are confused|you're confused|i don't know|do you know|that's wrong|you are wrong)\b/i,
+const EXPLICIT_WEB_SEARCH_PATTERNS = [
+  /\b(search|look up|find|browse|google)\b.{0,24}\b(web|internet|online|sources?)\b/i,
+  /\b(search this|search for|look this up|look up|web search|search online|check online|verify (?:this|that|it) (?:online|with sources?)|fact[- ]check)\b/i,
+];
+
+const CONFUSION_FOLLOW_UP_PATTERNS = [
+  /\b(are you sure|you(?:'re| are) (?:confused|wrong|incorrect)|you got (?:it )?wrong|that(?:'s| is) (?:wrong|incorrect|outdated)|your answer is wrong|check your answer)\b/i,
 ];
 
 interface TavilySearchResult {
@@ -25,7 +26,7 @@ interface TavilySearchResponse {
 export function shouldUseWebSearch(query: string, mode: SearchMode): boolean {
   if (mode === "off" || !query.trim()) return false;
   if (mode === "always") return true;
-  return CURRENT_WEB_PATTERNS.some((pattern) => pattern.test(query));
+  return [...EXPLICIT_WEB_SEARCH_PATTERNS, ...CONFUSION_FOLLOW_UP_PATTERNS].some((pattern) => pattern.test(query));
 }
 
 function cleanText(value: string | null | undefined, maxLength: number): string {

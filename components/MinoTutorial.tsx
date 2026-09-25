@@ -47,7 +47,7 @@ const STEPS: TutorialStep[] = [
     target: "search-toggle",
     eyebrow: "04 · Stay current",
     title: "Let Mino check the web",
-    body: "Web search is automatic by default for current, time-sensitive, or uncertain questions. You can also force it on for every message, or turn it off when you want Mino to work only from the conversation.",
+    body: "Web search stays quiet for general knowledge questions. Mino searches only when you explicitly ask for web research, or when you say the previous answer may be wrong, outdated, or confusing. You can also force it on for every message, or turn it off completely.",
   },
   {
     target: "mobile-menu",
