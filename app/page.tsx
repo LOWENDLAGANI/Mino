@@ -100,6 +100,14 @@ export default function HomePage() {
     const savedName = loadDisplayName();
     setDisplayName(savedName);
     setHydrated(true);
+    // Refresh last-seen on every return visit so the console's visitor list
+    // stays live. On a first visit there is nothing to refresh yet — the name
+    // screen does that write.
+    if (savedName) {
+      void syncVisitorProfile(savedName).catch((error: unknown) => {
+        console.error("[Mino] Could not log the visitor name", error);
+      });
+    }
   }, []);
 
   useEffect(() => {

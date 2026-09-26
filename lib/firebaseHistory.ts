@@ -8,6 +8,7 @@ import {
   type Database,
 } from "firebase/database";
 import { db } from "./db";
+import { firstSeen } from "./visitorName";
 import type { Chat, ChatMessage } from "./types";
 
 const config = {
@@ -115,6 +116,11 @@ export interface VisitorProfile {
  *
  * Only the name and two timestamps are written — never message content, which
  * stays in the write-only `users/$uid/chats` namespace.
+ *
+ * This must never read first. The rules grant a visitor `.write` on their own
+ * registry node but no `.read` anywhere, so a read here is refused by Firebase
+ * and the write behind it would never run. `firstSeen` therefore comes from
+ * this browser instead of from the database.
  */
 export async function syncVisitorProfile(name: string): Promise<void> {
   const trimmed = name.trim().slice(0, 40);
@@ -122,13 +128,9 @@ export async function syncVisitorProfile(name: string): Promise<void> {
   const current = await getServices();
   if (!current) return;
 
-  const profileRef = ref(current.database, `admin/registry/${current.user.uid}`);
-  const existing = await get(profileRef);
-  const previous = existing.val() as Partial<VisitorProfile> | null;
-
-  await set(profileRef, {
+  await set(ref(current.database, `admin/registry/${current.user.uid}`), {
     name: trimmed,
-    firstSeen: typeof previous?.firstSeen === "number" ? previous.firstSeen : Date.now(),
+    firstSeen: firstSeen(),
     lastSeen: Date.now(),
   } satisfies VisitorProfile);
 }
