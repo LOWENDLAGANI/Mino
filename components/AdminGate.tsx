@@ -3,7 +3,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { onAuthStateChanged } from "firebase/auth";
 import {
-  currentUid,
   signInAsAdmin,
   signOutAdmin,
   verifyAdminAccess,
@@ -100,9 +99,12 @@ export default function AdminGate({ open, onClose, onUnlocked }: AdminGateProps)
 
   /** Shown when the account is signed in but the rules refuse it. */
   const denied = useCallback(async () => {
-    const uid = await currentUid();
+    const services = await getServices();
+    const email = services?.auth.currentUser?.email;
     setError(
-      `Signed in as ${uid ?? "an unknown account"}, which the database rules do not list as the administrator. Add that UID to ADMIN_UID in database.rules.json, publish, and try again.`
+      email
+        ? `Signed in as ${email}, which the database rules do not list as the administrator. Put that address in place of ADMIN_EMAIL in database.rules.json, publish, and try again.`
+        : "The database rules do not list this account as the administrator. Check that ADMIN_EMAIL in database.rules.json matches the Google address you signed in with."
     );
   }, []);
 
@@ -150,7 +152,7 @@ export default function AdminGate({ open, onClose, onUnlocked }: AdminGateProps)
           <div className="mt-2 space-y-2 text-[13px] text-white/60">
             <p>That account is signed in, but the database rules do not list it as the administrator.</p>
             <p className="text-[12px] text-white/45">
-              Your UID appears in the Firebase console under Authentication → Users.
+              The administrator is named by email address in database.rules.json.
             </p>
             <div className="flex gap-2">
               <button
@@ -158,7 +160,7 @@ export default function AdminGate({ open, onClose, onUnlocked }: AdminGateProps)
                 onClick={() => void denied()}
                 className="flex-1 rounded-xl border border-white/[0.09] py-2 text-[13px] text-white/70 transition hover:bg-white/[0.06]"
               >
-                Show my UID
+                Show my email
               </button>
               <button
                 type="button"
