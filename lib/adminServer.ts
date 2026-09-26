@@ -29,9 +29,11 @@ export function adminConfigured(): boolean {
 
 export interface PrivateKeyShape {
   present: boolean;
-  /** Characters of base64 in the body, excluding markers and whitespace. */
+  /** Base64 characters in the body, excluding markers, whitespace and padding. */
   bodyLength: number;
-  /** True when the body contains only base64 characters and pads correctly. */
+  /** '=' padding characters that were stored (0 when a paste lost them). */
+  paddingChars: number;
+  /** True when the body contains only base64 characters. */
   base64Valid: boolean;
   /** First byte of the decoded DER, hex. A PKCS#8 key starts SEQUENCE (30). */
   derPrefix: string | null;
@@ -42,6 +44,25 @@ export interface PrivateKeyShape {
 
 /** PKCS#8 RSA-2048 keys are around 1600 base64 characters. Informational only. */
 const TYPICAL_BODY_LENGTH = [1500, 1750];
+
+/**
+ * The base64 payload of a PEM block: markers, line breaks, escapes and padding
+ * removed. This is the single definition of "the body" — diagnostics and the
+ * rebuilder both use it, so a key can never measure one way and be rebuilt
+ * another.
+ */
+function base64Body(raw: string): string {
+  return extractBody(firstPemBlock(raw)).replace(/[^A-Za-z0-9+/]/g, "");
+}
+
+/**
+ * A value pasted twice contains two complete PEM blocks. Take the first one
+ * rather than concatenating both: the trailing copy is dead weight that
+ * OpenSSL would decode straight past without complaint.
+ */
+function firstPemBlock(raw: string): string {
+  return raw.match(/-----BEGIN [A-Z ]+-----([\s\S]*?)-----END [A-Z ]+-----/)?.[1] ?? raw;
+}
 
 function extractBody(raw: string): string {
   let value = raw.trim();
@@ -55,13 +76,14 @@ function extractBody(raw: string): string {
 /** Describes the key without revealing any of it. */
 export function privateKeyShape(): PrivateKeyShape {
   const raw = process.env.FIREBASE_ADMIN_PRIVATE_KEY ?? "";
-  const body = extractBody(raw).replace(/[^A-Za-z0-9+/=]/g, "");
+  const body = base64Body(raw);
   const headerCount = (raw.match(/-----BEGIN PRIVATE KEY-----/g) ?? []).length;
 
   const shape: PrivateKeyShape = {
     present: raw.trim().length > 0,
     bodyLength: body.length,
-    base64Valid: body.length > 0 && body.length % 4 === 0 && /^[A-Za-z0-9+/]+={0,2}$/.test(body),
+    paddingChars: (extractBody(firstPemBlock(raw)).match(/=+$/)?.[0].length ?? 0),
+    base64Valid: body.length > 0,
     derPrefix: null,
     headerCount,
     describe: "",
@@ -88,25 +110,20 @@ export function privateKeyShape(): PrivateKeyShape {
   } catch {
     shape.derPrefix = null;
   }
-  if (!shape.base64Valid) {
-    shape.describe = `the base64 body is corrupt (${body.length} characters, not a valid multiple of 4)`;
-    return shape;
-  }
-  if (shape.derPrefix !== "3082") {
-    shape.describe = `the body decodes to ${shape.derPrefix}, not a DER SEQUENCE (3082) — this is not a private key`;
-    return shape;
-  }
 
-  // Ground truth: try the same parse the Admin SDK will do.
+  // Ground truth: try the same parse the Admin SDK will do, on the same rebuilt
+  // PEM. A length that is not a multiple of 4 is NOT by itself an error — the
+  // final base64 quantum is short precisely when the DER ends in 1 or 2 bytes —
+  // so only the real parse decides whether the key is usable.
   try {
     createPrivateKey({ key: normalizePrivateKey(raw), format: "pem" });
     shape.describe = "well formed";
   } catch (error) {
-    const detail = error instanceof Error ? error.message : String(error);
+    const detail = (error instanceof Error ? error.message : String(error)).split("\n")[0] ?? "";
     shape.describe =
       body.length < TYPICAL_BODY_LENGTH[0] || body.length > TYPICAL_BODY_LENGTH[1]
-        ? `the key does not parse and is ${body.length} characters, outside the usual 1500–1750 — it is truncated or doubled`
-        : `the key does not parse: ${detail}`;
+        ? `the key does not parse and its body is ${body.length} characters, outside the usual 1500–1750 — it is truncated or doubled`
+        : `the stored key is damaged: its body is ${body.length} base64 characters, but a service-account key is 1620–1628. Re-copy the private_key field from the JSON. (${detail})`;
   }
   return shape;
 }
@@ -118,13 +135,22 @@ export function privateKeyShape(): PrivateKeyShape {
  * breaks are dropped, the JSON-escaped `\n` form is stored literally, quotes
  * come along, or the value is pasted twice. Every one of those produces "Failed
  * to parse private key". The base64 body is unpacked — any non-base64
- * character discarded — and re-wrapped at the conventional 64 characters, which
- * every PEM parser accepts.
+ * character discarded — and re-wrapped at the conventional 64 characters.
+ *
+ * The trailing `=` padding is load-bearing and must survive. A service-account
+ * key is a DER structure whose length is not always a multiple of 3, so its
+ * base64 body almost always ends in `==`; OpenSSL's PEM decoder rejects a body
+ * whose last quantum is missing that padding, even though the key is otherwise
+ * perfect. Padding is therefore re-derived from the body length rather than
+ * stripped, which both preserves a padding that arrived intact and restores one
+ * that a paste lost.
  */
 export function normalizePrivateKey(raw: string): string {
-  const body = extractBody(raw).replace(/[^A-Za-z0-9+/]/g, "");
+  const body = base64Body(raw);
   if (body.length === 0) return "";
-  const lines = body.match(/.{1,64}/g) ?? [];
+  const remainder = body.length % 4;
+  const padding = remainder === 2 ? "==" : remainder === 3 ? "=" : "";
+  const lines = (body + padding).match(/.{1,64}/g) ?? [];
   return `${["-----BEGIN PRIVATE KEY-----", ...lines, "-----END PRIVATE KEY-----\n"].join("\n")}`;
 }
 

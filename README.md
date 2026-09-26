@@ -76,7 +76,11 @@ The trade-off is that the Admin SDK needs a service account. Generate one at Fir
 | `FIREBASE_ADMIN_CLIENT_EMAIL` | the `client_email` field from the JSON |
 | `FIREBASE_ADMIN_PRIVATE_KEY` | the `private_key` field |
 
-Pasting a PEM key into a dashboard is easy to get wrong, and a mangled one fails as the opaque `Failed to parse private key`. The server therefore rebuilds the key before use — it strips any surrounding quotes, expands JSON-escaped `\n`, and re-wraps the base64 body at 64 characters — so a key whose line breaks were dropped on paste still works. If the console reports `privateKey: …` in its diagnostics, that line describes the shape it actually received without revealing the key.
+Pasting a PEM key into a dashboard is easy to get wrong, and a mangled one fails as the opaque `Failed to parse private key`. The server therefore rebuilds the key before use: it strips surrounding quotes, expands JSON-escaped `\n` and double-escaped `\\n`, takes only the first block if the value was pasted twice, and re-wraps the base64 body at 64 characters. A key whose line breaks were dropped on paste therefore still works.
+
+The trailing `=` padding is treated as part of the key rather than as decoration. A service-account key is a DER structure whose length is rarely a multiple of 3, so its base64 body nearly always ends in `==`, and OpenSSL rejects a PEM whose last quantum is missing that padding even when the key is otherwise perfect. The server keeps padding that arrived intact and re-derives it from the body length when a paste lost it, so a stored length that is not a multiple of 4 is not by itself an error.
+
+What the rebuilder cannot repair is real damage: a body whose length falls outside 1620–1628 has lost or gained base64 characters, and that key must be copied again from the JSON. If the console reports `privateKey: …` in its diagnostics, that line describes the shape it actually received without revealing the key.
 
 Until those are set, `/api/admin` returns a clear "not configured" message and the console shows that instead of data. The client-side PIN setup in `lib/adminPin.ts` is unaffected and still works.
 

@@ -72,7 +72,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json(
         {
           error: keyProblem
-            ? "The server could not read the Firebase service-account key. Re-paste FIREBASE_ADMIN_PRIVATE_KEY exactly as it appears in the JSON, including the -----BEGIN and -----END lines."
+            ? "The stored Firebase service-account key is damaged. The server repairs line breaks and padding automatically, so copy the private_key field from the JSON again, markers included."
             : "The server could not reach the Realtime Database with the Admin SDK.",
           diagnostics: verified.diagnostics,
         },

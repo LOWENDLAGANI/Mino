@@ -372,7 +372,20 @@ function DiagnosticsBlock({ diagnostics }: { diagnostics: Record<string, unknown
     <div className="mt-2 space-y-1 rounded-lg bg-black/30 px-2 py-2 font-mono text-[10px] text-red-200/70">
       {entries.map(([key, value]) => (
         <div key={key} className="break-all">
-          <span className="opacity-60">{key}:</span> {String(value)}
+          <span className="opacity-60">{key}:</span>{" "}
+          {typeof value === "object" && value !== null ? (
+            // Nested detail, e.g. the private-key shape. Stringifying it
+            // directly would print a useless "[object Object]".
+            <span>
+              {"{"}
+              {Object.entries(value as Record<string, unknown>)
+                .map(([k, v]) => `${k}: ${String(v)}`)
+                .join(", ")}
+              {"}"}
+            </span>
+          ) : (
+            String(value)
+          )}
         </div>
       ))}
     </div>
