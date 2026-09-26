@@ -53,6 +53,12 @@ function sanitizeSide(value: unknown, fallback: number): number {
 }
 
 function errorMessage(status: number, detail: string): string {
+  // Cloudflare answers 7000 for any path that matches no model, and reports it
+  // with a 400 rather than a 404. The usual causes are a wrong account ID or a
+  // model slug that was percent-encoded, so name them instead of echoing.
+  if (detail.includes("7000") || detail.toLowerCase().includes("no route for that uri")) {
+    return "Cloudflare does not recognise that image model for this account. Check `CLOUDFLARE_ACCOUNT_ID`, and make sure `CLOUDFLARE_API_TOKEN` belongs to the same account.";
+  }
   if (status === 401 || status === 403) {
     return "The Cloudflare API token was rejected. Check that `CLOUDFLARE_API_TOKEN` is valid and has the Workers AI read permission.";
   }
@@ -111,7 +117,12 @@ export async function POST(req: NextRequest): Promise<Response> {
   let response: Response;
   try {
     response = await fetch(
-      `https://api.cloudflare.com/client/v4/accounts/${encodeURIComponent(config.accountId)}/ai/run/${encodeURIComponent(model)}`,
+      // The model slug is part of the route, not a query value: its slashes
+      // must reach Cloudflare literally. Percent-encoding it yields
+      // "No route for that URI" (error 7000), because the encoded name
+      // matches no model. It is safe unescaped because ALLOWED_MODELS above
+      // is the only thing that can ever reach this line.
+      `https://api.cloudflare.com/client/v4/accounts/${encodeURIComponent(config.accountId)}/ai/run/${model}`,
       {
         method: "POST",
         headers: {
