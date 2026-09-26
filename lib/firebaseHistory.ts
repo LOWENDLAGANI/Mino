@@ -75,10 +75,12 @@ function serializableMessage(message: ChatMessage) {
  * to load previous chats back into the app.
  */
 export async function syncFirebaseHistory(): Promise<{ synced: boolean; reason?: string }> {
+  const localChats = await db.chats.toArray();
+  if (localChats.length === 0) return { synced: true, reason: "no-local-history" };
   const current = await getServices();
   if (!current) return { synced: false, reason: "not-configured" };
 
-  for (const chat of await db.chats.toArray()) {
+  for (const chat of localChats) {
     const messages = await db.messages.where("chatId").equals(chat.id).sortBy("createdAt");
     const nextMessages: Record<string, Record<string, unknown>> = {};
     for (const message of messages) nextMessages[message.id] = serializableMessage(message);

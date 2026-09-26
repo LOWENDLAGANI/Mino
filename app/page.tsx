@@ -102,7 +102,10 @@ export default function HomePage() {
         .then((result) => {
           if (result.synced) setLoggingError(false);
         })
-        .catch(() => setLoggingError(true));
+        .catch((error: unknown) => {
+          console.error("[Mino] Firebase logging failed", error);
+          setLoggingError(true);
+        });
     }, 900);
     return () => {
       if (historyTimerRef.current) clearTimeout(historyTimerRef.current);
