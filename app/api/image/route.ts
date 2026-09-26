@@ -1,4 +1,5 @@
 import { NextRequest } from "next/server";
+import { consumeUsage, readConfig, verifyCaller } from "@/lib/serverControl";
 
 // ── Mino image generation — Cloudflare Workers AI ───────────────────────────
 //   CLOUDFLARE_ACCOUNT_ID → Cloudflare account holding the Workers AI model
@@ -98,7 +99,8 @@ function errorMessage(status: number, detail: string): string {
 
 /** Reports whether image generation is configured, without exposing any value. */
 export async function GET(): Promise<Response> {
-  return Response.json({ available: imageConfig() !== null });
+  const controls = await readConfig();
+  return Response.json({ available: imageConfig() !== null && controls.imageEnabled });
 }
 
 export async function POST(req: NextRequest): Promise<Response> {
@@ -118,6 +120,30 @@ export async function POST(req: NextRequest): Promise<Response> {
     body = (await req.json()) as ImageRequestBody;
   } catch {
     return Response.json({ error: "Invalid JSON body" }, { status: 400 });
+  }
+
+  // Enforced here rather than in the client, so the image switch and the image
+  // cap hold even for a visitor running a modified bundle.
+  const authorization = req.headers.get("authorization");
+  const identity = await verifyCaller(authorization);
+  const controls = await readConfig();
+  if (!controls.imageEnabled) {
+    return Response.json({ error: "Image generation is turned off right now." }, { status: 503 });
+  }
+  if (identity && controls.bannedUids.includes(identity.uid)) {
+    return Response.json({ error: "This device is not allowed to use Mino." }, { status: 403 });
+  }
+  if (identity && controls.dailyImageCap > 0) {
+    const { used, allowed } = await consumeUsage(authorization, identity.uid, "image");
+    if (!allowed) {
+      return Response.json({ error: "Mino could not verify this device. Please try again shortly." }, { status: 403 });
+    }
+    if (used > controls.dailyImageCap) {
+      return Response.json(
+        { error: `Mino's daily limit of ${controls.dailyImageCap} images has been reached on this device. It resets tomorrow.` },
+        { status: 429 }
+      );
+    }
   }
 
   const prompt = typeof body.prompt === "string" ? body.prompt.trim() : "";

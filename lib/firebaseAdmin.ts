@@ -15,6 +15,7 @@
 import { GoogleAuthProvider, signInWithPopup, signOut } from "firebase/auth";
 import { get, ref, remove } from "firebase/database";
 import { firebaseConfigured, getServices } from "./firebaseHistory";
+import type { AppConfig } from "./appConfig";
 
 /**
  * The administrator is defined in exactly one place: the `ADMIN_UID` inside
@@ -225,4 +226,29 @@ export async function wipeUser(uid: string): Promise<void> {
 export async function wipeAll(): Promise<void> {
   const { database } = await requireAdmin();
   await Promise.all([remove(ref(database, "users")), remove(ref(database, "admin/registry"))]).catch(rethrow);
+}
+
+/**
+ * Saves the runtime controls.
+ *
+ * The write goes through `/api/admin/config` rather than straight to the
+ * database, because the server is what verifies that this browser is the
+ * administrator. The rules would refuse a direct write from an anonymous
+ * session anyway; routing it through the server also means the change is
+ * enforced by the next request instead of waiting for this tab to refresh.
+ */
+export async function saveAppConfig(config: AppConfig): Promise<void> {
+  const current = await requireAdmin();
+  const token = await current.auth.currentUser?.getIdToken();
+  if (!token) throw new Error("Sign in as the administrator to change controls.");
+
+  const response = await fetch("/api/admin/config", {
+    method: "PUT",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+    body: JSON.stringify(config),
+  });
+  if (!response.ok) {
+    const payload = (await response.json().catch(() => null)) as { error?: string } | null;
+    throw new Error(payload?.error || `Could not save controls (HTTP ${response.status})`);
+  }
 }

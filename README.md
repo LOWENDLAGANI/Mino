@@ -40,6 +40,7 @@ Set either (or both) via `process.env` — locally in `.env.local`, or in Vercel
 | `TAVILY_API_KEY` | **Web search** | Enables explicit web research and source links |
 | `CLOUDFLARE_ACCOUNT_ID` | **Image generation** | Cloudflare account that hosts the Workers AI model |
 | `CLOUDFLARE_API_TOKEN` | **Image generation** | API token with the *Workers AI: Read* permission |
+| `MINO_ADMIN_EMAIL` | **Admin controls** | The administrator's address, matching the one in `database.rules.json` |
 
 ### Automatic Firebase logging
 
@@ -137,6 +138,25 @@ Setup, in the Cloudflare dashboard:
 
 The token is only ever read inside `/api/image`; it never reaches the browser. Like every other provider, image generation is optional — if the two variables are missing the route answers with a setup message, the **Create image** item explains that the key is needed, and the rest of the app is unaffected.
 
+## Admin controls
+
+The console can change how the live site behaves without a redeploy: kill switches for chat, image generation and web search; an announcement banner shown to every visitor; daily per-device caps on messages and images; and banning a device outright.
+
+**These are enforced on the server, not in the browser.** `/api/chat` and `/api/image` read the settings on every request and refuse before any provider is called, so the switches hold even for someone running a modified bundle. That works without giving the deployment a service account:
+
+- `config/` has a **public read**, which is what lets a route handler read the settings with no credential at all.
+- Writing `config/` is refused to everyone except the administrator's address, and the console's save goes through `/api/admin/config`, which verifies the caller's Firebase ID token and then performs the write *with that same token* — so `database.rules.json` makes the final decision, not the route.
+- `MINO_ADMIN_EMAIL` tells the server which address to expect. It must match the address in the rules, and a mismatch surfaces as a refused write rather than a silent success.
+
+After changing the rules in `database.rules.json`, **publish them in the Firebase console** (Realtime Database → Rules), or the server will keep reading the old permissions.
+
+Two limits worth knowing:
+
+- **Caps are approximate.** Each request reads the counter and writes it back, which two simultaneous requests can race on, so a burst can exceed the cap slightly. Closing that needs a transaction the REST API cannot express, and an approximate cap is a better trade than no cap.
+- **A cap is per device, not per person.** It follows the anonymous Firebase identity in that browser, so clearing site data or using a private window starts a new allowance.
+
+If `config/` cannot be read, every default is permissive: the app keeps working rather than locking everyone out.
+
 ## Branding
 
 Drop a transparent-background logo at `public/mino-logo.png`. Every brand mark in the app (sidebar header, top bar, empty state, message avatars, quick tour) renders that file, and the browser tab / Apple touch icon use it too. The path is configurable through the `src` prop on `components/MinoMark.tsx`; if the file is missing or fails to load, the app falls back to the built-in sparkle mark so nothing ever renders broken.
@@ -147,6 +167,7 @@ Drop a transparent-background logo at `public/mino-logo.png`. Every brand mark i
 app/
   api/chat/route.ts    # SSE streaming proxy with server-side keys, web search, and Mino persona
   api/image/route.ts   # Cloudflare Workers AI image generation with a server-side token
+  api/admin/config/    # Administrator-only writes for the runtime controls
   layout.tsx           # Root layout, dark theme
   page.tsx             # Main chat orchestration: state, streaming, model switching
   globals.css          # Tailwind + Mino dark blue design system
@@ -167,6 +188,8 @@ components/
   imageUtils.ts        # Canvas compression (1024px, JPEG q0.8)
   models.ts            # Model catalog + token estimator
   webSearch.ts         # Server-side current-web search and source formatting
+  appConfig.ts         # Runtime control settings, shared by client and server
+  serverControl.ts     # Server-side enforcement: config read, token verify, usage
   imageGeneration.ts   # Client helper for the Cloudflare Workers AI image route
   firebaseHistory.ts   # Anonymous write-only Firebase chat logging
   firebaseAdmin.ts     # Rules-gated admin reads and wipes, plus admin sign-in

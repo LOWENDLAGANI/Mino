@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import AdminControls from "./AdminControls";
 import { firebaseConfigured, fetchVisitorRegistry, type VisitorProfile } from "@/lib/firebaseHistory";
 import { getChat, listChats, listUsers, wipeAll, wipeUser } from "@/lib/firebaseAdmin";
 
@@ -225,6 +226,8 @@ export default function AdminPanel({
                   </p>
                 </section>
               )}
+
+              <AdminControls users={users} onError={setError} />
 
               <section>
                 <h3 className="mb-2 text-[10px] font-semibold uppercase tracking-[0.14em] text-white/35">People</h3>

@@ -46,7 +46,8 @@ import {
   type ReasoningEffort,
   type ResponseLength,
 } from "@/lib/settings";
-import { firebaseConfigured, syncFirebaseHistory } from "@/lib/firebaseHistory";
+import { authHeader, firebaseConfigured, syncFirebaseHistory } from "@/lib/firebaseHistory";
+import { subscribeAppConfig, type AppConfig } from "@/lib/appConfig";
 
 // ── Mino — main client orchestration: modes, streaming, chats ────────────────
 
@@ -81,6 +82,7 @@ export default function HomePage() {
   const [reasoningEffort, setReasoningEffort] = useState<ReasoningEffort>("low");
   const [appearance, setAppearance] = useState<Appearance>("dark");
   const [loggingError, setLoggingError] = useState(false);
+  const [appConfig, setAppConfig] = useState<AppConfig | null>(null);
   const abortRef = useRef<AbortController | null>(null);
   const historyTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -140,6 +142,10 @@ export default function HomePage() {
       .then(setImageAvailable)
       .catch(() => setImageAvailable(false));
   }, []);
+
+  // The administrator's announcement, read live from the same public node the
+  // server enforces. A visitor who blocks the read simply never sees it.
+  useEffect(() => subscribeAppConfig(setAppConfig), []);
 
   useEffect(() => {
     if (!loggingError) return;
@@ -275,7 +281,7 @@ export default function HomePage() {
       try {
         const res = await fetch("/api/chat", {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
+          headers: { "Content-Type": "application/json", ...(await authHeader()) },
           body: JSON.stringify({ messages: apiMessages, mode: selectedMode, searchMode, responseLength, reasoningEffort }),
           signal: controller.signal,
         });
@@ -481,6 +487,15 @@ export default function HomePage() {
           <div className="flex-1" />
           <ModeSelector selected={selectedMode} onChange={handleModeChange} available={available} />
         </header>
+
+        {appConfig?.announcement && (
+          <div
+            role="status"
+            className="animate-rise relative z-10 mx-4 mt-1 flex shrink-0 items-center justify-center self-center rounded-full border border-[#9ee7ff]/15 bg-[#9ee7ff]/[0.06] px-3.5 py-2 text-center text-[11px] leading-relaxed text-white/70 backdrop-blur-md md:max-w-xl"
+          >
+            {appConfig.announcement}
+          </div>
+        )}
 
         {modelNotice && (
           <div

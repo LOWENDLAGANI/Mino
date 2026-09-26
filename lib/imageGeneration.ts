@@ -1,4 +1,5 @@
 import type { GeneratedImage } from "./types";
+import { authHeader } from "./firebaseHistory";
 
 // ── Client helper for the server-side image route ───────────────────────────
 // The Cloudflare token stays on the server; the browser only ever talks to
@@ -40,7 +41,9 @@ export interface GenerateImageOptions {
 export async function generateImage({ prompt, signal, seed }: GenerateImageOptions): Promise<GeneratedImage> {
   const response = await fetch("/api/image", {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    // The identity header is what the server counts against the daily cap and
+    // the ban list; without it the request is treated as unidentified.
+    headers: { "Content-Type": "application/json", ...(await authHeader()) },
     body: JSON.stringify({ prompt, seed }),
     signal,
   });

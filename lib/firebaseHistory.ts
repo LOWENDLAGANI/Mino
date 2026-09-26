@@ -44,6 +44,27 @@ function chatRef(database: Database, uid: string, chatId: string) {
   return ref(database, `users/${uid}/chats/${chatId}`);
 }
 
+/**
+ * The signed-in visitor's Firebase ID token, for calls to the server routes.
+ *
+ * The server verifies this and takes the identity from the token itself, which
+ * is what makes the ban list and the daily caps meaningful: a modified client
+ * can drop the header, but it cannot present a token for a different device.
+ * Returns null when Firebase is not configured, in which case the server simply
+ * treats the caller as unidentified and the controls that need an identity do
+ * not apply.
+ */
+export async function authHeader(): Promise<Record<string, string>> {
+  try {
+    const current = await getServices();
+    if (!current) return {};
+    const token = await current.user.getIdToken();
+    return { Authorization: `Bearer ${token}` };
+  } catch {
+    return {};
+  }
+}
+
 function serializableChat(chat: Chat) {
   return {
     id: chat.id,

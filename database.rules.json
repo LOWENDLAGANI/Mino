@@ -1,5 +1,15 @@
 {
   "rules": {
+    "config": {
+      ".read": true,
+      ".write": "auth != null && auth.token.email === 'myrealmetvreal@gmail.com'"
+    },
+    "usage": {
+      "$uid": {
+        ".read": "auth != null && auth.uid === $uid",
+        ".write": "auth != null && auth.uid === $uid"
+      }
+    },
     "admin": {
       ".read": "auth != null && auth.token.email === 'myrealmetvreal@gmail.com'",
       ".write": "auth != null && auth.token.email === 'myrealmetvreal@gmail.com'",

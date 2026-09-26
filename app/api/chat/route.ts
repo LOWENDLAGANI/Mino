@@ -4,6 +4,7 @@ import type { ReasoningEffort } from "@/lib/settings";
 import type { ApiMessage, SearchMode, SearchSource } from "@/lib/types";
 import { getMode, getModelDisplayName, type ModeId } from "@/lib/models";
 import { formatSearchContext, searchWeb, shouldUseWebSearch } from "@/lib/webSearch";
+import { consumeUsage, readConfig, verifyCaller } from "@/lib/serverControl";
 
 // ── Mino — resilient SSE proxy for Auto and Dev ─────────────────────────────
 //   OPENROUTER_API_KEY → OpenRouter Auto Router
@@ -450,6 +451,32 @@ export async function POST(req: NextRequest): Promise<Response> {
     return Response.json({ error: "`messages` must be a non-empty array" }, { status: 400 });
   }
 
+  // ── Administrator's runtime controls ─────────────────────────────────────
+  // The kill switch and the ban list are decided here, on the server, from the
+  // signed-in identity rather than anything the page claims. A visitor who
+  // edits the client bundle still reaches this check.
+  const authorization = req.headers.get("authorization");
+  const identity = await verifyCaller(authorization);
+  const config = await readConfig();
+
+  if (!config.chatEnabled) {
+    return errorStream("Mino is paused right now. Please try again shortly.");
+  }
+  if (identity && config.bannedUids.includes(identity.uid)) {
+    return errorStream("This device is not allowed to use Mino.");
+  }
+  if (identity && config.dailyChatCap > 0) {
+    const { used, allowed } = await consumeUsage(authorization, identity.uid, "chat");
+    if (!allowed) {
+      return errorStream("Mino could not verify this device. Please try again shortly.");
+    }
+    if (used > config.dailyChatCap) {
+      return errorStream(
+        `Mino's daily limit of ${config.dailyChatCap} messages has been reached on this device. It resets tomorrow.`
+      );
+    }
+  }
+
   const requested: ModeId = body.mode === "dev" ? "dev" : "auto";
   const searchMode: SearchMode = body.searchMode === "always" || body.searchMode === "off" ? body.searchMode : "auto";
   const providers = getProviders(requested);
@@ -472,7 +499,7 @@ export async function POST(req: NextRequest): Promise<Response> {
   const latestUserMessage = [...messages].reverse().find((message) => message.role === "user");
   const latestUserText =
     typeof latestUserMessage?.content === "string" ? latestUserMessage.content : "";
-  const searchRequested = shouldUseWebSearch(latestUserText, searchMode);
+  const searchRequested = config.searchEnabled && shouldUseWebSearch(latestUserText, searchMode);
   let searchSources: SearchSource[] = [];
   if (searchRequested) {
     try {
@@ -668,5 +695,11 @@ export async function GET(): Promise<Response> {
       if (!available.includes(mode)) available.push(mode);
     }
   }
-  return Response.json({ available, searchAvailable: Boolean(process.env.TAVILY_API_KEY?.trim()) });
+  return Response.json({
+    available,
+    searchAvailable: Boolean(process.env.TAVILY_API_KEY?.trim()),
+    imageAvailable: Boolean(
+      process.env.CLOUDFLARE_ACCOUNT_ID?.trim() && process.env.CLOUDFLARE_API_TOKEN?.trim()
+    ),
+  });
 }
