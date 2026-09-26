@@ -1,6 +1,6 @@
 "use client";
 
-import type { Appearance, ResponseLength } from "@/lib/settings";
+import type { Appearance, ReasoningEffort, ResponseLength } from "@/lib/settings";
 import type { SearchMode } from "@/lib/types";
 import { useEffect } from "react";
 
@@ -12,8 +12,8 @@ interface SettingsPanelProps {
   searchAvailable: boolean;
   responseLength: ResponseLength;
   onResponseLengthChange: (value: ResponseLength) => void;
-  customInstructions: string;
-  onCustomInstructionsChange: (value: string) => void;
+  reasoningEffort: ReasoningEffort;
+  onReasoningEffortChange: (value: ReasoningEffort) => void;
   appearance: Appearance;
   onAppearanceChange: (value: Appearance) => void;
 }
@@ -30,6 +30,12 @@ const LENGTH_OPTIONS: Array<{ id: ResponseLength; label: string; description: st
   { id: "detailed", label: "Detailed", description: "Thorough with examples" },
 ];
 
+const EFFORT_OPTIONS: Array<{ id: ReasoningEffort; label: string; description: string }> = [
+  { id: "low", label: "Low", description: "Fastest, cheapest" },
+  { id: "medium", label: "Medium", description: "Thinks a little harder" },
+  { id: "high", label: "High", description: "Slowest, most careful" },
+];
+
 export default function SettingsPanel({
   open,
   onClose,
@@ -38,8 +44,8 @@ export default function SettingsPanel({
   searchAvailable,
   responseLength,
   onResponseLengthChange,
-  customInstructions,
-  onCustomInstructionsChange,
+  reasoningEffort,
+  onReasoningEffortChange,
   appearance,
   onAppearanceChange,
 }: SettingsPanelProps) {
@@ -143,18 +149,28 @@ export default function SettingsPanel({
           </section>
 
           <section>
-            <label htmlFor="mino-custom-instructions" className="mb-2.5 block text-[13px] font-semibold text-white">
-              Custom instructions
-            </label>
-            <textarea
-              id="mino-custom-instructions"
-              value={customInstructions}
-              onChange={(event) => onCustomInstructionsChange(event.target.value.slice(0, 1200))}
-              rows={4}
-              placeholder="e.g. Prefer concise examples and always answer in British English."
-              className="w-full resize-none rounded-[16px] border border-white/[0.08] bg-white/[0.04] px-3.5 py-3 text-[12px] leading-relaxed text-white/80 outline-none placeholder:text-white/25 focus:border-[#8b7cf6]/50"
-            />
-            <p className="mt-1.5 text-[10px] text-white/30">{customInstructions.length}/1200 · Applies to every new message.</p>
+            <h3 className="mb-2.5 text-[13px] font-semibold text-white">Effort</h3>
+            <div className="grid grid-cols-3 gap-1 rounded-[16px] bg-white/[0.05] p-1">
+              {EFFORT_OPTIONS.map((option) => (
+                <button
+                  key={option.id}
+                  type="button"
+                  onClick={() => onReasoningEffortChange(option.id)}
+                  className={`rounded-[12px] px-2 py-2 text-left transition-colors ${
+                    reasoningEffort === option.id
+                      ? "bg-white/[0.12] text-white"
+                      : "text-white/45 hover:bg-white/[0.06] hover:text-white/75"
+                  }`}
+                >
+                  <span className="block text-[12px] font-medium">{option.label}</span>
+                  <span className="mt-0.5 block text-[9px] text-white/30">{option.description}</span>
+                </button>
+              ))}
+            </div>
+            <p className="mt-2 text-[10px] leading-relaxed text-white/30">
+              How long Mino thinks before answering. Higher effort costs more tokens and time; it is ignored
+              by models that do not support it.
+            </p>
           </section>
 
           <section>

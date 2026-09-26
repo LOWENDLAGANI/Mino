@@ -36,12 +36,13 @@ import type {
 } from "@/lib/types";
 import {
   loadAppearance,
-  loadCustomInstructions,
+  loadReasoningEffort,
   loadResponseLength,
   saveAppearance,
-  saveCustomInstructions,
+  saveReasoningEffort,
   saveResponseLength,
   type Appearance,
+  type ReasoningEffort,
   type ResponseLength,
 } from "@/lib/settings";
 import { firebaseConfigured, syncFirebaseHistory } from "@/lib/firebaseHistory";
@@ -73,7 +74,7 @@ export default function HomePage() {
   const [searchAvailable, setSearchAvailable] = useState(false);
   const [tutorialFinished, setTutorialFinished] = useState(false);
   const [responseLength, setResponseLength] = useState<ResponseLength>("balanced");
-  const [customInstructions, setCustomInstructions] = useState("");
+  const [reasoningEffort, setReasoningEffort] = useState<ReasoningEffort>("low");
   const [appearance, setAppearance] = useState<Appearance>("dark");
   const [loggingError, setLoggingError] = useState(false);
   const abortRef = useRef<AbortController | null>(null);
@@ -93,7 +94,7 @@ export default function HomePage() {
   useEffect(() => {
     setSelectedMode(loadSelectedMode());
     setResponseLength(loadResponseLength());
-    setCustomInstructions(loadCustomInstructions());
+    setReasoningEffort(loadReasoningEffort());
     const nextAppearance = loadAppearance();
     setAppearance(nextAppearance);
     saveAppearance(nextAppearance);
@@ -168,9 +169,9 @@ export default function HomePage() {
     saveResponseLength(value);
   };
 
-  const handleCustomInstructionsChange = (value: string) => {
-    setCustomInstructions(value);
-    saveCustomInstructions(value);
+  const handleReasoningEffortChange = (value: ReasoningEffort) => {
+    setReasoningEffort(value);
+    saveReasoningEffort(value);
   };
 
   const handleAppearanceChange = (value: Appearance) => {
@@ -263,7 +264,7 @@ export default function HomePage() {
         const res = await fetch("/api/chat", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ messages: apiMessages, mode: selectedMode, searchMode, responseLength, customInstructions }),
+          body: JSON.stringify({ messages: apiMessages, mode: selectedMode, searchMode, responseLength, reasoningEffort }),
           signal: controller.signal,
         });
         if (!res.ok) {
@@ -326,7 +327,7 @@ export default function HomePage() {
         abortRef.current = null;
       }
     },
-    [activeChatId, customInstructions, responseLength, searchMode, selectedMode, streamingId]
+    [activeChatId, reasoningEffort, responseLength, searchMode, selectedMode, streamingId]
   );
 
   const handleRegenerate = useCallback((assistantId: string) => {
@@ -458,8 +459,8 @@ export default function HomePage() {
         searchAvailable={searchAvailable}
         responseLength={responseLength}
         onResponseLengthChange={handleResponseLengthChange}
-        customInstructions={customInstructions}
-        onCustomInstructionsChange={handleCustomInstructionsChange}
+        reasoningEffort={reasoningEffort}
+        onReasoningEffortChange={handleReasoningEffortChange}
         appearance={appearance}
         onAppearanceChange={handleAppearanceChange}
       />

@@ -15,7 +15,7 @@ Built with **Next.js 14 (App Router)**, **TypeScript**, **Tailwind CSS**, and **
 - **Web search** — Mino stays off for general knowledge questions and searches when you explicitly request it or say an answer may be wrong, with source links shown in the response; the composer supports Auto, On, and Off modes
 - **Markdown + code** — syntax-highlighted code blocks (Prism) with per-block copy button
 - **Chat management** — pin and rename chats, retry/edit-and-resend, copy chats, source history, voice input, and text/code file attachments
-- **Settings** — a single panel in the sidebar for web search mode, response length, custom instructions, and dark/light appearance; the composer's `+` menu stays limited to per-message tools
+- **Settings** — a single panel in the sidebar for web search mode, response length, reasoning effort (low/medium/high, default low), and dark/light appearance; the composer's `+` menu stays limited to per-message tools
 
 ## Getting started
 
@@ -106,7 +106,8 @@ Get keys from the providers linked in your deployment environment. The product U
 Resilience behavior:
 - Requested mode's key missing → Mino uses the other configured key; the chat keeps working.
 - Provider outage or rate limit before streaming starts → Mino retries stable Mino 3.7 and Mino 3.6 fallbacks, then the other configured route as needed, with a small automatic model-change notice in the chat header.
-- Every Gemini model exhausted → Mino falls back to the Groq provider (`GROQ_API_KEY`) with its own quota, so a Google capacity outage does not break the chat.
+- Every Gemini model exhausted → Mino falls back to the Groq provider (`GROQ_API_KEY`) with its own quota, so a Google capacity outage does not break the chat. Its fallback models are all comparable-tier (GPT-OSS 120B, Llama 3.3 70B, GPT-OSS 20B) rather than progressively weaker, because a last line of defence should still be worth reading.
+- Model rejects the chosen reasoning effort → the same request is retried once without `reasoning_effort` before that provider is given up on, so an unsupported value can never take a conversation down.
 - All providers unavailable → the conversation shows the provider name, HTTP status, and a safe diagnostic instead of the generic “Mino hit an error” message.
 - No keys at all → chat UI still works and displays a setup notice in the conversation instead of an error page.
 - Web search key missing → Mino keeps answering without web context and the composer shows a setup state instead of failing the chat.
@@ -133,7 +134,7 @@ components/
   ChatInput.tsx        # Input bar, image picker, drag & drop, paste
   NamePrompt.tsx       # First-visit display name prompt
   AboutLogo.tsx        # About page logo carrying the ten-tap admin trigger
-  SettingsPanel.tsx    # Web search, response length, custom instructions, appearance
+  SettingsPanel.tsx    # Web search, response length, reasoning effort, appearance
   AdminGate.tsx        # Ten-tap logo trigger and administrator sign-in
   AdminPanel.tsx       # Diagnostics console: people, chats, messages, wipes
   about/page.tsx       # Public About page: logo, creator, date, progress
