@@ -296,10 +296,7 @@ export default function ChatInput({ onSend, disabled, onStop }: ChatInputProps) 
                       <circle cx="12" cy="13" r="3.4" />
                     </svg>
                   </span>
-                  <span className="min-w-0 flex-1">
-                    <span className="block text-[15px] font-semibold leading-tight tracking-[-0.01em] text-white">Camera</span>
-                    <span className="mt-0.5 block text-[11px] leading-snug text-white/40">Take a photo with your phone</span>
-                  </span>
+                  <span className="min-w-0 flex-1 text-[15px] font-semibold leading-tight tracking-[-0.01em] text-white">Camera</span>
                 </button>
                 <button
                   type="button"
@@ -314,10 +311,7 @@ export default function ChatInput({ onSend, disabled, onStop }: ChatInputProps) 
                       <rect x="3" y="3" width="18" height="18" rx="4.5" /><circle cx="8.75" cy="8.75" r="1.6" /><path d="M21 15.5l-4.5-4.5L5 21" />
                     </svg>
                   </span>
-                  <span className="min-w-0 flex-1">
-                    <span className="block text-[15px] font-semibold leading-tight tracking-[-0.01em] text-white">Gallery</span>
-                    <span className="mt-0.5 block text-[11px] leading-snug text-white/40">Pick images already on your device</span>
-                  </span>
+                  <span className="min-w-0 flex-1 text-[15px] font-semibold leading-tight tracking-[-0.01em] text-white">Gallery</span>
                 </button>
                 <button
                   type="button"
@@ -332,10 +326,7 @@ export default function ChatInput({ onSend, disabled, onStop }: ChatInputProps) 
                       <path d="M6 3.5h8l4 4V20.5H6z" /><path d="M14 3.5v4h4M9 12h6M9 15.5h4" />
                     </svg>
                   </span>
-                  <span className="min-w-0 flex-1">
-                    <span className="block text-[15px] font-semibold leading-tight tracking-[-0.01em] text-white">Files</span>
-                    <span className="mt-0.5 block text-[11px] leading-snug text-white/40">Attach text or code, up to 100 KB</span>
-                  </span>
+                  <span className="min-w-0 flex-1 text-[15px] font-semibold leading-tight tracking-[-0.01em] text-white">Files</span>
                 </button>
                 <button
                   type="button"
@@ -347,10 +338,7 @@ export default function ChatInput({ onSend, disabled, onStop }: ChatInputProps) 
                       <rect x="9" y="3" width="6" height="11" rx="3" /><path d="M5.5 11.5a6.5 6.5 0 0 0 13 0M12 18v3M8.5 21h7" />
                     </svg>
                   </span>
-                  <span className="min-w-0 flex-1">
-                    <span className="block text-[15px] font-semibold leading-tight tracking-[-0.01em] text-white">{isListening ? "Listening…" : "Voice input"}</span>
-                    <span className="mt-0.5 block text-[11px] leading-snug text-white/40">Dictate a message with your mic</span>
-                  </span>
+                  <span className="min-w-0 flex-1 text-[15px] font-semibold leading-tight tracking-[-0.01em] text-white">{isListening ? "Listening…" : "Voice input"}</span>
                 </button>
               </div>
             )}
