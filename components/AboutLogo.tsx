@@ -10,6 +10,8 @@ import { useAdminTaps } from "@/lib/useAdminTaps";
 export default function AboutLogo({ className }: { className?: string }) {
   const [gateOpen, setGateOpen] = useState(false);
   const [panelOpen, setPanelOpen] = useState(false);
+  // Held in memory only — the PIN is never written to storage.
+  const [pin, setPin] = useState("");
   const { registerTap } = useAdminTaps(() => setGateOpen(true));
 
   return (
@@ -27,12 +29,13 @@ export default function AboutLogo({ className }: { className?: string }) {
       <AdminGate
         open={gateOpen}
         onClose={() => setGateOpen(false)}
-        onUnlocked={() => {
+        onUnlocked={(verified) => {
+          setPin(verified);
           setGateOpen(false);
           setPanelOpen(true);
         }}
       />
-      <AdminPanel open={panelOpen} onClose={() => setPanelOpen(false)} />
+      <AdminPanel open={panelOpen} onClose={() => setPanelOpen(false)} pin={pin} />
     </>
   );
 }

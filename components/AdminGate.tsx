@@ -13,7 +13,8 @@ import {
 interface AdminGateProps {
   open: boolean;
   onClose: () => void;
-  onUnlocked: () => void;
+  /** Receives the verified PIN so the console can call the server-side API. */
+  onUnlocked: (pin: string) => void;
 }
 
 type Mode = "checking" | "setup" | "unlock" | "blocked";
@@ -78,7 +79,7 @@ export default function AdminGate({ open, onClose, onUnlocked }: AdminGateProps)
         ? await createAdminPin(pin, confirmPin)
         : await verifyPin(pin);
       if (result.ok) {
-        onUnlocked();
+        onUnlocked(pin.trim());
         return;
       }
       // A mismatch while creating simply means the two entries differ.

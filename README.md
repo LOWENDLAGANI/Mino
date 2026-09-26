@@ -50,7 +50,7 @@ To enable automatic logging:
 
 `NEXT_PUBLIC_FIREBASE_API_KEY`, `NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN`, `NEXT_PUBLIC_FIREBASE_DATABASE_URL`, `NEXT_PUBLIC_FIREBASE_PROJECT_ID`, `NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET`, `NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID`, `NEXT_PUBLIC_FIREBASE_APP_ID`
 
-3. In Firebase Console → Realtime Database → Rules, paste the contents of `database.rules.json` and publish. You do not need the Firebase CLI or an Admin SDK/private key. The rules deny all reads of chat data and allow writes only under the signed-in anonymous user’s UID. The two exceptions are `admin/pinHash`, which a signed-in visitor may read and may create once, and `admin/registry`, which lists visitor names (see **Admin console** and **Visitor names** below).
+3. In Firebase Console → Realtime Database → Rules, paste the contents of `database.rules.json` and publish. The rules deny all reads of chat data and allow writes only under the signed-in anonymous user’s UID. The two exceptions are `admin/pinHash`, which a signed-in visitor may read and may create once, and `admin/registry`, which lists visitor names. Reading conversations is deliberately not permitted by any rule — it happens server-side (see **Admin console**).
 
 ### Admin console
 
@@ -62,15 +62,29 @@ Only the rules still need publishing once. Failures are diagnosed on screen rath
 
 Five wrong attempts trigger a one-minute cooldown.
 
-**This is a convenience gate, not a security boundary.** Any visitor can create an anonymous Firebase session and read the digest, and whoever reaches the setup screen first becomes the administrator — so claim it right after deploying. A short PIN is also brute-forceable. Keep the console read-only, and put anything genuinely privileged behind a real server-side authorisation check.
+**This is a convenience gate, not a security boundary.** Anyone can create an anonymous Firebase session and read the digest from the database, and whoever reaches the setup screen first becomes the administrator. The PIN check that guards *logged chat data*, however, does run on the server — see below.
+
+### Reading logged chats (server-side)
+
+Browsing conversations, listing people, and wiping data all go through `app/api/admin/route.ts`. That route verifies the PIN against the stored digest **on the server** and reads the database with the Firebase Admin SDK, which is not subject to Realtime Database rules. The browser never requests chat data directly, so the write-only rules on `users/$uid` stay intact and no visitor can read anyone's conversations.
+
+The trade-off is that the Admin SDK needs a service account. Generate one at Firebase → Project settings → Service accounts → Generate new private key, then add these to the deployment environment and redeploy:
+
+| Variable | Value |
+|---|---|
+| `FIREBASE_ADMIN_PROJECT_ID` | the `project_id` field from the JSON |
+| `FIREBASE_ADMIN_CLIENT_EMAIL` | the `client_email` field from the JSON |
+| `FIREBASE_ADMIN_PRIVATE_KEY` | the `private_key` field — keep the surrounding quotes, and it must be a single line |
+
+Until those are set, `/api/admin` returns a clear "not configured" message and the console shows that instead of data. The client-side PIN setup in `lib/adminPin.ts` is unaffected and still works.
 
 ## Visitor names
 
 On first visit Mino asks what to call you. The name is stored in that browser's `localStorage` only, so it is never asked again on the same device, and it is written to Realtime Database at `admin/registry/{uid}` alongside the first- and last-seen timestamps so the console can list visitors.
 
-That registry is names and timestamps **only**. The logged chat text under `users/{uid}/chats` stays write-only and is never read back, so opening the console does not expose anyone's conversations.
+That registry is names and timestamps **only**. Logged chat text under `users/{uid}/chats` is read exclusively by the server-side admin API, never by the browser, so opening the console does not expose anyone's conversations to a visitor.
 
-**The visitor list is readable by any signed-in visitor**, not just you — Realtime Database rules cannot verify that someone knows the PIN, since the comparison happens in the browser. If the list has to be private, the reads need to move server-side: add the Firebase Admin SDK with a service account, verify the PIN in a Route Handler, and read the registry from there instead. That is a real change and worth doing before treating the list as sensitive.
+Note that `admin/registry` is still readable by any signed-in visitor, since Realtime Database rules cannot verify that someone knows the PIN. The names list in the console comes from the server API as well, but the underlying node is not private on its own — move the name into the same server-gated namespace if that matters.
 
 The browser creates a hidden anonymous Firebase session and logs chat titles, text, model metadata, and sources. Images and document contents stay in the local Dexie cache because base64 image payloads can make database writes unnecessarily large. Clearing local data does not load or restore chats from the database; use the Firebase console if you need to remove logged data.
 
@@ -108,7 +122,8 @@ components/
   AboutLogo.tsx        # About page logo carrying the ten-tap admin trigger
   SettingsPanel.tsx    # Web search, response length, custom instructions, appearance
   AdminGate.tsx        # Ten-tap logo trigger, first-run setup, and PIN prompt
-  AdminPanel.tsx       # Read-only diagnostics console
+  AdminPanel.tsx       # Diagnostics console: people, chats, messages, wipes
+  api/admin/route.ts   # Server-side admin API: PIN check + Admin SDK reads and wipes
   about/page.tsx       # Public About page: logo, creator, date, progress
   MinoMark.tsx         # Brand mark (renders /public/mino-logo.png with SVG fallback)
   ModelSelector.tsx    # Navbar model dropdown
@@ -119,7 +134,8 @@ lib/
   models.ts            # Model catalog + token estimator
   webSearch.ts         # Server-side current-web search and source formatting
   firebaseHistory.ts   # Anonymous write-only Firebase chat logging
-  adminPin.ts          # SHA-256 PIN setup and verification, with typed failure reasons
+  adminPin.ts          # Client-side SHA-256 PIN setup and verification
+  adminServer.ts       # Server-side admin client, PIN check, and database access
   visitorName.ts       # Local display name storage
   useAdminTaps.ts      # Ten-tap gesture shared by the header and sidebar logos
   settings.ts           # Local response, instruction, and appearance preferences
