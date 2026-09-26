@@ -1,6 +1,6 @@
 import { cert, getApps, initializeApp, type App } from "firebase-admin/app";
 import { getDatabase } from "firebase-admin/database";
-import { createHash, timingSafeEqual } from "node:crypto";
+import { createHash, createPrivateKey, timingSafeEqual } from "node:crypto";
 
 // ── Server-side admin access ─────────────────────────────────────────────────
 // The admin console reads logged chats, so those reads deliberately do NOT go
@@ -29,50 +29,101 @@ export function adminConfigured(): boolean {
 
 export interface PrivateKeyShape {
   present: boolean;
-  length: number;
-  hasHeader: boolean;
-  hasFooter: boolean;
-  hasNewline: boolean;
-  /** Non-secret summary so a bad paste can be identified without logging the key. */
+  /** Characters of base64 in the body, excluding markers and whitespace. */
+  bodyLength: number;
+  /** True when the body contains only base64 characters and pads correctly. */
+  base64Valid: boolean;
+  /** First byte of the decoded DER, hex. A PKCS#8 key starts SEQUENCE (30). */
+  derPrefix: string | null;
+  /** Markers found — more than one means the key was pasted twice. */
+  headerCount: number;
   describe: string;
 }
 
+/** PKCS#8 RSA-2048 keys are around 1600 base64 characters. Informational only. */
+const TYPICAL_BODY_LENGTH = [1500, 1750];
+
+function extractBody(raw: string): string {
+  let value = raw.trim();
+  if (value.startsWith('"') && value.endsWith('"')) value = value.slice(1, -1).trim();
+  // Survive any level of escaping: drop real line breaks, then the escapes,
+  // then any remaining backslashes from a double-escaped value.
+  value = value.replace(/\r/g, "").replace(/\\r/g, "").replace(/\\n/g, "").replace(/\\/g, "");
+  return value.replace(/-----[A-Z ]+-----/g, "");
+}
+
+/** Describes the key without revealing any of it. */
 export function privateKeyShape(): PrivateKeyShape {
   const raw = process.env.FIREBASE_ADMIN_PRIVATE_KEY ?? "";
-  const value = raw.trim();
+  const body = extractBody(raw).replace(/[^A-Za-z0-9+/=]/g, "");
+  const headerCount = (raw.match(/-----BEGIN PRIVATE KEY-----/g) ?? []).length;
+
   const shape: PrivateKeyShape = {
-    present: value.length > 0,
-    length: value.length,
-    hasHeader: value.includes("-----BEGIN PRIVATE KEY-----"),
-    hasFooter: value.includes("-----END PRIVATE KEY-----"),
-    hasNewline: value.includes("\n"),
+    present: raw.trim().length > 0,
+    bodyLength: body.length,
+    base64Valid: body.length > 0 && body.length % 4 === 0 && /^[A-Za-z0-9+/]+={0,2}$/.test(body),
+    derPrefix: null,
+    headerCount,
     describe: "",
   };
-  if (!shape.present) shape.describe = "FIREBASE_ADMIN_PRIVATE_KEY is empty";
-  else if (!shape.hasHeader || !shape.hasFooter) shape.describe = "the BEGIN/END markers are missing or split";
-  else if (!shape.hasNewline) shape.describe = "no line breaks survived the paste — re-add them or paste the JSON-escaped value";
-  else shape.describe = "looks well formed";
+
+  if (!shape.present) {
+    shape.describe = "FIREBASE_ADMIN_PRIVATE_KEY is empty";
+    return shape;
+  }
+  if (headerCount === 0) {
+    shape.describe = "the -----BEGIN PRIVATE KEY----- marker is missing — the whole key, markers included, must be pasted";
+    return shape;
+  }
+  if (headerCount > 1) {
+    shape.describe = `the key appears ${headerCount} times — it was pasted more than once into the variable`;
+    return shape;
+  }
+  if (body.length === 0) {
+    shape.describe = "nothing between the BEGIN and END markers";
+    return shape;
+  }
+  try {
+    shape.derPrefix = Buffer.from(body, "base64").subarray(0, 2).toString("hex");
+  } catch {
+    shape.derPrefix = null;
+  }
+  if (!shape.base64Valid) {
+    shape.describe = `the base64 body is corrupt (${body.length} characters, not a valid multiple of 4)`;
+    return shape;
+  }
+  if (shape.derPrefix !== "3082") {
+    shape.describe = `the body decodes to ${shape.derPrefix}, not a DER SEQUENCE (3082) — this is not a private key`;
+    return shape;
+  }
+
+  // Ground truth: try the same parse the Admin SDK will do.
+  try {
+    createPrivateKey({ key: normalizePrivateKey(raw), format: "pem" });
+    shape.describe = "well formed";
+  } catch (error) {
+    const detail = error instanceof Error ? error.message : String(error);
+    shape.describe =
+      body.length < TYPICAL_BODY_LENGTH[0] || body.length > TYPICAL_BODY_LENGTH[1]
+        ? `the key does not parse and is ${body.length} characters, outside the usual 1500–1750 — it is truncated or doubled`
+        : `the key does not parse: ${detail}`;
+  }
   return shape;
 }
 
 /**
  * Rebuilds a PEM private key from whatever survived the paste.
  *
- * Env var fields in deployment dashboards routinely mangle PEM blocks: the
- * newlines are dropped so it lands on one line, the JSON-escaped `\n` form is
- * stored literally, or the surrounding quotes come along. All three produce
- * "Failed to parse private key". The base64 body is unpacked and re-wrapped at
- * the conventional 64 characters, which every PEM parser accepts.
+ * Env var fields in deployment dashboards routinely mangle PEM blocks: line
+ * breaks are dropped, the JSON-escaped `\n` form is stored literally, quotes
+ * come along, or the value is pasted twice. Every one of those produces "Failed
+ * to parse private key". The base64 body is unpacked — any non-base64
+ * character discarded — and re-wrapped at the conventional 64 characters, which
+ * every PEM parser accepts.
  */
 export function normalizePrivateKey(raw: string): string {
-  let value = raw.trim();
-  if (value.startsWith('"') && value.endsWith('"')) value = value.slice(1, -1).trim();
-  // JSON-escaped newlines stored as literal backslash-n.
-  value = value.replace(/\\r\\n|\\n/g, "\n");
-
-  const body = value.replace(/-----[A-Z ]+-----/g, "").replace(/\s+/g, "");
-  if (body.length === 0) return value;
-
+  const body = extractBody(raw).replace(/[^A-Za-z0-9+/]/g, "");
+  if (body.length === 0) return "";
   const lines = body.match(/.{1,64}/g) ?? [];
   return `${["-----BEGIN PRIVATE KEY-----", ...lines, "-----END PRIVATE KEY-----\n"].join("\n")}`;
 }
@@ -132,6 +183,7 @@ export interface AdminDiagnostics {
   browserDigestMatched: boolean | null;
   /** Shape of the service-account private key, without revealing it. */
   privateKey?: string;
+  privateKeyDetail?: PrivateKeyShape;
   /** The raw failure, when the database could not be read at all. */
   readError?: string;
 }
@@ -153,6 +205,7 @@ export async function verifyPinServer(
     storedLength: 0,
     browserDigestMatched: null,
     privateKey: privateKeyShape().describe,
+    privateKeyDetail: privateKeyShape(),
   };
 
   if (throttleReason() === "locked") return { ok: false, reason: "locked", diagnostics };
