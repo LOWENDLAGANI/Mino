@@ -5,19 +5,43 @@ import AboutLogo from "@/components/AboutLogo";
 /** When the first Mino build was created. */
 const DATE_CREATED = "24/9/2026";
 
-/** Short progress notes, newest first. Replace the placeholders below. */
-const PROGRESS: Array<{ label: string; detail: string; state: "done" | "active" | "next" }> = [
-  { label: "Local-first chat", detail: "Chats and messages live in your browser's IndexedDB. No account, no server history.", state: "done" },
-  { label: "Multi-model routing", detail: "Mino Auto picks the strongest model per message; Mino Dev is tuned for code.", state: "done" },
-  { label: "Resilient fallbacks", detail: "If one provider is down or rate-limited, Mino moves to the next without breaking the chat.", state: "done" },
-  { label: "Private by design", detail: "You are the placeholder. Describe the next milestone here.", state: "active" },
-  { label: "Next", detail: "Describe the next milestone here.", state: "next" },
+/** Milestones reached, oldest first. Titles only — the point is the trail. */
+const PROGRESS: Array<{ label: string; state: "done" | "active" | "next" }> = [
+  { label: "Local-first chat", state: "done" },
+  { label: "Streaming responses", state: "done" },
+  { label: "Auto and Dev modes", state: "done" },
+  { label: "Resilient provider fallback", state: "done" },
+  { label: "Web search", state: "done" },
+  { label: "Camera and file attachments", state: "done" },
+  { label: "Anonymous history sync", state: "done" },
+  { label: "Strict identity", state: "done" },
+  { label: "Settings panel", state: "done" },
+  { label: "Admin console", state: "done" },
+  { label: "Visitor names", state: "done" },
+  { label: "Reasoning effort", state: "done" },
+  { label: "Image generation", state: "active" },
+  { label: "Next", state: "next" },
 ];
 
 const STATE_STYLES = {
-  done: { label: "Shipped", chip: "bg-emerald-400/10 text-emerald-300/90", dot: "bg-emerald-300/80" },
-  active: { label: "In progress", chip: "bg-[#9ee7ff]/10 text-[#9ee7ff]", dot: "bg-[#9ee7ff]" },
-  next: { label: "Planned", chip: "bg-white/[0.06] text-white/45", dot: "bg-white/25" },
+  done: {
+    label: "Shipped",
+    chip: "bg-emerald-400/10 text-emerald-300/90",
+    ring: "text-emerald-300/70",
+    arrow: "text-emerald-300/70",
+  },
+  active: {
+    label: "In progress",
+    chip: "bg-[#9ee7ff]/10 text-[#9ee7ff]",
+    ring: "text-[#9ee7ff] shadow-[0_0_14px_-2px_rgba(158,231,255,0.5)]",
+    arrow: "text-[#9ee7ff]",
+  },
+  next: {
+    label: "Planned",
+    chip: "bg-white/[0.06] text-white/45",
+    ring: "text-white/25",
+    arrow: "text-white/25",
+  },
 } as const;
 
 export const metadata = {
@@ -77,26 +101,44 @@ export default function AboutPage() {
         <section className="mt-12">
           <div className="mb-4 flex items-baseline justify-between gap-4">
             <h2 className="text-[10px] font-semibold uppercase tracking-[0.16em] text-white/30">Progress</h2>
-            <span className="text-[11px] text-white/25">Updated as things land</span>
+            <span className="text-[11px] text-white/25">{PROGRESS.length - 1} shipped</span>
           </div>
-          <ol className="space-y-2">
+          <ol className="relative">
+            {/* One continuous rail behind the markers, inset to sit on the arrow. */}
+            <span
+              className="absolute bottom-4 left-[13px] top-4 w-px bg-white/[0.08]"
+              aria-hidden
+            />
             {PROGRESS.map((item) => {
               const style = STATE_STYLES[item.state];
               return (
-                <li
-                  key={item.label}
-                  className="flex items-start gap-3.5 rounded-[18px] border border-white/[0.07] bg-white/[0.03] p-4"
-                >
-                  <span className={`mt-1.5 h-2 w-2 shrink-0 rounded-full ${style.dot}`} />
-                  <div className="min-w-0 flex-1">
-                    <div className="flex flex-wrap items-center gap-2">
-                      <span className="text-[14px] font-medium text-white/90">{item.label}</span>
-                      <span className={`rounded-full px-2 py-0.5 text-[9px] font-semibold uppercase tracking-[0.1em] ${style.chip}`}>
-                        {style.label}
-                      </span>
-                    </div>
-                    <p className="mt-1 text-[12px] leading-relaxed text-white/40">{item.detail}</p>
-                  </div>
+                <li key={item.label} className="relative flex items-center gap-3.5 py-2.5">
+                  <span
+                    className={`relative z-10 flex h-[27px] w-[27px] shrink-0 items-center justify-center rounded-full border border-white/[0.08] bg-[#0a0a0f] ${style.ring}`}
+                  >
+                    <svg
+                      width="12"
+                      height="12"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="2.6"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      className={style.arrow}
+                      aria-hidden
+                    >
+                      <path d="M5 12h13M13 6l6 6-6 6" />
+                    </svg>
+                  </span>
+                  <span className="min-w-0 flex-1 text-[14px] font-medium text-white/90">{item.label}</span>
+                  {item.state !== "done" && (
+                    <span
+                      className={`shrink-0 rounded-full px-2 py-0.5 text-[9px] font-semibold uppercase tracking-[0.1em] ${style.chip}`}
+                    >
+                      {style.label}
+                    </span>
+                  )}
                 </li>
               );
             })}
