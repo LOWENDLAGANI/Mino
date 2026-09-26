@@ -65,6 +65,10 @@ Resilience behavior:
 
 Add the Firebase variables above and paste `database.rules.json` into the Firebase Realtime Database Rules editor to enable automatic logging. `/api/chat` remains a Node.js Route Handler; Firebase is initialized only in the browser when configured. If Firebase is not configured, the app remains local-only.
 
+## Branding
+
+Drop a transparent-background logo at `public/mino-logo.png`. Every brand mark in the app (sidebar header, top bar, empty state, message avatars, quick tour) renders that file, and the browser tab / Apple touch icon use it too. The path is configurable through the `src` prop on `components/MinoMark.tsx`; if the file is missing or fails to load, the app falls back to the built-in sparkle mark so nothing ever renders broken.
+
 ## Project structure
 
 ```
@@ -77,6 +81,7 @@ components/
   Sidebar.tsx          # IndexedDB chat history, backup/restore
   ChatThread.tsx       # Streaming message list, markdown, image rendering
   ChatInput.tsx        # Input bar, image picker, drag & drop, paste
+  MinoMark.tsx         # Brand mark (renders /public/mino-logo.png with SVG fallback)
   ModelSelector.tsx    # Navbar model dropdown
   Markdown.tsx         # react-markdown + Prism + copy button
 lib/

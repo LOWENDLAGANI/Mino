@@ -7,6 +7,9 @@ export const metadata: Metadata = {
     "Mino is a private, local-first AI assistant by Minetallest. Multi-model chat, vision, and image understanding — all stored in your browser.",
   icons: {
     icon: [
+      // Uploaded brand logo (public/mino-logo.png) takes over once present.
+      { url: "/mino-logo.png", type: "image/png" },
+      // Built-in fallback so the tab icon is never empty.
       {
         url:
           "data:image/svg+xml," +
@@ -16,6 +19,7 @@ export const metadata: Metadata = {
         type: "image/svg+xml",
       },
     ],
+    apple: [{ url: "/mino-logo.png", type: "image/png" }],
   },
 };
 
