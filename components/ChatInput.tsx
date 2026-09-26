@@ -320,22 +320,24 @@ export default function ChatInput({
               </svg>
             </button>
             {showTools && (
-              <div className="absolute bottom-14 left-0 z-50 w-64 max-w-[calc(100vw-2rem)] rounded-2xl border border-white/[0.1] bg-[#151519]/[0.98] p-2 shadow-2xl shadow-black/70 backdrop-blur-xl animate-rise">
-                <div className="px-2 pb-2 pt-1 text-[10px] font-semibold uppercase tracking-[0.14em] text-white/35">Message tools</div>
+              <div className="absolute bottom-14 left-0 z-50 w-[286px] max-w-[calc(100vw-2rem)] rounded-[26px] border border-white/[0.08] bg-[#131316]/[0.98] p-1.5 shadow-2xl shadow-black/80 backdrop-blur-xl animate-rise">
                 <button
                   type="button"
                   onClick={() => {
                     setShowTools(false);
                     fileInputRef.current?.click();
                   }}
-                  className="flex w-full items-center gap-3 rounded-xl px-2 py-2.5 text-left transition-colors hover:bg-white/[0.07]"
+                  className="flex w-full items-center gap-3.5 rounded-[18px] px-2 py-2.5 text-left transition-colors hover:bg-white/[0.06] active:bg-white/[0.09]"
                 >
-                  <span className="flex h-8 w-8 items-center justify-center rounded-xl bg-[#9ee7ff]/10 text-[#9ee7ff]">
-                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                      <rect x="3" y="3" width="18" height="18" rx="4" /><circle cx="9" cy="9" r="1.6" /><path d="M21 15.5l-4.5-4.5L5 21" />
+                  <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-white/[0.09] text-white">
+                    <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                      <rect x="3" y="3" width="18" height="18" rx="4.5" /><circle cx="8.75" cy="8.75" r="1.6" /><path d="M21 15.5l-4.5-4.5L5 21" />
                     </svg>
                   </span>
-                  <span className="min-w-0 flex-1"><span className="block text-[13px] font-medium text-white/85">Gallery</span><span className="mt-0.5 block text-[10px] text-white/35">Attach images from your device</span></span>
+                  <span className="min-w-0 flex-1">
+                    <span className="block text-[15px] font-semibold leading-tight tracking-[-0.01em] text-white">Gallery</span>
+                    <span className="mt-0.5 block text-[11px] leading-snug text-white/40">Attach images from your device</span>
+                  </span>
                 </button>
                 <button
                   type="button"
@@ -343,24 +345,40 @@ export default function ChatInput({
                     setShowTools(false);
                     document.getElementById("mino-document-picker")?.click();
                   }}
-                  className="flex w-full items-center gap-3 rounded-xl px-2 py-2.5 text-left transition-colors hover:bg-white/[0.07]"
+                  className="flex w-full items-center gap-3.5 rounded-[18px] px-2 py-2.5 text-left transition-colors hover:bg-white/[0.06] active:bg-white/[0.09]"
                 >
-                  <span className="flex h-8 w-8 items-center justify-center rounded-xl bg-[#b7f4ff]/10 text-[#b7f4ff]">
-                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round"><path d="M6 3.5h8l4 4V20.5H6z" /><path d="M14 3.5v4h4M9 12h6M9 15h6" /></svg>
+                  <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-white/[0.09] text-white">
+                    <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                      <path d="M6 3.5h8l4 4V20.5H6z" /><path d="M14 3.5v4h4M9 12h6M9 15.5h4" />
+                    </svg>
                   </span>
-                  <span className="min-w-0 flex-1"><span className="block text-[13px] font-medium text-white/85">Files</span><span className="mt-0.5 block text-[10px] text-white/35">Attach text or code (100 KB max)</span></span>
+                  <span className="min-w-0 flex-1">
+                    <span className="block text-[15px] font-semibold leading-tight tracking-[-0.01em] text-white">Files</span>
+                    <span className="mt-0.5 block text-[11px] leading-snug text-white/40">Attach text or code, up to 100 KB</span>
+                  </span>
                 </button>
-                <button type="button" onClick={toggleVoice} className={`flex w-full items-center gap-3 rounded-xl px-2 py-2.5 text-left transition-colors hover:bg-white/[0.07] ${isListening ? "bg-red-500/10" : ""}`}>
-                  <span className="flex h-8 w-8 items-center justify-center rounded-xl bg-[#ff9ee7]/10 text-[#ff9ee7]"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round"><rect x="9" y="3" width="6" height="11" rx="3" /><path d="M5.5 11.5a6.5 6.5 0 0 0 13 0M12 18v3M8 21h8" /></svg></span>
-                  <span className="min-w-0 flex-1"><span className="block text-[13px] font-medium text-white/85">{isListening ? "Listening…" : "Voice input"}</span><span className="mt-0.5 block text-[10px] text-white/35">Use your microphone when available</span></span>
+                <button
+                  type="button"
+                  onClick={toggleVoice}
+                  className={`flex w-full items-center gap-3.5 rounded-[18px] px-2 py-2.5 text-left transition-colors hover:bg-white/[0.06] active:bg-white/[0.09] ${isListening ? "bg-red-500/10" : ""}`}
+                >
+                  <span className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-white/[0.09] text-white ${isListening ? "animate-pulse" : ""}`}>
+                    <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" aria-hidden="true">
+                      <rect x="9" y="3" width="6" height="11" rx="3" /><path d="M5.5 11.5a6.5 6.5 0 0 0 13 0M12 18v3M8.5 21h7" />
+                    </svg>
+                  </span>
+                  <span className="min-w-0 flex-1">
+                    <span className="block text-[15px] font-semibold leading-tight tracking-[-0.01em] text-white">{isListening ? "Listening…" : "Voice input"}</span>
+                    <span className="mt-0.5 block text-[11px] leading-snug text-white/40">Dictate a message with your mic</span>
+                  </span>
                 </button>
-                <div className="my-2 border-t border-white/[0.07]" />
+                <div className="my-1.5 border-t border-white/[0.07]" />
                 <div className="px-2 pb-1.5 pt-1">
                   <div className="flex items-center justify-between gap-2">
-                    <span className="text-[13px] font-medium text-white/85">Web search</span>
+                    <span className="text-[13px] font-semibold text-white">Web search</span>
                     <span className={`text-[10px] ${searchAvailable ? "text-[#9ee7ff]/70" : "text-amber-200/65"}`}>{searchAvailable ? searchLabel : "Setup needed"}</span>
                   </div>
-                  <div className="mt-2 grid grid-cols-3 gap-1 rounded-xl bg-black/20 p-1">
+                  <div className="mt-2 grid grid-cols-3 gap-1 rounded-[14px] bg-white/[0.05] p-1">
                     {SEARCH_OPTIONS.map((option) => (
                       <button
                         key={option.id}
@@ -369,7 +387,7 @@ export default function ChatInput({
                           onSearchModeChange(option.id);
                           setShowTools(false);
                         }}
-                        className={`rounded-lg px-1 py-1.5 text-left transition-colors ${searchMode === option.id ? "bg-white/[0.1] text-white" : "text-white/40 hover:bg-white/[0.05] hover:text-white/70"}`}
+                        className={`rounded-[10px] px-1 py-1.5 text-left transition-colors ${searchMode === option.id ? "bg-white/[0.12] text-white" : "text-white/40 hover:bg-white/[0.06] hover:text-white/70"}`}
                         title={option.description}
                       >
                         <span className="block text-[11px] font-medium">{option.label}</span>
@@ -379,27 +397,33 @@ export default function ChatInput({
                   </div>
                   <p className="mt-2 text-[10px] leading-relaxed text-white/30">Auto stays quiet for general knowledge questions.</p>
                 </div>
-                <div className="my-2 border-t border-white/[0.07]" />
+                <div className="my-1.5 border-t border-white/[0.07]" />
                 <div className="px-2 pb-1.5 pt-1">
                   <div className="mb-2 text-[10px] font-semibold uppercase tracking-[0.14em] text-white/35">Quick starts</div>
                   <div className="grid grid-cols-2 gap-1">
                     {PROMPT_PRESETS.map((preset) => (
-                      <button key={preset.label} type="button" onClick={() => { handleTextChange(text ? `${text}\n${preset.prompt}` : preset.prompt); setShowTools(false); textareaRef.current?.focus(); }} className="rounded-lg bg-white/[0.04] px-2 py-2 text-left text-[10px] text-white/55 transition-colors hover:bg-white/[0.09] hover:text-white/85">
+                      <button key={preset.label} type="button" onClick={() => { handleTextChange(text ? `${text}\n${preset.prompt}` : preset.prompt); setShowTools(false); textareaRef.current?.focus(); }} className="rounded-[12px] bg-white/[0.05] px-2 py-2 text-left text-[10px] text-white/55 transition-colors hover:bg-white/[0.1] hover:text-white/85">
                         {preset.label}
                       </button>
                     ))}
                   </div>
                 </div>
-                <div className="my-2 border-t border-white/[0.07]" />
-                <div className="space-y-2 px-2 pb-1.5 pt-1">
+                <div className="my-1.5 border-t border-white/[0.07]" />
+                <div className="space-y-2.5 px-2 pb-1.5 pt-1">
                   <div className="flex items-center justify-between gap-2">
-                    <span className="text-[11px] font-medium text-white/75">Response length</span>
-                    <select value={responseLength} onChange={(event) => onResponseLengthChange(event.target.value as ResponseLength)} className="rounded-lg border border-white/[0.08] bg-white/[0.05] px-2 py-1 text-[10px] text-white/70 outline-none">
+                    <span className="text-[13px] font-semibold text-white">Response length</span>
+                    <select value={responseLength} onChange={(event) => onResponseLengthChange(event.target.value as ResponseLength)} className="rounded-[10px] border border-white/[0.08] bg-white/[0.05] px-2 py-1 text-[10px] text-white/70 outline-none">
                       <option value="short">Short</option><option value="balanced">Balanced</option><option value="detailed">Detailed</option>
                     </select>
                   </div>
-                  <label className="block text-[10px] text-white/45">Custom instructions <textarea value={customInstructions} onChange={(event) => onCustomInstructionsChange(event.target.value.slice(0, 1200))} rows={2} placeholder="e.g. Prefer concise examples…" className="mt-1 w-full resize-none rounded-lg border border-white/[0.08] bg-black/20 px-2 py-1.5 text-[10px] leading-relaxed text-white/70 outline-none placeholder:text-white/25 focus:border-[#8b7cf6]/50" /></label>
-                  <div className="flex items-center justify-between gap-2 pt-1"><span className="text-[10px] text-white/45">Appearance</span><div className="flex rounded-lg bg-black/20 p-0.5"><button type="button" onClick={() => onAppearanceChange("dark")} className={`rounded-md px-2 py-1 text-[9px] ${appearance === "dark" ? "bg-white/[0.1] text-white/80" : "text-white/35"}`}>Dark</button><button type="button" onClick={() => onAppearanceChange("light")} className={`rounded-md px-2 py-1 text-[9px] ${appearance === "light" ? "bg-white/[0.1] text-white/80" : "text-white/35"}`}>Light</button></div></div>
+                  <label className="block text-[13px] font-semibold text-white">Custom instructions<textarea value={customInstructions} onChange={(event) => onCustomInstructionsChange(event.target.value.slice(0, 1200))} rows={2} placeholder="e.g. Prefer concise examples…" className="mt-1.5 w-full resize-none rounded-[12px] border border-white/[0.08] bg-white/[0.04] px-2.5 py-2 text-[11px] leading-relaxed text-white/70 outline-none placeholder:text-white/25 focus:border-[#8b7cf6]/50" /></label>
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="text-[13px] font-semibold text-white">Appearance</span>
+                    <div className="flex rounded-[10px] bg-white/[0.05] p-0.5">
+                      <button type="button" onClick={() => onAppearanceChange("dark")} className={`rounded-[8px] px-2.5 py-1 text-[10px] ${appearance === "dark" ? "bg-white/[0.12] text-white" : "text-white/35"}`}>Dark</button>
+                      <button type="button" onClick={() => onAppearanceChange("light")} className={`rounded-[8px] px-2.5 py-1 text-[10px] ${appearance === "light" ? "bg-white/[0.12] text-white" : "text-white/35"}`}>Light</button>
+                    </div>
+                  </div>
                 </div>
               </div>
             )}
