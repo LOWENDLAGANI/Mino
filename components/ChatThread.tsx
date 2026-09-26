@@ -214,12 +214,182 @@ function TypingDots({ message }: { message: string }) {
   );
 }
 
+// Empty-state headlines. They are walked in order and the cursor is persisted,
+// so consecutive loads never repeat before the whole list has been seen.
+const EMPTY_STATE_HEADLINES = [
+  "What should we create?",
+  "What are we building today?",
+  "Where do you want to start?",
+  "What is on your mind?",
+  "Ask me anything at all.",
+  "What are we figuring out?",
+  "Bring me a problem.",
+  "What would you like to know?",
+  "Give me something to work with.",
+  "What are we solving today?",
+  "Let's make something useful.",
+  "What is the first question?",
+  "Drop it here, I will take it from there.",
+  "What are you curious about?",
+  "What deserves a second look?",
+  "Start anywhere. I will keep up.",
+  "What is the short version?",
+  "Explain it to me and I will sharpen it.",
+  "What are we untangling?",
+  "Give me a rough idea and we will refine it.",
+  "What is the best next step?",
+  "What is worth exploring today?",
+  "Point me at something.",
+  "What should we think through?",
+  "What is the real question here?",
+  "Make a list, make a plan, or just talk.",
+  "What do you want to understand better?",
+  "Which rabbit hole are we going down?",
+  "What needs a second brain?",
+  "What is worth a few minutes of thought?",
+  "Say it the messy way. I will organise it.",
+  "What is the idea you cannot shake?",
+  "What would you do with an extra hour?",
+  "Tell me a story and I will keep straight.",
+  "What should we stop overthinking?",
+  "Which half-finished thing should we finish?",
+  "What does good look like here?",
+  "Paste the thing you do not want to read.",
+  "What are you avoiding?",
+  "Name the thing, I will find the angle.",
+  "What would you ask a very patient expert?",
+  "What is the version of this that actually ships?",
+  "What is new since you last looked?",
+  "Turn the messy notes into a plan.",
+  "What is the smallest useful first step?",
+  "What is worth keeping simple?",
+  "What has been bothering you?",
+  "What do you want to be careful about?",
+  "Which trade-off are you weighing?",
+  "What would you write if nobody read it?",
+  "What is the one thing I should not forget?",
+  "Show me the rough version, not the polished one.",
+  "What is stuck?",
+  "What would you do with unlimited time?",
+  "What is the question behind the question?",
+  "What deserves a proper explanation?",
+  "What would you like to argue about?",
+  "What is the best way to begin?",
+  "What changed your mind recently?",
+  "What would you fix if you could fix one thing?",
+  "What should we make a list of?",
+  "Where do you want more clarity?",
+  "What is the thing you keep meaning to ask?",
+  "What would make today feel productive?",
+  "What is the whole idea in one line?",
+  "What are we taking on next?",
+  "What would you like a second opinion on?",
+  "Which habit are you trying to build?",
+  "What is the question you keep postponing?",
+  "What should we make simpler?",
+  "What is worth writing down properly?",
+  "What are you hoping changes?",
+  "Which idea deserves a rough draft today?",
+  "What would a good outcome look like in a week?",
+  "What is the part you already know the answer to?",
+  "What do you want to be reminded of?",
+  "What should we measure progress by?",
+  "Where is the friction coming from?",
+  "What would you do with a blank page?",
+  "Which task has been quietly growing?",
+  "What is the assumption worth testing?",
+  "What would you tell a friend in this spot?",
+  "What are you optimising for right now?",
+  "What is the one thing to protect this week?",
+  "What deserves a name before it becomes real?",
+  "Which thread can we pull on?",
+  "What is ready for a decision?",
+  "What would make this feel finished?",
+  "Where do you want a second set of eyes?",
+  "What is the smallest thing that would help?",
+  "What have you already tried?",
+  "What should we leave alone?",
+  "What is the part that is actually hard?",
+  "What do you want to sound like?",
+  "Which constraint is real and which is imagined?",
+  "What would you regret not asking?",
+  "What is the difference you want to see?",
+  "What is the next honest step?",
+  "What should we check before we commit?",
+  "What are you avoiding saying out loud?",
+  "What would make this conversation useful?",
+  "Which idea has been sitting longest?",
+  "What do you want to be different about tomorrow?",
+  "What is worth keeping out of scope?",
+  "What could we do in ten minutes?",
+  "What is the shape of the problem?",
+  "Which idea would be fun to test?",
+  "What are you waiting on?",
+  "What is worth writing a summary of?",
+  "What would you change if you could?",
+  "What is the second-order effect here?",
+  "What should we ask the team?",
+  "What has to be true for this to work?",
+  "What is the kind of help you need?",
+  "What is worth doing badly first?",
+  "Which version of this would you actually use?",
+  "What is the point of this, in one line?",
+  "What should we stop, start, and continue?",
+  "What is new in how you are thinking about it?",
+  "What would you want remembered?",
+  "What is the simplest honest answer?",
+  "Which detail is doing all the work?",
+  "What is worth another hour?",
+  "What would change your mind?",
+  "What are you optimising against?",
+  "What is the thing underneath the thing?",
+  "What should we do before Friday?",
+  "What would you build if nobody was watching?",
+  "What is the question behind the work?",
+  "Which half of this is actually the task?",
+  "What deserves a fresh pair of eyes?",
+  "What is the most useful next reply?",
+  "What would you like to be able to do?",
+  "What is ready to be decided today?",
+  "What are we avoiding by staying busy?",
+  "What is the clearest way to say it?",
+];
+
+const HEADLINE_CURSOR_KEY = "mino:empty-headline-cursor";
+
+/** Walks the list in order so two refreshes in a row never show the same line. */
+function nextHeadline(): string {
+  let cursor = 0;
+  try {
+    const stored = Number(localStorage.getItem(HEADLINE_CURSOR_KEY));
+    if (Number.isInteger(stored) && stored >= 0) cursor = stored;
+  } catch {
+    // localStorage can be unavailable in private mode; fall back to a plain pick.
+    return EMPTY_STATE_HEADLINES[Math.floor(Math.random() * EMPTY_STATE_HEADLINES.length)] ?? EMPTY_STATE_HEADLINES[0];
+  }
+
+  const headline = EMPTY_STATE_HEADLINES[cursor % EMPTY_STATE_HEADLINES.length] ?? EMPTY_STATE_HEADLINES[0];
+  try {
+    localStorage.setItem(HEADLINE_CURSOR_KEY, String(cursor + 1));
+  } catch {
+    // Non-fatal: the headline still changes within this session.
+  }
+  return headline;
+}
+
 export default function ChatThread({ messages, streamingId, isEmpty, suggestedMode, onRegenerate, onEditMessage, onCopyConversation }: ChatThreadProps) {
   const bottomRef = useRef<HTMLDivElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const stickRef = useRef(true);
   const [loadingMessage, setLoadingMessage] = useState<string>(STREAMING_MESSAGES[0]);
   const [showSourceHistory, setShowSourceHistory] = useState(false);
+  // Seeded deterministically for SSR, then randomized after mount.
+  const [headline, setHeadline] = useState(EMPTY_STATE_HEADLINES[0]);
+
+  useEffect(() => {
+    if (!isEmpty) return;
+    setHeadline(nextHeadline());
+  }, [isEmpty]);
 
   useEffect(() => {
     if (streamingId) {
@@ -254,7 +424,7 @@ export default function ChatThread({ messages, streamingId, isEmpty, suggestedMo
             <MinoMark className="relative h-full w-full" />
           </div>
           <h1 className="text-balance text-[38px] font-normal leading-[1.08] tracking-[-0.045em] text-white sm:text-[54px] lg:text-[62px]">
-            What should we create?
+            {headline}
           </h1>
           <p className="mx-auto mt-4 max-w-md text-[12px] leading-relaxed text-white/38 sm:text-[13px]">
             {suggestedMode === "dev"
