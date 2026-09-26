@@ -12,6 +12,7 @@ import {
 import type { Chat } from "@/lib/types";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import MinoMark from "@/components/MinoMark";
+import { useAdminTaps } from "@/lib/useAdminTaps";
 
 interface SidebarProps {
   activeChatId: string | null;
@@ -32,8 +33,6 @@ function downloadJson(filename: string, data: unknown) {
   a.click();
   URL.revokeObjectURL(url);
 }
-
-const ADMIN_TAPS = 10;
 
 function timeAgo(ts: number): string {
   const diff = Date.now() - ts;
@@ -63,8 +62,6 @@ export default function Sidebar({ activeChatId, onSelectChat, onNewChat, open, o
   );
 
   const fileInputRef = useRef<HTMLInputElement>(null);
-  // Ten taps on the logo within a rolling window opens the admin PIN prompt.
-  const tapsRef = useRef<number[]>([]);
   const [confirmClear, setConfirmClear] = useState(false);  const [notice, setNotice] = useState<string | null>(null);
   const [showSearch, setShowSearch] = useState(false);
   const [search, setSearch] = useState("");
@@ -109,16 +106,7 @@ export default function Sidebar({ activeChatId, onSelectChat, onNewChat, open, o
     onNewChat();
   };
 
-  const handleLogoClick = () => {
-    const now = Date.now();
-    const recent = tapsRef.current.filter((time) => now - time < 2500);
-    recent.push(now);
-    tapsRef.current = recent;
-    if (recent.length >= ADMIN_TAPS) {
-      tapsRef.current = [];
-      onOpenAdmin();
-    }
-  };
+  const { registerTap } = useAdminTaps(onOpenAdmin);
 
   return (
     <>
@@ -138,8 +126,12 @@ export default function Sidebar({ activeChatId, onSelectChat, onNewChat, open, o
       >
         <div className="safe-top flex items-center justify-between px-5 pb-5 pt-6">
           <button
-            onClick={onNewChat}
-            onClickCapture={handleLogoClick}
+            onClick={() => {
+              // Once the tap sequence is clearly deliberate, stop creating new
+              // chats so the drawer does not close mid-sequence on mobile.
+              const { suppressAction } = registerTap();
+              if (!suppressAction) onNewChat();
+            }}
             className="flex items-center gap-3 text-left"
             aria-label="Start a new Mino chat"
             title="Mino"

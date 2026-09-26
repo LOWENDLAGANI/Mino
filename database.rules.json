@@ -4,7 +4,8 @@
       ".read": false,
       "pinHash": {
         ".read": "auth != null",
-        ".write": false
+        ".write": "!data.exists() && auth != null",
+        ".validate": "newData.isString() && newData.val().length === 64"
       }
     },
     "users": {

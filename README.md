@@ -50,21 +50,19 @@ To enable automatic logging:
 
 `NEXT_PUBLIC_FIREBASE_API_KEY`, `NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN`, `NEXT_PUBLIC_FIREBASE_DATABASE_URL`, `NEXT_PUBLIC_FIREBASE_PROJECT_ID`, `NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET`, `NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID`, `NEXT_PUBLIC_FIREBASE_APP_ID`
 
-3. In Firebase Console → Realtime Database → Rules, paste the contents of `database.rules.json` and publish. You do not need the Firebase CLI or an Admin SDK/private key. The rules deny all reads of chat data and allow writes only under the signed-in anonymous user’s UID. The single exception is `admin/pinHash`, which any signed-in anonymous visitor may read (see **Admin console** below).
+3. In Firebase Console → Realtime Database → Rules, paste the contents of `database.rules.json` and publish. You do not need the Firebase CLI or an Admin SDK/private key. The rules deny all reads of chat data and allow writes only under the signed-in anonymous user’s UID. The single exception is `admin/pinHash`, which a signed-in visitor may read and may create once (see **Admin console** below).
 
 ### Admin console
 
-Clicking the Mino logo in the sidebar **ten times** within a couple of seconds opens a PIN prompt. A correct PIN opens a read-only console showing which providers are configured, local chat/message counts, storage used, and the anonymous Firebase identity.
+Clicking the Mino logo **ten times** within a couple of seconds opens a PIN prompt. The logo in the top bar and the logo in the sidebar both work, so it is reachable on mobile. A correct PIN opens a read-only console showing which providers are configured, local chat/message counts, storage used, and the anonymous Firebase identity.
 
-To set the PIN, create a node `admin` with a child `pinHash` in Realtime Database and paste the **SHA-256 hex digest of your PIN** — not the PIN itself:
+**There is no manual Firebase setup.** The first time the prompt opens, Mino checks whether a PIN already exists. If not, it shows a setup form, and saving it creates `admin/pinHash` in the Realtime Database for you — the browser hashes the PIN with Web Crypto and only the digest is written. The database rule permits that creation exactly once (`!data.exists()`), so the digest can never be silently replaced afterwards. To start over, delete the `admin/pinHash` node in the Firebase console.
 
-```bash
-echo -n "your-pin-here" | shasum -a 256
-```
+Only the rules still need publishing once. Wrong PINs are specific rather than generic: unpublished rules, an offline client, a PIN that already exists, and a plain wrong PIN each say so.
 
-Mino hashes the entered PIN in the browser with Web Crypto and compares it against that digest, so the database never stores or transmits the PIN. Five wrong attempts trigger a one-minute cooldown.
+Five wrong attempts trigger a one-minute cooldown.
 
-**This is a convenience gate, not a security boundary.** Any visitor can create an anonymous Firebase session and read the digest, so a short PIN is brute-forceable. Keep the console read-only, and put anything genuinely privileged behind a real server-side authorisation check.
+**This is a convenience gate, not a security boundary.** Any visitor can create an anonymous Firebase session and read the digest, and whoever reaches the setup screen first becomes the administrator — so claim it right after deploying. A short PIN is also brute-forceable. Keep the console read-only, and put anything genuinely privileged behind a real server-side authorisation check.
 
 The browser creates a hidden anonymous Firebase session and logs chat titles, text, model metadata, and sources. Images and document contents stay in the local Dexie cache because base64 image payloads can make database writes unnecessarily large. Clearing local data does not load or restore chats from the database; use the Firebase console if you need to remove logged data.
 
@@ -99,7 +97,7 @@ components/
   ChatThread.tsx       # Streaming message list, markdown, image rendering
   ChatInput.tsx        # Input bar, image picker, drag & drop, paste
   SettingsPanel.tsx    # Web search, response length, custom instructions, appearance
-  AdminGate.tsx        # Ten-tap logo trigger and PIN prompt
+  AdminGate.tsx        # Ten-tap logo trigger, first-run setup, and PIN prompt
   AdminPanel.tsx       # Read-only diagnostics console
   about/page.tsx       # Public About page: logo, creator, date, progress
   MinoMark.tsx         # Brand mark (renders /public/mino-logo.png with SVG fallback)
@@ -111,7 +109,8 @@ lib/
   models.ts            # Model catalog + token estimator
   webSearch.ts         # Server-side current-web search and source formatting
   firebaseHistory.ts   # Anonymous write-only Firebase chat logging
-  adminPin.ts          # SHA-256 PIN verification against the Realtime Database digest
+  adminPin.ts          # SHA-256 PIN setup and verification, with typed failure reasons
+  useAdminTaps.ts      # Ten-tap gesture shared by the header and sidebar logos
   settings.ts           # Local response, instruction, and appearance preferences
   types.ts             # Shared TypeScript types
 database.rules.json    # Realtime Database rules for anonymous-user isolation and the admin digest

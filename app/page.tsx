@@ -11,6 +11,7 @@ import MinoTutorial from "@/components/MinoTutorial";
 import SettingsPanel from "@/components/SettingsPanel";
 import AdminGate from "@/components/AdminGate";
 import AdminPanel from "@/components/AdminPanel";
+import { useAdminTaps } from "@/lib/useAdminTaps";
 import {
   db,
   createChat,
@@ -331,6 +332,8 @@ export default function HomePage() {
   const isStreaming = streamingId !== null;
   const visibleMessages = messages.filter((m) => m.content || m.images || m.error);
 
+  const { registerTap: registerHeaderTap } = useAdminTaps(() => setAdminGateOpen(true));
+
   return (
     <div className="flex h-[100dvh] overflow-hidden bg-[#030304] text-text-body">
       <Sidebar
@@ -365,9 +368,13 @@ export default function HomePage() {
           </button>
 
           <button
-            onClick={handleNewChat}
+            onClick={() => {
+              registerHeaderTap();
+              handleNewChat();
+            }}
             className="flex min-w-0 items-center gap-2.5 rounded-full py-1 pr-2 text-left transition-opacity hover:opacity-80"
             aria-label="Start a new Mino chat"
+            title="Mino"
           >
             <MinoMark className="h-7 w-7" />
             <span className="truncate text-[17px] font-medium tracking-[-0.02em] text-white">Mino</span>

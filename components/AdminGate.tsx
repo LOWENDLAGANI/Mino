@@ -1,7 +1,13 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { attemptsRemaining, verifyPin, type PinResult } from "@/lib/adminPin";
+import {
+  ADMIN_ERROR_COPY,
+  createAdminPin,
+  needsSetup,
+  verifyPin,
+  type AdminResult,
+} from "@/lib/adminPin";
 
 interface AdminGateProps {
   open: boolean;
@@ -9,8 +15,12 @@ interface AdminGateProps {
   onUnlocked: () => void;
 }
 
+type Mode = "loading" | "setup" | "unlock";
+
 export default function AdminGate({ open, onClose, onUnlocked }: AdminGateProps) {
+  const [mode, setMode] = useState<Mode>("loading");
   const [pin, setPin] = useState("");
+  const [confirmPin, setConfirmPin] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
@@ -23,42 +33,69 @@ export default function AdminGate({ open, onClose, onUnlocked }: AdminGateProps)
     return () => window.removeEventListener("keydown", onKey);
   }, [open, onClose]);
 
+  // Ask the database whether a PIN already exists so the right form shows.
   useEffect(() => {
-    if (open) {
-      setPin("");
-      setError(null);
-    }
+    if (!open) return;
+    let cancelled = false;
+    setPin("");
+    setConfirmPin("");
+    setError(null);
+    setMode("loading");
+
+    void needsSetup().then((result) => {
+      if (cancelled) return;
+      if (result.reason === "rules-not-published" || result.reason === "offline") {
+        setError(ADMIN_ERROR_COPY[result.reason]);
+        setMode("setup");
+        return;
+      }
+      setMode(result.needsSetup ? "setup" : "unlock");
+    });
+
+    return () => {
+      cancelled = true;
+    };
   }, [open]);
 
   if (!open) return null;
 
+  const fail = (result: AdminResult) => {
+    if (result.ok) return;
+    const reason = result.reason;
+    let message = ADMIN_ERROR_COPY[reason];
+    if (reason === "mismatch" && mode === "setup") {
+      message = "The two PINs do not match.";
+    } else if (reason === "mismatch" && result.remaining !== undefined) {
+      message += ` ${result.remaining} attempt${result.remaining === 1 ? "" : "s"} left.`;
+    }
+    setError(message);
+    setPin("");
+    setConfirmPin("");
+  };
+
   const submit = async () => {
     if (busy) return;
     setBusy(true);
-    let result: PinResult;
+    setError(null);
     try {
-      result = await verifyPin(pin);
+      const result = mode === "setup"
+        ? await createAdminPin(pin, confirmPin)
+        : await verifyPin(pin);
+      if (result.ok) {
+        onUnlocked();
+        return;
+      }
+      fail(result);
+      if (mode === "setup" && result.reason === "already-set") setMode("unlock");
     } catch {
-      result = { ok: false, reason: "error" };
-    }
-    setBusy(false);
-
-    if (result.ok) {
-      onUnlocked();
-      return;
-    }
-
-    if (result.reason === "not-configured") {
-      setError("Admin access is not configured. Add admin/pinHash to the Realtime Database.");
-    } else if (result.reason === "locked") {
-      setError("Too many attempts. Try again in a minute.");
-    } else if (result.reason === "error") {
-      setError("Could not reach the Realtime Database. Check your connection.");
-    } else {
-      setPin("");
-      setError(`Incorrect PIN. ${attemptsRemaining()} attempt${attemptsRemaining() === 1 ? "" : "s"} left.`);
+      setError(ADMIN_ERROR_COPY.unknown);
+    } finally {
+      setBusy(false);
     }
   };
+
+  const inputClass =
+    "w-full rounded-[14px] border border-white/[0.09] bg-white/[0.04] px-3.5 py-3 text-[15px] tracking-[0.3em] text-white outline-none placeholder:tracking-normal placeholder:text-white/25 focus:border-[#8b7cf6]/60";
 
   return (
     <div className="fixed inset-0 z-[70] flex items-center justify-center p-5">
@@ -83,43 +120,101 @@ export default function AdminGate({ open, onClose, onUnlocked }: AdminGateProps)
           </span>
           <h2 className="text-[16px] font-semibold tracking-[-0.02em] text-white">Admin access</h2>
         </div>
-        <p className="mb-4 text-[11px] leading-relaxed text-white/40">Enter the admin PIN to open the Mino console.</p>
 
-        <form
-          onSubmit={(event) => {
-            event.preventDefault();
-            void submit();
-          }}
-        >
-          <input
-            autoFocus
-            type="password"
-            inputMode="numeric"
-            autoComplete="off"
-            value={pin}
-            onChange={(event) => setPin(event.target.value)}
-            placeholder="PIN"
-            className="w-full rounded-[14px] border border-white/[0.09] bg-white/[0.04] px-3.5 py-3 text-[15px] tracking-[0.3em] text-white outline-none placeholder:tracking-normal placeholder:text-white/25 focus:border-[#8b7cf6]/60"
-          />
-          {error && <p className="mt-2 text-[11px] leading-relaxed text-red-300/90">{error}</p>}
-          <div className="mt-4 flex gap-2">
-            <button
-              type="button"
-              onClick={onClose}
-              className="flex-1 rounded-[12px] px-3 py-2.5 text-[12px] font-medium text-white/50 transition-colors hover:bg-white/[0.06] hover:text-white"
+        {mode === "loading" ? (
+          <p className="py-4 text-[12px] text-white/40">Checking Firebase…</p>
+        ) : mode === "setup" ? (
+          <>
+            <p className="mb-4 text-[11px] leading-relaxed text-white/40">
+              No admin PIN exists yet. Choose one and Mino will store its hash in the Realtime
+              Database automatically. This can only be done once.
+            </p>
+            <form
+              className="space-y-2"
+              onSubmit={(event) => {
+                event.preventDefault();
+                void submit();
+              }}
             >
-              Cancel
-            </button>
-            <button
-              type="submit"
-              disabled={busy || pin.trim() === ""}
-              className="flex-1 rounded-[12px] bg-white px-3 py-2.5 text-[12px] font-semibold text-black transition-opacity hover:opacity-90 disabled:opacity-40"
+              <input
+                autoFocus
+                type="password"
+                autoComplete="off"
+                value={pin}
+                onChange={(event) => setPin(event.target.value)}
+                placeholder="New PIN (min 4 characters)"
+                className={inputClass}
+              />
+              <input
+                type="password"
+                autoComplete="off"
+                value={confirmPin}
+                onChange={(event) => setConfirmPin(event.target.value)}
+                placeholder="Confirm PIN"
+                className={inputClass}
+              />
+              {error && <p className="pt-1 text-[11px] leading-relaxed text-red-300/90">{error}</p>}
+              <GateActions busy={busy} disabled={pin === "" || confirmPin === ""} onClose={onClose} label="Create" />
+            </form>
+          </>
+        ) : (
+          <>
+            <p className="mb-4 text-[11px] leading-relaxed text-white/40">
+              Enter the admin PIN to open the Mino console.
+            </p>
+            <form
+              onSubmit={(event) => {
+                event.preventDefault();
+                void submit();
+              }}
             >
-              {busy ? "Checking…" : "Unlock"}
-            </button>
-          </div>
-        </form>
+              <input
+                autoFocus
+                type="password"
+                inputMode="numeric"
+                autoComplete="off"
+                value={pin}
+                onChange={(event) => setPin(event.target.value)}
+                placeholder="PIN"
+                className={inputClass}
+              />
+              {error && <p className="mt-2 text-[11px] leading-relaxed text-red-300/90">{error}</p>}
+              <GateActions busy={busy} disabled={pin.trim() === ""} onClose={onClose} label="Unlock" />
+            </form>
+          </>
+        )}
       </section>
+    </div>
+  );
+}
+
+function GateActions({
+  busy,
+  disabled,
+  onClose,
+  label,
+}: {
+  busy: boolean;
+  disabled: boolean;
+  onClose: () => void;
+  label: string;
+}) {
+  return (
+    <div className="mt-4 flex gap-2">
+      <button
+        type="button"
+        onClick={onClose}
+        className="flex-1 rounded-[12px] px-3 py-2.5 text-[12px] font-medium text-white/50 transition-colors hover:bg-white/[0.06] hover:text-white"
+      >
+        Cancel
+      </button>
+      <button
+        type="submit"
+        disabled={busy || disabled}
+        className="flex-1 rounded-[12px] bg-white px-3 py-2.5 text-[12px] font-semibold text-black transition-opacity hover:opacity-90 disabled:opacity-40"
+      >
+        {busy ? "Working…" : label}
+      </button>
     </div>
   );
 }

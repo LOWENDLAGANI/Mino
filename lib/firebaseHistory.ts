@@ -109,3 +109,15 @@ export async function fetchAdminPinHash(): Promise<string | null> {
   if (typeof value !== "string" || value.trim() === "") return null;
   return value.trim().toLowerCase();
 }
+
+/**
+ * Creates `admin/pinHash` if it is missing.
+ *
+ * The database rule allows exactly this one write and refuses every later one,
+ * so the digest can be set up automatically but never silently replaced.
+ */
+export async function setAdminPinHash(hash: string): Promise<void> {
+  const current = await getServices();
+  if (!current) throw new Error("Firebase is not configured");
+  await set(ref(current.database, "admin/pinHash"), hash);
+}
