@@ -74,7 +74,9 @@ The trade-off is that the Admin SDK needs a service account. Generate one at Fir
 |---|---|
 | `FIREBASE_ADMIN_PROJECT_ID` | the `project_id` field from the JSON |
 | `FIREBASE_ADMIN_CLIENT_EMAIL` | the `client_email` field from the JSON |
-| `FIREBASE_ADMIN_PRIVATE_KEY` | the `private_key` field — keep the surrounding quotes, and it must be a single line |
+| `FIREBASE_ADMIN_PRIVATE_KEY` | the `private_key` field |
+
+Pasting a PEM key into a dashboard is easy to get wrong, and a mangled one fails as the opaque `Failed to parse private key`. The server therefore rebuilds the key before use — it strips any surrounding quotes, expands JSON-escaped `\n`, and re-wraps the base64 body at 64 characters — so a key whose line breaks were dropped on paste still works. If the console reports `privateKey: …` in its diagnostics, that line describes the shape it actually received without revealing the key.
 
 Until those are set, `/api/admin` returns a clear "not configured" message and the console shows that instead of data. The client-side PIN setup in `lib/adminPin.ts` is unaffected and still works.
 

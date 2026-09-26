@@ -48,25 +48,35 @@ export async function POST(req: NextRequest) {
   const digest = (req.headers.get("x-mino-digest") ?? "").trim();
   if (!/^[a-f0-9]{64}$/.test(digest)) return fail("Missing or malformed PIN digest.", 400);
 
-  const verified = await verifyPinServer(digest).catch(
-    (error: unknown) => ({
-      ok: false as const,
-      reason: "invalid" as const,
-      diagnostics: {
-        databaseHost: process.env.NEXT_PUBLIC_FIREBASE_DATABASE_URL ?? "(not set)",
-        foundDigest: false,
-        storedLength: 0,
-        browserDigestMatched: null,
-        error: error instanceof Error ? error.message : String(error),
-      },
-    })
-  );
+  const verified = await verifyPinServer(digest).catch((error: unknown) => ({
+    ok: false as const,
+    reason: "database-error" as const,
+    diagnostics: {
+      databaseHost: process.env.NEXT_PUBLIC_FIREBASE_DATABASE_URL ?? "(not set)",
+      foundDigest: false,
+      storedLength: 0,
+      browserDigestMatched: null,
+      readError: error instanceof Error ? error.message : String(error),
+    },
+  }));
 
   if (!verified.ok) {
     if (verified.reason === "locked") {
       return NextResponse.json(
         { error: "Too many attempts. Wait a few minutes and try again.", diagnostics: verified.diagnostics },
         { status: 429 }
+      );
+    }
+    if (verified.reason === "database-error") {
+      const keyProblem = (verified.diagnostics.readError ?? "").toLowerCase().includes("private key");
+      return NextResponse.json(
+        {
+          error: keyProblem
+            ? "The server could not read the Firebase service-account key. Re-paste FIREBASE_ADMIN_PRIVATE_KEY exactly as it appears in the JSON, including the -----BEGIN and -----END lines."
+            : "The server could not reach the Realtime Database with the Admin SDK.",
+          diagnostics: verified.diagnostics,
+        },
+        { status: 502 }
       );
     }
     if (verified.reason === "not-set-up") {

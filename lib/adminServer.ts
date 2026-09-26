@@ -27,18 +27,67 @@ export function adminConfigured(): boolean {
   );
 }
 
+export interface PrivateKeyShape {
+  present: boolean;
+  length: number;
+  hasHeader: boolean;
+  hasFooter: boolean;
+  hasNewline: boolean;
+  /** Non-secret summary so a bad paste can be identified without logging the key. */
+  describe: string;
+}
+
+export function privateKeyShape(): PrivateKeyShape {
+  const raw = process.env.FIREBASE_ADMIN_PRIVATE_KEY ?? "";
+  const value = raw.trim();
+  const shape: PrivateKeyShape = {
+    present: value.length > 0,
+    length: value.length,
+    hasHeader: value.includes("-----BEGIN PRIVATE KEY-----"),
+    hasFooter: value.includes("-----END PRIVATE KEY-----"),
+    hasNewline: value.includes("\n"),
+    describe: "",
+  };
+  if (!shape.present) shape.describe = "FIREBASE_ADMIN_PRIVATE_KEY is empty";
+  else if (!shape.hasHeader || !shape.hasFooter) shape.describe = "the BEGIN/END markers are missing or split";
+  else if (!shape.hasNewline) shape.describe = "no line breaks survived the paste — re-add them or paste the JSON-escaped value";
+  else shape.describe = "looks well formed";
+  return shape;
+}
+
+/**
+ * Rebuilds a PEM private key from whatever survived the paste.
+ *
+ * Env var fields in deployment dashboards routinely mangle PEM blocks: the
+ * newlines are dropped so it lands on one line, the JSON-escaped `\n` form is
+ * stored literally, or the surrounding quotes come along. All three produce
+ * "Failed to parse private key". The base64 body is unpacked and re-wrapped at
+ * the conventional 64 characters, which every PEM parser accepts.
+ */
+export function normalizePrivateKey(raw: string): string {
+  let value = raw.trim();
+  if (value.startsWith('"') && value.endsWith('"')) value = value.slice(1, -1).trim();
+  // JSON-escaped newlines stored as literal backslash-n.
+  value = value.replace(/\\r\\n|\\n/g, "\n");
+
+  const body = value.replace(/-----[A-Z ]+-----/g, "").replace(/\s+/g, "");
+  if (body.length === 0) return value;
+
+  const lines = body.match(/.{1,64}/g) ?? [];
+  return `${["-----BEGIN PRIVATE KEY-----", ...lines, "-----END PRIVATE KEY-----\n"].join("\n")}`;
+}
+
 function getAdminApp(): App {
   if (app) return app;
   if (getApps().length > 0) {
     app = getApps()[0]!;
     return app;
   }
-  const privateKey = process.env.FIREBASE_ADMIN_PRIVATE_KEY!.replace(/\\n/g, "\n");
   app = initializeApp({
     credential: cert({
       projectId: process.env.FIREBASE_ADMIN_PROJECT_ID!,
       clientEmail: process.env.FIREBASE_ADMIN_CLIENT_EMAIL!,
-      privateKey,
+      privateKey: normalizePrivateKey(process.env.FIREBASE_ADMIN_PRIVATE_KEY!),
     }),
     databaseURL: process.env.NEXT_PUBLIC_FIREBASE_DATABASE_URL,
   });
@@ -81,6 +130,10 @@ export interface AdminDiagnostics {
   storedLength: number;
   /** True when the caller's own read of the digest matched its own hash. */
   browserDigestMatched: boolean | null;
+  /** Shape of the service-account private key, without revealing it. */
+  privateKey?: string;
+  /** The raw failure, when the database could not be read at all. */
+  readError?: string;
 }
 
 /**
@@ -93,18 +146,25 @@ export interface AdminDiagnostics {
  */
 export async function verifyPinServer(
   digestFromBrowser: string
-): Promise<{ ok: true; diagnostics: AdminDiagnostics } | { ok: false; reason: "locked" | "invalid" | "not-set-up"; diagnostics: AdminDiagnostics }> {
-  const database = adminDatabase();
+): Promise<{ ok: true; diagnostics: AdminDiagnostics } | { ok: false; reason: "locked" | "invalid" | "not-set-up" | "database-error"; diagnostics: AdminDiagnostics }> {
   const diagnostics: AdminDiagnostics = {
     databaseHost: process.env.NEXT_PUBLIC_FIREBASE_DATABASE_URL ?? "(not set)",
     foundDigest: false,
     storedLength: 0,
     browserDigestMatched: null,
+    privateKey: privateKeyShape().describe,
   };
 
   if (throttleReason() === "locked") return { ok: false, reason: "locked", diagnostics };
 
-  const stored = (await database.ref("admin/pinHash").get()).val();
+  let stored: unknown;
+  try {
+    stored = (await adminDatabase().ref("admin/pinHash").get()).val();
+  } catch (error) {
+    diagnostics.readError = error instanceof Error ? error.message : String(error);
+    return { ok: false, reason: "database-error", diagnostics };
+  }
+
   if (typeof stored === "string") {
     diagnostics.foundDigest = true;
     diagnostics.storedLength = stored.length;
