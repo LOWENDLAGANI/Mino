@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { useLiveQuery } from "dexie-react-hooks";
 import { db } from "@/lib/db";
-import { firebaseConfigured } from "@/lib/firebaseHistory";
+import { fetchVisitorRegistry, firebaseConfigured, type VisitorProfile } from "@/lib/firebaseHistory";
 
 interface AdminPanelProps {
   open: boolean;
@@ -31,6 +31,8 @@ function Row({ label, value, tone }: { label: string; value: string; tone?: "ok"
 export default function AdminPanel({ open, onClose }: AdminPanelProps) {
   const [providers, setProviders] = useState<ProviderStatus | null>(null);
   const [uid, setUid] = useState<string | null>(null);
+  const [visitors, setVisitors] = useState<Array<VisitorProfile & { uid: string }> | null>(null);
+  const [registryError, setRegistryError] = useState<string | null>(null);
 
   const chatCount = useLiveQuery(() => db.chats.count(), [], undefined);
   const messageCount = useLiveQuery(() => db.messages.count(), [], undefined);
@@ -54,6 +56,18 @@ export default function AdminPanel({ open, onClose }: AdminPanelProps) {
       const services = await getServices();
       setUid(services?.user.uid ?? null);
     })();
+  }, [open]);
+
+  useEffect(() => {
+    if (!open) return;
+    setVisitors(null);
+    setRegistryError(null);
+    void fetchVisitorRegistry()
+      .then(setVisitors)
+      .catch((error: unknown) => {
+        setVisitors([]);
+        setRegistryError((error as { code?: string } | null)?.code ?? "unavailable");
+      });
   }, [open]);
 
   useEffect(() => {
@@ -144,9 +158,51 @@ export default function AdminPanel({ open, onClose }: AdminPanelProps) {
             />
           </section>
 
+          <section>
+            <div className="mb-2 flex items-center justify-between gap-3">
+              <h3 className="text-[10px] font-semibold uppercase tracking-[0.14em] text-white/35">Visitors</h3>
+              {visitors && <span className="text-[10px] text-white/25">{visitors.length} named</span>}
+            </div>
+            {registryError ? (
+              <p className="rounded-[12px] border border-amber-400/20 bg-amber-500/[0.08] p-3 text-[11px] leading-relaxed text-amber-100/90">
+                Could not load visitors ({registryError}). Publish the latest database.rules.json if
+                this persists.
+              </p>
+            ) : visitors === null ? (
+              <p className="py-2 text-[11px] text-white/35">Loading…</p>
+            ) : visitors.length === 0 ? (
+              <p className="py-2 text-[11px] text-white/35">
+                No visitors have entered a name yet.
+              </p>
+            ) : (
+              <ul className="max-h-64 space-y-1 overflow-y-auto pr-1">
+                {visitors.map((visitor) => (
+                  <li
+                    key={visitor.uid}
+                    className="flex items-center justify-between gap-3 rounded-[12px] border border-white/[0.06] bg-white/[0.03] px-3 py-2.5"
+                  >
+                    <div className="min-w-0">
+                      <span className="block truncate text-[12px] font-medium text-white/85">
+                        {visitor.name}
+                      </span>
+                      <span className="mt-0.5 block font-mono text-[9px] text-white/25">
+                        {visitor.uid.slice(0, 12)}
+                      </span>
+                    </div>
+                    <span className="shrink-0 text-[10px] text-white/30">
+                      {new Date(visitor.lastSeen).toLocaleDateString()}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </section>
+
           <p className="rounded-[14px] bg-white/[0.04] px-3.5 py-3 text-[10px] leading-relaxed text-white/35">
             This console is a convenience gate, not a security boundary. Anyone can create an anonymous
-            session and read the PIN digest from the database. Never put destructive or privileged actions here.
+            session and read the PIN digest from the database, and the visitor list is readable by any
+            signed-in visitor. Never put destructive or privileged actions here. Chat message text is
+            never read back and is not shown above.
           </p>
         </div>
       </section>

@@ -132,3 +132,50 @@ export async function setAdminPinHash(hash: string): Promise<void> {
   }
   await set(ref(current.database, "admin/pinHash"), hash);
 }
+
+export interface VisitorProfile {
+  name: string;
+  firstSeen: number;
+  lastSeen: number;
+}
+
+/**
+ * Stores the display name a visitor chose, under their own anonymous id.
+ *
+ * Only the name and two timestamps are written — never message content, which
+ * stays in the write-only `users/$uid/chats` namespace.
+ */
+export async function syncVisitorProfile(name: string): Promise<void> {
+  const trimmed = name.trim().slice(0, 40);
+  if (!trimmed) return;
+  const current = await getServices();
+  if (!current) return;
+
+  const profileRef = ref(current.database, `admin/registry/${current.user.uid}`);
+  const existing = await get(profileRef);
+  const previous = existing.val() as Partial<VisitorProfile> | null;
+
+  await set(profileRef, {
+    name: trimmed,
+    firstSeen: typeof previous?.firstSeen === "number" ? previous.firstSeen : Date.now(),
+    lastSeen: Date.now(),
+  } satisfies VisitorProfile);
+}
+
+/**
+ * Lists every visitor that has given Mino a name.
+ *
+ * This is names and timestamps only. It is the one place Mino reads back from
+ * the database, and it deliberately excludes the logged chat text.
+ */
+export async function fetchVisitorRegistry(): Promise<Array<VisitorProfile & { uid: string }>> {
+  const current = await getServices();
+  if (!current) return [];
+  const snapshot = await get(ref(current.database, "admin/registry"));
+  const value = snapshot.val() as Record<string, VisitorProfile> | null;
+  if (!value) return [];
+  return Object.entries(value)
+    .map(([uid, profile]) => ({ uid, ...profile }))
+    .filter((entry) => typeof entry.name === "string" && typeof entry.lastSeen === "number")
+    .sort((a, b) => b.lastSeen - a.lastSeen);
+}

@@ -1,5 +1,5 @@
 import Link from "next/link";
-import MinoMark from "@/components/MinoMark";
+import AboutLogo from "@/components/AboutLogo";
 
 // ── Fill these in ────────────────────────────────────────────────────────────
 /** When the first Mino build was created. */
@@ -42,7 +42,7 @@ export default function AboutPage() {
         <header className="mt-10 flex flex-col items-center text-center">
           <div className="relative flex h-32 w-32 items-center justify-center sm:h-40 sm:w-40">
             <div className="absolute inset-[-45%] rounded-full bg-[#7567e8]/20 blur-3xl" />
-            <MinoMark className="relative h-full w-full" title="Mino" />
+            <AboutLogo className="relative h-full w-full" />
           </div>
           <h1 className="mt-7 text-balance text-[42px] font-normal leading-[1.05] tracking-[-0.05em] text-white sm:text-[58px]">
             Mino
@@ -110,6 +110,9 @@ export default function AboutPage() {
         <footer className="mt-12 border-t border-white/[0.07] pt-6 text-center">
           <p className="text-[12px] text-white/35">
             Mino · created by <span className="text-white/60">Minetallest</span>
+          </p>
+          <p className="mt-1.5 text-[10px] text-white/20">
+            Tip: tap the logo above ten times for the admin console.
           </p>
           <Link
             href="/"

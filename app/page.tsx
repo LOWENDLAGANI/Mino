@@ -9,9 +9,9 @@ import ModeSelector from "@/components/ModelSelector";
 import MinoMark from "@/components/MinoMark";
 import MinoTutorial from "@/components/MinoTutorial";
 import SettingsPanel from "@/components/SettingsPanel";
-import AdminGate from "@/components/AdminGate";
-import AdminPanel from "@/components/AdminPanel";
-import { useAdminTaps } from "@/lib/useAdminTaps";
+import NamePrompt from "@/components/NamePrompt";
+import { loadDisplayName, saveDisplayName } from "@/lib/visitorName";
+import { syncVisitorProfile } from "@/lib/firebaseHistory";
 import {
   db,
   createChat,
@@ -66,8 +66,8 @@ export default function HomePage() {
   const [streamingId, setStreamingId] = useState<string | null>(null);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
-  const [adminGateOpen, setAdminGateOpen] = useState(false);
-  const [adminPanelOpen, setAdminPanelOpen] = useState(false);
+  const [displayName, setDisplayName] = useState("");
+  const [namePromptOpen, setNamePromptOpen] = useState(false);
   const [hydrated, setHydrated] = useState(false);
   const [modelNotice, setModelNotice] = useState<string | null>(null);
   const [searchMode, setSearchMode] = useState<SearchMode>("auto");
@@ -98,6 +98,9 @@ export default function HomePage() {
     const nextAppearance = loadAppearance();
     setAppearance(nextAppearance);
     saveAppearance(nextAppearance);
+    const savedName = loadDisplayName();
+    setDisplayName(savedName);
+    setNamePromptOpen(savedName === "");
     setHydrated(true);
   }, []);
 
@@ -124,6 +127,16 @@ export default function HomePage() {
     const timeout = setTimeout(() => setLoggingError(false), 4000);
     return () => clearTimeout(timeout);
   }, [loggingError]);
+
+  // Remember the name in this browser and log it under the anonymous id.
+  const handleSaveName = useCallback((name: string) => {
+    const saved = saveDisplayName(name);
+    setDisplayName(saved);
+    setNamePromptOpen(false);
+    void syncVisitorProfile(saved).catch((error: unknown) => {
+      console.error("[Mino] Could not log the visitor name", error);
+    });
+  }, []);
 
   // Probe which modes have keys configured server-side (may be empty).
   useEffect(() => {
@@ -332,8 +345,6 @@ export default function HomePage() {
   const isStreaming = streamingId !== null;
   const visibleMessages = messages.filter((m) => m.content || m.images || m.error);
 
-  const { registerTap: registerHeaderTap } = useAdminTaps(() => setAdminGateOpen(true));
-
   return (
     <div className="flex h-[100dvh] overflow-hidden bg-[#030304] text-text-body">
       <Sidebar
@@ -346,10 +357,7 @@ export default function HomePage() {
           setSettingsOpen(true);
           setSidebarOpen(false);
         }}
-        onOpenAdmin={() => {
-          setAdminGateOpen(true);
-          setSidebarOpen(false);
-        }}
+        displayName={displayName}
       />
 
       <main className="app-surface relative flex min-w-0 flex-1 flex-col overflow-hidden">
@@ -368,10 +376,7 @@ export default function HomePage() {
           </button>
 
           <button
-            onClick={() => {
-              registerHeaderTap();
-              handleNewChat();
-            }}
+            onClick={handleNewChat}
             className="flex min-w-0 items-center gap-2.5 rounded-full py-1 pr-2 text-left transition-opacity hover:opacity-80"
             aria-label="Start a new Mino chat"
             title="Mino"
@@ -440,16 +445,11 @@ export default function HomePage() {
         onAppearanceChange={handleAppearanceChange}
       />
 
-      <AdminGate
-        open={adminGateOpen}
-        onClose={() => setAdminGateOpen(false)}
-        onUnlocked={() => {
-          setAdminGateOpen(false);
-          setAdminPanelOpen(true);
-        }}
+      <NamePrompt
+        open={namePromptOpen}
+        onSave={handleSaveName}
+        onSkip={() => setNamePromptOpen(false)}
       />
-
-      <AdminPanel open={adminPanelOpen} onClose={() => setAdminPanelOpen(false)} />
     </div>
   );
 }

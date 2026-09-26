@@ -10,9 +10,9 @@ import {
   type BackupPayload,
 } from "@/lib/db";
 import type { Chat } from "@/lib/types";
+import { nameInitial } from "@/lib/visitorName";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import MinoMark from "@/components/MinoMark";
-import { useAdminTaps } from "@/lib/useAdminTaps";
 
 interface SidebarProps {
   activeChatId: string | null;
@@ -21,7 +21,7 @@ interface SidebarProps {
   open: boolean;
   onClose: () => void;
   onOpenSettings: () => void;
-  onOpenAdmin: () => void;
+  displayName: string;
 }
 
 function downloadJson(filename: string, data: unknown) {
@@ -54,7 +54,7 @@ function UtilityIcon({ children }: { children: ReactNode }) {
   );
 }
 
-export default function Sidebar({ activeChatId, onSelectChat, onNewChat, open, onClose, onOpenSettings, onOpenAdmin }: SidebarProps) {
+export default function Sidebar({ activeChatId, onSelectChat, onNewChat, open, onClose, onOpenSettings, displayName }: SidebarProps) {
   const chats = useLiveQuery(
     () => db.chats.orderBy("updatedAt").reverse().toArray(),
     [],
@@ -106,8 +106,6 @@ export default function Sidebar({ activeChatId, onSelectChat, onNewChat, open, o
     onNewChat();
   };
 
-  const { registerTap } = useAdminTaps(onOpenAdmin);
-
   return (
     <>
       {open && (
@@ -126,12 +124,7 @@ export default function Sidebar({ activeChatId, onSelectChat, onNewChat, open, o
       >
         <div className="safe-top flex items-center justify-between px-5 pb-5 pt-6">
           <button
-            onClick={() => {
-              // Once the tap sequence is clearly deliberate, stop creating new
-              // chats so the drawer does not close mid-sequence on mobile.
-              const { suppressAction } = registerTap();
-              if (!suppressAction) onNewChat();
-            }}
+            onClick={onNewChat}
             className="flex items-center gap-3 text-left"
             aria-label="Start a new Mino chat"
             title="Mino"
@@ -296,8 +289,8 @@ export default function Sidebar({ activeChatId, onSelectChat, onNewChat, open, o
             }}
           />
           <div className="mt-4 flex items-center gap-2.5 border-t border-white/[0.06] pt-4">
-            <div className="flex h-8 w-8 items-center justify-center rounded-full bg-gradient-to-br from-[#b7f4ff] via-[#8c84ff] to-[#4640b6] text-[11px] font-bold text-black">M</div>
-            <span className="min-w-0 flex-1 truncate text-[12px] text-white/55">Minetallest Mc</span>
+            <div className="flex h-8 w-8 items-center justify-center rounded-full bg-gradient-to-br from-[#b7f4ff] via-[#8c84ff] to-[#4640b6] text-[11px] font-bold text-black">{nameInitial(displayName)}</div>
+            <span className="min-w-0 flex-1 truncate text-[12px] text-white/55">{displayName || "Guest"}</span>
             <span className="text-[11px] text-white/25">local only</span>
           </div>
         </div>

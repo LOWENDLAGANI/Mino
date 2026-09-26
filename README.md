@@ -50,11 +50,11 @@ To enable automatic logging:
 
 `NEXT_PUBLIC_FIREBASE_API_KEY`, `NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN`, `NEXT_PUBLIC_FIREBASE_DATABASE_URL`, `NEXT_PUBLIC_FIREBASE_PROJECT_ID`, `NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET`, `NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID`, `NEXT_PUBLIC_FIREBASE_APP_ID`
 
-3. In Firebase Console → Realtime Database → Rules, paste the contents of `database.rules.json` and publish. You do not need the Firebase CLI or an Admin SDK/private key. The rules deny all reads of chat data and allow writes only under the signed-in anonymous user’s UID. The single exception is `admin/pinHash`, which a signed-in visitor may read and may create once (see **Admin console** below).
+3. In Firebase Console → Realtime Database → Rules, paste the contents of `database.rules.json` and publish. You do not need the Firebase CLI or an Admin SDK/private key. The rules deny all reads of chat data and allow writes only under the signed-in anonymous user’s UID. The two exceptions are `admin/pinHash`, which a signed-in visitor may read and may create once, and `admin/registry`, which lists visitor names (see **Admin console** and **Visitor names** below).
 
 ### Admin console
 
-Clicking the Mino logo **ten times** within a couple of seconds opens a PIN prompt. The logo in the top bar and the logo in the sidebar both work, so it is reachable on mobile. A correct PIN opens a read-only console showing which providers are configured, local chat/message counts, storage used, and the anonymous Firebase identity.
+Clicking the Mino logo **on the About page** ten times within a couple of seconds opens a PIN prompt. A correct PIN opens a read-only console showing which providers are configured, local chat/message counts, storage used, the anonymous Firebase identity, and the list of visitors who have given Mino a name.
 
 **There is no manual Firebase setup.** The first time the prompt opens, Mino checks whether a PIN already exists. If not, it shows a setup form, and saving it creates `admin/pinHash` in the Realtime Database for you — the browser hashes the PIN with Web Crypto and only the digest is written. The database rule permits that creation exactly once (`!data.exists()`), so the digest can never be silently replaced afterwards. To start over, delete the `admin/pinHash` node in the Firebase console.
 
@@ -63,6 +63,14 @@ Only the rules still need publishing once. Failures are diagnosed on screen rath
 Five wrong attempts trigger a one-minute cooldown.
 
 **This is a convenience gate, not a security boundary.** Any visitor can create an anonymous Firebase session and read the digest, and whoever reaches the setup screen first becomes the administrator — so claim it right after deploying. A short PIN is also brute-forceable. Keep the console read-only, and put anything genuinely privileged behind a real server-side authorisation check.
+
+## Visitor names
+
+On first visit Mino asks what to call you. The name is stored in that browser's `localStorage` only, so it is never asked again on the same device, and it is written to Realtime Database at `admin/registry/{uid}` alongside the first- and last-seen timestamps so the console can list visitors.
+
+That registry is names and timestamps **only**. The logged chat text under `users/{uid}/chats` stays write-only and is never read back, so opening the console does not expose anyone's conversations.
+
+**The visitor list is readable by any signed-in visitor**, not just you — Realtime Database rules cannot verify that someone knows the PIN, since the comparison happens in the browser. If the list has to be private, the reads need to move server-side: add the Firebase Admin SDK with a service account, verify the PIN in a Route Handler, and read the registry from there instead. That is a real change and worth doing before treating the list as sensitive.
 
 The browser creates a hidden anonymous Firebase session and logs chat titles, text, model metadata, and sources. Images and document contents stay in the local Dexie cache because base64 image payloads can make database writes unnecessarily large. Clearing local data does not load or restore chats from the database; use the Firebase console if you need to remove logged data.
 
@@ -96,6 +104,8 @@ components/
   Sidebar.tsx          # IndexedDB chat history, backup/restore
   ChatThread.tsx       # Streaming message list, markdown, image rendering
   ChatInput.tsx        # Input bar, image picker, drag & drop, paste
+  NamePrompt.tsx       # First-visit display name prompt
+  AboutLogo.tsx        # About page logo carrying the ten-tap admin trigger
   SettingsPanel.tsx    # Web search, response length, custom instructions, appearance
   AdminGate.tsx        # Ten-tap logo trigger, first-run setup, and PIN prompt
   AdminPanel.tsx       # Read-only diagnostics console
@@ -110,6 +120,7 @@ lib/
   webSearch.ts         # Server-side current-web search and source formatting
   firebaseHistory.ts   # Anonymous write-only Firebase chat logging
   adminPin.ts          # SHA-256 PIN setup and verification, with typed failure reasons
+  visitorName.ts       # Local display name storage
   useAdminTaps.ts      # Ten-tap gesture shared by the header and sidebar logos
   settings.ts           # Local response, instruction, and appearance preferences
   types.ts             # Shared TypeScript types
