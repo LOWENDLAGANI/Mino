@@ -25,6 +25,7 @@ export const serverControlsConfigured = Boolean(restBase());
 /** Result of authenticating a caller, resolved from the token itself. */
 export interface CallerIdentity {
   uid: string;
+  /** Empty for an anonymous visitor, who has no Google account attached. */
   email: string;
 }
 
@@ -73,10 +74,13 @@ export function invalidateConfig(): void {
  */
 export async function verifyCaller(authorization: string | null): Promise<CallerIdentity | null> {
   const token = authorization?.replace(/^Bearer\s+/i, "").trim();
-  if (!token || !apiKey || !restBase()) return null;
+  if (!token) return fail("no-token");
+  if (!apiKey) return fail("no-api-key");
+  if (!restBase()) return fail("no-database-url");
 
+  let response: Response;
   try {
-    const response = await fetch(
+    response = await fetch(
       `https://identitytoolkit.googleapis.com/v1/accounts:lookup?key=${encodeURIComponent(apiKey)}`,
       {
         method: "POST",
@@ -85,14 +89,34 @@ export async function verifyCaller(authorization: string | null): Promise<Caller
         cache: "no-store",
       }
     );
-    if (!response.ok) return null;
-    const payload = (await response.json()) as { users?: Array<{ uid?: string; email?: string }> };
-    const user = payload.users?.[0];
-    if (!user?.uid || typeof user.email !== "string") return null;
-    return { uid: user.uid, email: user.email.toLowerCase() };
-  } catch {
-    return null;
+  } catch (error) {
+    return fail("lookup-threw", error);
   }
+  if (!response.ok) {
+    const body = (await response.text().catch(() => "")).slice(0, 200);
+    return fail(`lookup-http-${response.status}`, body);
+  }
+  const payload = (await response.json().catch(() => null)) as {
+    users?: Array<{ uid?: string; email?: string }>;
+  } | null;
+  const user = payload?.users?.[0];
+  if (!user?.uid) return fail("lookup-returned-no-user");
+  // An anonymous visitor has no email, and that is the normal case: almost
+  // every caller is anonymous. Demanding an email here would identify nobody,
+  // which silently disables the ban list and the daily caps as well. The uid
+  // is what those controls act on; only the admin check needs an address.
+  return { uid: user.uid, email: typeof user.email === "string" ? user.email.toLowerCase() : "" };
+}
+
+/**
+ * Records why an identity could not be established.
+ *
+ * Without this the only symptom is a generic 401, which is indistinguishable
+ * from a genuine permission failure. The token itself is never logged.
+ */
+function fail(reason: string, detail?: unknown): null {
+  console.warn(`[mino control] caller not identified: ${reason}`, detail ?? "");
+  return null;
 }
 
 /** Whether a verified caller is the administrator named in the rules. */

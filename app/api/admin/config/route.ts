@@ -49,10 +49,22 @@ export async function PUT(req: NextRequest): Promise<Response> {
   const authorization = req.headers.get("authorization");
   const identity = await verifyCaller(authorization);
   if (!identity) {
-    return Response.json({ error: "Sign in as the administrator to change controls." }, { status: 401 });
+    return Response.json(
+      { error: "Your session could not be verified. Close the console, sign in with Google again, and retry." },
+      { status: 401 }
+    );
   }
   if (!isAdmin(identity)) {
-    return Response.json({ error: "This account is not the Mino administrator." }, { status: 403 });
+    // Reached when the token is valid but carries no administrator address,
+    // which is what an anonymous session looks like even after signing in.
+    return Response.json(
+      {
+        error: identity.email
+          ? "This account is not the Mino administrator."
+          : "This session is still anonymous. Sign in with Google inside the console before changing controls.",
+      },
+      { status: 403 }
+    );
   }
 
   let body: Partial<AppConfig>;

@@ -239,8 +239,15 @@ export async function wipeAll(): Promise<void> {
  */
 export async function saveAppConfig(config: AppConfig): Promise<void> {
   const current = await requireAdmin();
-  const token = await current.auth.currentUser?.getIdToken();
-  if (!token) throw new Error("Sign in as the administrator to change controls.");
+  const user = current.auth.currentUser;
+  // Force a fresh token. A cached one can still describe the anonymous session
+  // that existed before the Google sign-in, which the server would correctly
+  // reject as "not the administrator" even though this browser has since
+  // signed in.
+  const token = await user?.getIdToken(true);
+  if (!token) {
+    throw new Error("Your session has expired. Sign in with Google again, then reopen the console.");
+  }
 
   const response = await fetch("/api/admin/config", {
     method: "PUT",
