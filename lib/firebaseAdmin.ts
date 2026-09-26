@@ -237,6 +237,44 @@ export async function wipeAll(): Promise<void> {
  * session anyway; routing it through the server also means the change is
  * enforced by the next request instead of waiting for this tab to refresh.
  */
+export interface AdminUsage {
+  uid: string;
+  day: string;
+  chat: number;
+  image: number;
+}
+
+/**
+ * Today's per-visitor counters.
+ *
+ * These are the numbers the daily caps are counted against, so showing them
+ * doubles as proof that the caps are actually counting: a control that is
+ * wired up wrong looks identical to a quiet day otherwise. The newest day's
+ * entry per visitor is used, since old days are kept for history but are not
+ * what is currently being enforced.
+ */
+export async function listUsage(): Promise<AdminUsage[]> {
+  const { database } = await requireAdmin();
+  const snapshot = await get(ref(database, "usage")).catch(rethrow);
+  const value = (snapshot.val() ?? {}) as Record<
+    string,
+    Record<string, { chat?: number; image?: number }>
+  >;
+  const today = new Date().toISOString().slice(0, 10);
+  const rows: AdminUsage[] = [];
+  for (const [uid, days] of Object.entries(value)) {
+    const entry = days?.[today];
+    rows.push({ uid, day: today, chat: entry?.chat ?? 0, image: entry?.image ?? 0 });
+  }
+  rows.sort((a, b) => b.chat + b.image - (a.chat + a.image));
+  return rows;
+}
+
+/** Ends the administrator's session. */
+export async function endAdminSession(): Promise<void> {
+  await signOutAdmin();
+}
+
 export async function saveAppConfig(config: AppConfig): Promise<void> {
   const current = await requireAdmin();
   const user = current.auth.currentUser;

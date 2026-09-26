@@ -4,7 +4,7 @@ import type { ReasoningEffort } from "@/lib/settings";
 import type { ApiMessage, SearchMode, SearchSource } from "@/lib/types";
 import { getMode, getModelDisplayName, type ModeId } from "@/lib/models";
 import { formatSearchContext, searchWeb, shouldUseWebSearch } from "@/lib/webSearch";
-import { consumeUsage, readConfig, verifyCaller } from "@/lib/serverControl";
+import { consumeUsage, isAdmin, readConfig, verifyCaller } from "@/lib/serverControl";
 
 // ── Mino — resilient SSE proxy for Auto and Dev ─────────────────────────────
 //   OPENROUTER_API_KEY → OpenRouter Auto Router
@@ -459,6 +459,9 @@ export async function POST(req: NextRequest): Promise<Response> {
   const identity = await verifyCaller(authorization);
   const config = await readConfig();
 
+  if (config.maintenanceEnabled && !isAdmin(identity)) {
+    return errorStream(config.maintenanceMessage);
+  }
   if (!config.chatEnabled) {
     return errorStream("Mino is paused right now. Please try again shortly.");
   }

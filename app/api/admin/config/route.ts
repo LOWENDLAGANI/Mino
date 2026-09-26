@@ -26,13 +26,19 @@ function configuredAdminEmail(): string {
   return process.env.MINO_ADMIN_EMAIL?.trim().toLowerCase() ?? "";
 }
 
-export async function GET(): Promise<Response> {
+export async function GET(req: NextRequest): Promise<Response> {
   if (!serverControlsConfigured) {
     return Response.json({ error: "Controls are not configured in this deployment." }, { status: 503 });
   }
-  // The console reads through the Firebase SDK on the public read, so this
-  // endpoint only needs to answer for the admin check itself.
-  return Response.json({ adminEmailConfigured: Boolean(configuredAdminEmail()) });
+
+  // The client needs to know whether *this* browser is the administrator,
+  // because maintenance mode has to let the administrator in while refusing
+  // everyone else. The answer is the server's, never the page's.
+  const identity = await verifyCaller(req.headers.get("authorization"));
+  return Response.json({
+    adminEmailConfigured: Boolean(configuredAdminEmail()),
+    isAdmin: isAdmin(identity),
+  });
 }
 
 export async function PUT(req: NextRequest): Promise<Response> {

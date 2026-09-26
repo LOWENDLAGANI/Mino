@@ -2,8 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { DEFAULT_CONFIG, subscribeAppConfig, type AppConfig } from "@/lib/appConfig";
-import { saveAppConfig } from "@/lib/firebaseAdmin";
-import type { AdminUser } from "@/lib/firebaseAdmin";
+import { endAdminSession, listUsage, saveAppConfig, type AdminUsage, type AdminUser } from "@/lib/firebaseAdmin";
 
 // ── Runtime controls ────────────────────────────────────────────────────────
 // These are enforced by the server, not by this screen. A switch here closes
@@ -82,6 +81,8 @@ function CapField({
 export default function AdminControls({ users, onError }: AdminControlsProps) {
   const [config, setConfig] = useState<AppConfig>(DEFAULT_CONFIG);
   const [announcement, setAnnouncement] = useState("");
+  const [maintenanceMessage, setMaintenanceMessage] = useState(DEFAULT_CONFIG.maintenanceMessage);
+  const [usage, setUsage] = useState<AdminUsage[] | null>(null);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
 
@@ -90,7 +91,30 @@ export default function AdminControls({ users, onError }: AdminControlsProps) {
   useEffect(() => subscribeAppConfig((next) => {
     setConfig(next);
     setAnnouncement(next.announcement);
+    setMaintenanceMessage(next.maintenanceMessage);
   }), []);
+
+  // Usage is polled rather than subscribed: counters change on every request
+  // from every visitor, and a live listener here would redraw the panel
+  // constantly on a phone for numbers that only need to be roughly current.
+  useEffect(() => {
+    let cancelled = false;
+    const load = () => {
+      void listUsage()
+        .then((rows) => {
+          if (!cancelled) setUsage(rows);
+        })
+        .catch(() => {
+          if (!cancelled) setUsage([]);
+        });
+    };
+    load();
+    const timer = setInterval(load, 20000);
+    return () => {
+      cancelled = true;
+      clearInterval(timer);
+    };
+  }, []);
 
   const save = useCallback(
     async (next: AppConfig) => {
@@ -133,6 +157,8 @@ export default function AdminControls({ users, onError }: AdminControlsProps) {
     });
   };
 
+  const usageFor = (uid: string) => usage?.find((entry) => entry.uid === uid);
+
   return (
     <section>
       <div className="mb-2 flex items-center justify-between">
@@ -145,10 +171,32 @@ export default function AdminControls({ users, onError }: AdminControlsProps) {
       </div>
 
       <div className="space-y-1.5">
+        <Switch
+          label="Maintenance mode"
+          checked={config.maintenanceEnabled}
+          onChange={(value) => void save({ ...config, maintenanceEnabled: value })}
+        />
         <Switch label="Chat" checked={config.chatEnabled} onChange={toggle("chatEnabled")} />
         <Switch label="Image generation" checked={config.imageEnabled} onChange={toggle("imageEnabled")} />
         <Switch label="Web search" checked={config.searchEnabled} onChange={toggle("searchEnabled")} />
       </div>
+
+      {config.maintenanceEnabled && (
+        <div className="mt-2 rounded-[12px] border border-amber-300/20 bg-amber-400/[0.06] px-3 py-2.5">
+          <p className="text-[11px] leading-relaxed text-amber-100/80">
+            Mino is closed to visitors. You can still reach the console from the About page, where
+            this logo opens it.
+          </p>
+          <input
+            value={maintenanceMessage}
+            maxLength={300}
+            onChange={(event) => setMaintenanceMessage(event.target.value)}
+            onBlur={() => void save({ ...config, maintenanceMessage: maintenanceMessage.slice(0, 300) })}
+            placeholder="Reason shown to visitors"
+            className="mt-2 w-full rounded-[9px] border border-white/10 bg-black/30 px-2.5 py-1.5 text-[12px] text-white outline-none placeholder:text-white/25 focus:border-white/25"
+          />
+        </div>
+      )}
 
       <div className="mt-3 space-y-1.5">
         <CapField label="Daily messages" value={config.dailyChatCap} onChange={setCap("dailyChatCap")} />
@@ -211,6 +259,21 @@ export default function AdminControls({ users, onError }: AdminControlsProps) {
         ) : (
           <p className="py-2 text-[11px] text-white/30">No visitors to ban yet.</p>
         )}
+      </div>
+
+      <div className="mt-4 flex items-center justify-between gap-3 border-t border-white/[0.07] pt-3">
+        <span className="text-[10px] text-white/30">
+          {usage === null
+            ? "Loading usage…"
+            : `Today: ${usage.reduce((sum, entry) => sum + entry.chat, 0)} messages · ${usage.reduce((sum, entry) => sum + entry.image, 0)} images`}
+        </span>
+        <button
+          type="button"
+          onClick={() => void endAdminSession()}
+          className="shrink-0 rounded-[9px] border border-white/10 px-2.5 py-1.5 text-[10px] font-semibold text-white/50 transition-colors hover:bg-white/[0.08] hover:text-white/80"
+        >
+          Sign out
+        </button>
       </div>
     </section>
   );

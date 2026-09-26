@@ -140,11 +140,13 @@ The token is only ever read inside `/api/image`; it never reaches the browser. L
 
 ## Admin controls
 
-The console can change how the live site behaves without a redeploy: kill switches for chat, image generation and web search; an announcement banner shown to every visitor; daily per-device caps on messages and images; and banning a device outright.
+The console can change how the live site behaves without a redeploy: **maintenance mode**, kill switches for chat, image generation and web search; an announcement banner shown to every visitor; daily per-device caps on messages and images; and banning a device outright.
+
+**Maintenance mode** replaces the whole interface with a notice carrying a reason you write, and the routes refuse every request, so it holds for a modified client as well as the page. The administrator is deliberately exempt — otherwise the switch would lock its own owner out and there would be no way back. To get in during maintenance: open the **About page**, tap the logo **ten times**, and sign in with Google. The About page stays reachable while the chat is closed, and its logo carries the trigger.
 
 **These are enforced on the server, not in the browser.** `/api/chat` and `/api/image` read the settings on every request and refuse before any provider is called, so the switches hold even for someone running a modified bundle. That works without giving the deployment a service account:
 
-- `config/` has a **public read**, which is what lets a route handler read the settings with no credential at all.
+- `config/` has a **public read**, which is what lets a route handler read the settings with no credential at all. The page also asks the server whether it is the administrator, so the maintenance notice is never shown to the person who can lift it.
 - Writing `config/` is refused to everyone except the administrator's address, and the console's save goes through `/api/admin/config`, which verifies the caller's Firebase ID token and then performs the write *with that same token* — so `database.rules.json` makes the final decision, not the route.
 - `MINO_ADMIN_EMAIL` tells the server which address to expect. It must match the address in the rules, and a mismatch surfaces as a refused write rather than a silent success.
 
@@ -154,6 +156,7 @@ Two limits worth knowing:
 
 - **Caps are approximate.** Each request reads the counter and writes it back, which two simultaneous requests can race on, so a burst can exceed the cap slightly. Closing that needs a transaction the REST API cannot express, and an approximate cap is a better trade than no cap.
 - **A cap is per device, not per person.** It follows the anonymous Firebase identity in that browser, so clearing site data or using a private window starts a new allowance.
+- **Today's counters are shown in the console**, per visitor and in total. They are the numbers the caps are counted against, so they are also the quickest way to see that the caps are counting at all rather than silently doing nothing.
 
 If `config/` cannot be read, every default is permissive: the app keeps working rather than locking everyone out.
 

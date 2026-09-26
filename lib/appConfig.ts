@@ -27,6 +27,13 @@ export interface AppConfig {
   dailyImageCap: number;
   /** Anonymous UIDs refused by the server. */
   bannedUids: string[];
+  /**
+   * Closes Mino to everyone but the administrator. Enforced in the route
+   * handlers, so it holds even for a visitor with a modified bundle.
+   */
+  maintenanceEnabled: boolean;
+  /** Shown on the notice. The administrator sees it too. */
+  maintenanceMessage: string;
   updatedAt: number;
 }
 
@@ -38,6 +45,8 @@ export const DEFAULT_CONFIG: AppConfig = {
   dailyChatCap: 0,
   dailyImageCap: 0,
   bannedUids: [],
+  maintenanceEnabled: false,
+  maintenanceMessage: "Mino is down for maintenance. Please check back soon.",
   updatedAt: 0,
 };
 
@@ -60,6 +69,11 @@ export function normalizeConfig(raw: unknown): AppConfig {
     bannedUids: Array.isArray(value.bannedUids)
       ? value.bannedUids.filter((uid): uid is string => typeof uid === "string" && uid.length > 0)
       : [],
+    maintenanceEnabled: asBool(value.maintenanceEnabled, DEFAULT_CONFIG.maintenanceEnabled),
+    maintenanceMessage:
+      typeof value.maintenanceMessage === "string" && value.maintenanceMessage.trim()
+        ? value.maintenanceMessage.slice(0, 300)
+        : DEFAULT_CONFIG.maintenanceMessage,
     updatedAt: typeof value.updatedAt === "number" ? value.updatedAt : 0,
   };
 }

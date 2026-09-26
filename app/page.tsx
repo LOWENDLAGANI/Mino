@@ -10,6 +10,7 @@ import MinoMark from "@/components/MinoMark";
 import MinoTutorial from "@/components/MinoTutorial";
 import SettingsPanel from "@/components/SettingsPanel";
 import NamePrompt from "@/components/NamePrompt";
+import MaintenanceGate from "@/components/MaintenanceGate";
 import { loadDisplayName, saveDisplayName } from "@/lib/visitorName";
 import { syncVisitorProfile } from "@/lib/firebaseHistory";
 import {
@@ -83,6 +84,7 @@ export default function HomePage() {
   const [appearance, setAppearance] = useState<Appearance>("dark");
   const [loggingError, setLoggingError] = useState(false);
   const [appConfig, setAppConfig] = useState<AppConfig | null>(null);
+  const [isAdmin, setIsAdmin] = useState(false);
   const abortRef = useRef<AbortController | null>(null);
   const historyTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -146,6 +148,28 @@ export default function HomePage() {
   // The administrator's announcement, read live from the same public node the
   // server enforces. A visitor who blocks the read simply never sees it.
   useEffect(() => subscribeAppConfig(setAppConfig), []);
+
+  // Whether this browser is the administrator. The server decides, because the
+  // page cannot be trusted to answer this about itself; it matters only so the
+  // maintenance notice does not lock its own owner out.
+  useEffect(() => {
+    if (!hydrated) return;
+    let cancelled = false;
+    void (async () => {
+      try {
+        const response = await fetch("/api/admin/config", { headers: await authHeader(), cache: "no-store" });
+        if (!response.ok) return;
+        const data = (await response.json()) as { isAdmin?: boolean };
+        if (!cancelled) setIsAdmin(Boolean(data.isAdmin));
+      } catch {
+        // An unreachable check means "not the administrator", which only ever
+        // shows the notice to someone who should not have it.
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [hydrated]);
 
   useEffect(() => {
     if (!loggingError) return;
@@ -433,6 +457,14 @@ export default function HomePage() {
   // Nothing is rendered until localStorage has been read, so a returning
   // visitor never sees the chat flash before their name is known.
   if (!hydrated) return null;
+
+  // Maintenance replaces the whole interface, including the name prompt: a
+  // visitor who cannot use Mino has no reason to be asked to introduce
+  // themselves to it. The administrator passes through so the About page
+  // trigger stays one tap away.
+  if (appConfig?.maintenanceEnabled && !isAdmin) {
+    return <MaintenanceGate message={appConfig.maintenanceMessage} />;
+  }
 
   // Entry gate: the name is what the admin console lists visitors by, so Mino
   // is not usable until one is given. There is no skip out of this screen.

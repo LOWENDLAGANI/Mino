@@ -1,5 +1,5 @@
 import { NextRequest } from "next/server";
-import { consumeUsage, readConfig, verifyCaller } from "@/lib/serverControl";
+import { consumeUsage, isAdmin, readConfig, verifyCaller } from "@/lib/serverControl";
 
 // ── Mino image generation — Cloudflare Workers AI ───────────────────────────
 //   CLOUDFLARE_ACCOUNT_ID → Cloudflare account holding the Workers AI model
@@ -100,6 +100,9 @@ function errorMessage(status: number, detail: string): string {
 /** Reports whether image generation is configured, without exposing any value. */
 export async function GET(): Promise<Response> {
   const controls = await readConfig();
+  // Availability is about configuration, not permission. During maintenance
+  // the composer is behind a notice anyway, and hiding the tool from the
+  // administrator would stop them testing the feature they are maintaining.
   return Response.json({ available: imageConfig() !== null && controls.imageEnabled });
 }
 
@@ -127,6 +130,9 @@ export async function POST(req: NextRequest): Promise<Response> {
   const authorization = req.headers.get("authorization");
   const identity = await verifyCaller(authorization);
   const controls = await readConfig();
+  if (controls.maintenanceEnabled && !isAdmin(identity)) {
+    return Response.json({ error: controls.maintenanceMessage }, { status: 503 });
+  }
   if (!controls.imageEnabled) {
     return Response.json({ error: "Image generation is turned off right now." }, { status: 503 });
   }
