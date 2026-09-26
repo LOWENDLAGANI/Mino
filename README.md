@@ -2,7 +2,7 @@
 
 A private, local-first AI assistant by **Minetallest**. Multi-model chat with vision, streaming responses, markdown rendering, automatic anonymous cloud history, and no account required.
 
-Built with **Next.js 14 (App Router)**, **TypeScript**, **Tailwind CSS**, and **Dexie.js**.
+Built with **Next.js 15 (App Router)**, **React 19**, **TypeScript**, **Tailwind CSS**, and **Dexie.js**.
 
 ## Features
 
@@ -215,3 +215,9 @@ database.rules.json    # Realtime Database rules for anonymous-user isolation an
 ## Privacy
 
 Conversations and attachments are loaded only from the current browser’s IndexedDB. If Firebase logging is configured, chat text and metadata are also written to the signed-in anonymous device identity, but the database is not read by the app. No account or email is required. When web search is enabled, the current question is sent to the search service to retrieve source context for that request.
+
+## Dependency hygiene
+
+`bun audit` is clean. The 14.x line carried a long tail of advisories — two of them critical — most of which applied to features Mino does not use, since there is no middleware, no `next/image`, no Server Actions and no rewrites. Two did apply: denial of service through App Router server components, and cache poisoning in RSC responses. Mino now runs the maintained 15.5 backport line rather than waiting for those to age out.
+
+`postcss` and `prismjs` are pinned by `overrides`, because they arrive as transitives of Next and the syntax highlighter at versions with published advisories. Both are build-time or render-time libraries rather than reachable server surface, but there is no reason to carry a known advisory in a public beta.
