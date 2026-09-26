@@ -3,7 +3,7 @@ import AboutLogo from "@/components/AboutLogo";
 
 // ── Fill these in ────────────────────────────────────────────────────────────
 /** When the first Mino build was created. */
-const DATE_CREATED = "Coming soon";
+const DATE_CREATED = "24/9/2026";
 
 /** Short progress notes, newest first. Replace the placeholders below. */
 const PROGRESS: Array<{ label: string; detail: string; state: "done" | "active" | "next" }> = [
@@ -71,10 +71,6 @@ export default function AboutPage() {
           <div className="rounded-[20px] border border-white/[0.07] bg-white/[0.03] p-5 sm:col-span-2">
             <div className="text-[10px] font-semibold uppercase tracking-[0.16em] text-white/30">AI name</div>
             <p className="mt-2 text-[20px] font-semibold tracking-[-0.02em] text-white">Mino</p>
-            <p className="mt-1.5 text-[12px] leading-relaxed text-white/40">
-              Mino answers to one name only. If it is ever told otherwise, it corrects itself and
-              carries on as Mino, created by Minetallest.
-            </p>
           </div>
         </section>
 
