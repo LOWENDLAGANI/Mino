@@ -42,6 +42,7 @@ export default function ChatInput({ onSend, disabled, onStop }: ChatInputProps) 
   const [errors, setErrors] = useState<string[]>([]);
   const [showTools, setShowTools] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const cameraInputRef = useRef<HTMLInputElement>(null);
   const toolsRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const recognitionRef = useRef<SpeechRecognition | null>(null);
@@ -285,6 +286,25 @@ export default function ChatInput({ onSend, disabled, onStop }: ChatInputProps) 
                   type="button"
                   onClick={() => {
                     setShowTools(false);
+                    cameraInputRef.current?.click();
+                  }}
+                  className="flex w-full items-center gap-3.5 rounded-[18px] px-2 py-2.5 text-left transition-colors hover:bg-white/[0.06] active:bg-white/[0.09]"
+                >
+                  <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-white/[0.09] text-white">
+                    <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                      <path d="M3.5 8.5A2 2 0 0 1 5.5 6.5h1.7l1.2-2h7.2l1.2 2h1.7a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2h-13a2 2 0 0 1-2-2Z" />
+                      <circle cx="12" cy="13" r="3.4" />
+                    </svg>
+                  </span>
+                  <span className="min-w-0 flex-1">
+                    <span className="block text-[15px] font-semibold leading-tight tracking-[-0.01em] text-white">Camera</span>
+                    <span className="mt-0.5 block text-[11px] leading-snug text-white/40">Take a photo with your phone</span>
+                  </span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowTools(false);
                     fileInputRef.current?.click();
                   }}
                   className="flex w-full items-center gap-3.5 rounded-[18px] px-2 py-2.5 text-left transition-colors hover:bg-white/[0.06] active:bg-white/[0.09]"
@@ -296,7 +316,7 @@ export default function ChatInput({ onSend, disabled, onStop }: ChatInputProps) 
                   </span>
                   <span className="min-w-0 flex-1">
                     <span className="block text-[15px] font-semibold leading-tight tracking-[-0.01em] text-white">Gallery</span>
-                    <span className="mt-0.5 block text-[11px] leading-snug text-white/40">Attach images from your device</span>
+                    <span className="mt-0.5 block text-[11px] leading-snug text-white/40">Pick images already on your device</span>
                   </span>
                 </button>
                 <button
@@ -339,6 +359,19 @@ export default function ChatInput({ onSend, disabled, onStop }: ChatInputProps) 
               type="file"
               accept="image/*"
               multiple
+              className="hidden"
+              onChange={(e) => {
+                void addFiles(Array.from(e.target.files ?? []));
+                e.target.value = "";
+              }}
+            />
+            {/* capture="environment" opens the rear camera directly on phones;
+                desktop browsers ignore it and fall back to a normal file picker. */}
+            <input
+              ref={cameraInputRef}
+              type="file"
+              accept="image/*"
+              capture="environment"
               className="hidden"
               onChange={(e) => {
                 void addFiles(Array.from(e.target.files ?? []));
