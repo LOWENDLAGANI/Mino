@@ -210,23 +210,24 @@ export default function ChatInput({ onSend, disabled, onStop, imageMode, onImage
           </div>
         )}
 
-        {/* Image mode banner */}
+        {/* Image mode indicator — a title is enough; no explanation needed. */}
         {imageMode && (
-          <div className="mb-2 flex items-center gap-2.5 rounded-2xl border border-[#9ee7ff]/15 bg-[#9ee7ff]/[0.05] px-3 py-2 animate-rise">
+          <div className="mb-2 flex items-center gap-2 animate-rise">
             <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-[#9ee7ff]/12 text-[#9ee7ff]">
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">
                 <rect x="3" y="4" width="18" height="16" rx="3.5" /><circle cx="8.75" cy="9.75" r="1.6" /><path d="M20.5 15.5 16 11l-9 9.5" />
               </svg>
             </span>
-            <span className="min-w-0 flex-1 text-[11px] leading-snug text-white/60">
-              Describe the image you want. Mino draws it and saves it in this chat.
-            </span>
+            <span className="text-[12px] font-medium text-white/70">Image</span>
             <button
               type="button"
               onClick={() => onImageModeChange(false)}
-              className="shrink-0 rounded-full border border-white/10 px-2.5 py-1 text-[10px] font-medium text-white/55 transition-colors hover:bg-white/[0.07] hover:text-white"
+              className="ml-auto shrink-0 rounded-full p-1 text-white/40 transition-colors hover:bg-white/[0.07] hover:text-white"
+              aria-label="Exit image mode"
             >
-              Exit
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round">
+                <path d="M6 6l12 12M18 6L6 18" />
+              </svg>
             </button>
           </div>
         )}
@@ -298,7 +299,7 @@ export default function ChatInput({ onSend, disabled, onStop, imageMode, onImage
             <button
               onClick={() => setShowTools((value) => !value)}
               data-tutorial="gallery-button"
-              className="mb-1 flex h-12 w-12 items-center justify-center rounded-full text-white/45 transition-colors hover:bg-white/[0.07] hover:text-white/80"
+              className="lift mb-1 flex h-12 w-12 items-center justify-center rounded-full text-white/45 transition-colors hover:bg-white/[0.07] hover:text-white/80"
               aria-label="Open tools menu"
               aria-expanded={showTools}
               type="button"
@@ -310,7 +311,7 @@ export default function ChatInput({ onSend, disabled, onStop, imageMode, onImage
               </svg>
             </button>
             {showTools && (
-              <div className="absolute bottom-14 left-0 z-50 w-[286px] max-w-[calc(100vw-2rem)] rounded-[26px] border border-white/[0.08] bg-[#131316]/[0.98] p-1.5 shadow-2xl shadow-black/80 backdrop-blur-xl animate-rise">
+              <div className="animate-pop absolute bottom-14 left-0 z-50 w-[286px] max-w-[calc(100vw-2rem)] rounded-[26px] border border-white/[0.08] bg-[#131316]/[0.98] p-1.5 shadow-2xl shadow-black/80 backdrop-blur-xl">
                 <button
                   type="button"
                   onClick={() => {
@@ -382,10 +383,10 @@ export default function ChatInput({ onSend, disabled, onStop, imageMode, onImage
                       <path d="m12 3 1.9 4.8L19 9.6l-4.1 3 1.2 5.1L12 15.2 7.9 17.7l1.2-5.1L5 9.6l5.1-1.8z" />
                     </svg>
                   </span>
-                  <span className="min-w-0 flex-1">
-                    <span className="block text-[15px] font-semibold leading-tight tracking-[-0.01em] text-white">Create image</span>
+                  <span className="flex min-w-0 flex-1 items-center gap-1.5 text-[15px] font-semibold leading-tight tracking-[-0.01em] text-white">
+                    Create image
                     {!imageAvailable && (
-                      <span className="block text-[11px] leading-snug text-white/35">Needs the Cloudflare key in the deployment environment</span>
+                      <span className="h-1.5 w-1.5 rounded-full bg-amber-300/80" title="Not configured in the deployment environment" />
                     )}
                   </span>
                 </button>
@@ -463,7 +464,7 @@ export default function ChatInput({ onSend, disabled, onStop, imageMode, onImage
             <button
               onClick={handleSend}
               disabled={!canSend}
-              className={`mb-1 flex h-12 w-12 shrink-0 items-center justify-center rounded-full transition-all ${
+              className={`lift mb-1 flex h-12 w-12 shrink-0 items-center justify-center rounded-full transition-colors ${
                 canSend
                   ? "bg-[#6f5bea] text-white shadow-[0_8px_24px_rgba(111,91,234,0.35)] hover:bg-[#7b67f0]"
                   : "text-white/25 hover:bg-white/[0.05]"
@@ -478,10 +479,6 @@ export default function ChatInput({ onSend, disabled, onStop, imageMode, onImage
           )}
         </div>
 
-        {/* Hint — desktop only; keep mobile clean */}
-        <p className="hidden pt-2 text-center text-[10px] text-white/25 md:block">
-          Created by Minetallest · Shift + Enter for a new line
-        </p>
         <div className="safe-bottom md:hidden" />
       </div>
     </div>

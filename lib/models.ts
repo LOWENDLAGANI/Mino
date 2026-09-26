@@ -9,8 +9,6 @@ export type ModeId = "auto" | "dev";
 export interface ModeOption {
   id: ModeId;
   name: string;
-  tagline: string;
-  description: string;
   /** Server-side env var that enables this mode */
   envVar: string;
   /** Underlying default model (informational, shown in UI) */
@@ -21,16 +19,12 @@ export const MINO_MODES: ModeOption[] = [
   {
     id: "auto",
     name: "Auto",
-    tagline: "Best model, chosen for you",
-    description: "Routes every message to the strongest available model",
     envVar: "OPENROUTER_API_KEY",
     engine: "openrouter/auto",
   },
   {
     id: "dev",
     name: "Dev",
-    tagline: "Tuned for code & technical work",
-    description: "Mino 3.8, tuned for code and technical work",
     envVar: "GEMINI_API_KEY",
     engine: "gemini-3.8-flash",
   },

@@ -459,7 +459,7 @@ export default function HomePage() {
         <header className="safe-top relative z-20 flex h-16 shrink-0 items-center gap-3 px-4 md:px-6">
           <button
             onClick={() => setSidebarOpen(true)}
-            className="flex h-9 w-9 items-center justify-center rounded-full text-text-body transition-colors hover:bg-white/[0.06] hover:text-white md:hidden"
+            className="lift flex h-9 w-9 items-center justify-center rounded-full text-text-body transition-colors hover:bg-white/[0.06] hover:text-white md:hidden"
             aria-label="Open menu"
             data-tutorial="mobile-menu"
           >
@@ -470,7 +470,7 @@ export default function HomePage() {
 
           <button
             onClick={handleNewChat}
-            className="flex min-w-0 items-center gap-2.5 rounded-full py-1 pr-2 text-left transition-opacity hover:opacity-80"
+            className="flex min-w-0 items-center gap-2.5 rounded-full py-1 pr-2 text-left transition-opacity hover:opacity-80 active:opacity-60"
             aria-label="Start a new Mino chat"
             title="Mino"
           >
@@ -504,7 +504,6 @@ export default function HomePage() {
             streamingId={streamingId}
             drawingId={drawingId}
             isEmpty={visibleMessages.length === 0}
-            suggestedMode={hydrated ? selectedMode : DEFAULT_MODE_ID}
             onRegenerate={handleRegenerate}
             onEditMessage={handleEditMessage}
             onCopyConversation={handleCopyConversation}

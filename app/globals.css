@@ -256,6 +256,55 @@ button {
   animation: rise 0.3s cubic-bezier(0.2, 0.8, 0.2, 1) both;
 }
 
+/* ── Motion ─────────────────────────────────────────────────────────────────
+   Every animation here moves only `transform` and `opacity`, the two
+   properties a browser can animate on the compositor without measuring
+   layout. Animating width, height, margin, or box-shadow forces layout or
+   paint on every frame, which is what makes a UI feel heavy on a budget
+   Android phone. Durations are kept short so a dropped frame is never
+   more than barely noticeable, and `will-change` is applied only to
+   elements that actually animate, since it costs memory. */
+
+@keyframes pop {
+  from { opacity: 0; transform: scale(0.97) translateY(6px); }
+  to { opacity: 1; transform: scale(1) translateY(0); }
+}
+.animate-pop {
+  animation: pop 0.24s cubic-bezier(0.2, 0.9, 0.25, 1) both;
+}
+
+@keyframes fade {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+.animate-fade {
+  animation: fade 0.2s ease-out both;
+}
+
+/* A single slow pulse for the drawing placeholder. Transform-only, so it
+   composites smoothly; a shimmer would repaint a large area each frame. */
+@keyframes breathe {
+  0%, 100% { opacity: 0.55; transform: scale(1); }
+  50% { opacity: 0.9; transform: scale(1.015); }
+}
+.animate-breathe {
+  animation: breathe 2.4s ease-in-out infinite;
+}
+
+/* Interactive surfaces lift by a hair on hover, and dim instantly on press.
+   `transform` keeps this off the layout path entirely. */
+.lift {
+  transition: transform 0.16s cubic-bezier(0.2, 0.8, 0.2, 1);
+  will-change: transform;
+}
+.lift:hover {
+  transform: translateY(-1px);
+}
+.lift:active {
+  transform: translateY(0) scale(0.985);
+  transition-duration: 0.08s;
+}
+
 @keyframes blink {
   0%, 100% { opacity: 1; }
   50% { opacity: 0.3; }

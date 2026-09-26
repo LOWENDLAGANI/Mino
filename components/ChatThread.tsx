@@ -13,7 +13,6 @@ interface ChatThreadProps {
   /** Assistant message currently being drawn by the image model, if any. */
   drawingId: string | null;
   isEmpty: boolean;
-  suggestedMode: string;
   onRegenerate: (assistantId: string) => void;
   onEditMessage: (messageId: string, content: string) => void;
   onCopyConversation: () => void;
@@ -214,9 +213,9 @@ function DrawingPlaceholder() {
   return (
     <div className="overflow-hidden rounded-2xl border border-white/10" role="status" aria-live="polite">
       <div className="flex aspect-[4/3] w-full max-w-md items-center justify-center bg-white/[0.03]">
-        <span className="flex items-center gap-2 text-[12px] text-white/45">
+        <span className="animate-breathe flex items-center gap-2 text-[12px] text-white/45">
           <span className="h-4 w-4 animate-spin rounded-full border-2 border-[#9ee7ff]/40 border-t-transparent" />
-          Drawing your image…
+          Drawing…
         </span>
       </div>
     </div>
@@ -231,7 +230,7 @@ function GeneratedImageCard({ image }: { image: GeneratedImage }) {
     link.click();
   };
   return (
-    <figure className="group/img mb-2 overflow-hidden rounded-2xl border border-white/10 bg-black/20">
+    <figure className="animate-pop group/img mb-2 overflow-hidden rounded-2xl border border-white/10 bg-black/20">
       {/* eslint-disable-next-line @next/next/no-img-element */}
       <img
         src={image.url}
@@ -246,7 +245,7 @@ function GeneratedImageCard({ image }: { image: GeneratedImage }) {
         <button
           type="button"
           onClick={download}
-          className="shrink-0 rounded-full border border-white/10 px-2.5 py-1 text-[10px] font-medium text-white/55 transition-colors hover:bg-white/[0.07] hover:text-white"
+          className="lift shrink-0 rounded-full border border-white/10 px-2.5 py-1 text-[10px] font-medium text-white/55 transition-colors hover:bg-white/[0.07] hover:text-white"
         >
           Save
         </button>
@@ -438,7 +437,7 @@ function nextHeadline(): string {
 export default function ChatThread({  messages,
   streamingId,
   drawingId,
-  isEmpty, suggestedMode, onRegenerate, onEditMessage, onCopyConversation }: ChatThreadProps) {
+  isEmpty, onRegenerate, onEditMessage, onCopyConversation }: ChatThreadProps) {
   const bottomRef = useRef<HTMLDivElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const stickRef = useRef(true);
@@ -487,11 +486,6 @@ export default function ChatThread({  messages,
           <h1 className="text-balance text-[38px] font-normal leading-[1.08] tracking-[-0.045em] text-white sm:text-[54px] lg:text-[62px]">
             {headline}
           </h1>
-          <p className="mx-auto mt-4 max-w-md text-[12px] leading-relaxed text-white/38 sm:text-[13px]">
-            {suggestedMode === "dev"
-              ? "Mino 3.8 · tuned for code and technical work"
-              : "Mino Auto · the best available model for every prompt"}
-          </p>
         </div>
       </div>
     );

@@ -92,8 +92,12 @@ export default function SettingsPanel({
         <div className="min-h-0 flex-1 space-y-7 overflow-y-auto px-5 py-5">
           <section>
             <div className="mb-2.5 flex items-center justify-between gap-3">
-              <h3 className="text-[13px] font-semibold text-white">Web search</h3>
-              {!searchAvailable && <span className="text-[10px] text-amber-200/65">Setup needed</span>}
+              <h3 className="flex items-center gap-1.5 text-[13px] font-semibold text-white">
+                Web search
+                {!searchAvailable && (
+                  <span className="h-1.5 w-1.5 rounded-full bg-amber-300/80" title="No search key in the deployment environment" />
+                )}
+              </h3>
             </div>
             <div className="grid grid-cols-3 gap-1 rounded-[16px] bg-white/[0.05] p-1">
               {SEARCH_OPTIONS.map((option) => (
@@ -111,11 +115,6 @@ export default function SettingsPanel({
                 </button>
               ))}
             </div>
-            <p className="mt-2 text-[10px] leading-relaxed text-white/30">
-              {searchAvailable
-                ? "Auto stays quiet for general knowledge questions and searches when you ask for sources."
-                : "Add a search API key to the deployment environment to enable web search."}
-            </p>
           </section>
 
           <section>
@@ -167,10 +166,6 @@ export default function SettingsPanel({
                 </button>
               ))}
             </div>
-            <p className="mt-2 text-[10px] leading-relaxed text-white/30">
-              How long Mino thinks before answering. Higher effort costs more tokens and time; it is ignored
-              by models that do not support it.
-            </p>
           </section>
 
           <section>
