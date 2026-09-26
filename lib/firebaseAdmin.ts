@@ -17,25 +17,26 @@ import { get, ref, remove } from "firebase/database";
 import { firebaseConfigured, getServices } from "./firebaseHistory";
 
 /**
- * The Firebase Auth UID allowed to open the console.
+ * The administrator is defined in exactly one place: the `ADMIN_UID` inside
+ * `database.rules.json`. Nothing is hardcoded here.
  *
- * Set this to your own UID, and put the same value into the `ADMIN_UID`
- * placeholder in `database.rules.json`, then publish the rules.
- *
- * To find your UID: sign in through the admin prompt once, and the dialog shows
- * the UID to copy. It is also listed in the Firebase console under
- * Authentication → Users. An anonymous UID cannot be used — Firebase assigns
- * those at random, so they cannot be hardcoded.
+ * The prompt does not try to predict who the administrator is. It signs you in
+ * and then attempts a real read, letting Firebase answer. That keeps the rules
+ * the single source of truth, so they can never drift out of step with a copy
+ * of the UID baked into the bundle.
  */
-export const ADMIN_UID = "";
-
-/** True once a UID has been filled in and published. */
-export function adminConfigured(): boolean {
-  return ADMIN_UID !== "";
-}
-
-export function isAdminUser(uid: string | null | undefined): boolean {
-  return Boolean(ADMIN_UID) && uid === ADMIN_UID;
+export async function verifyAdminAccess(): Promise<boolean> {
+  const current = await getServices();
+  if (!current) throw notConfigured();
+  try {
+    // A small, cheap probe. Reading `admin/registry` succeeds only for the
+    // administrator, and an empty registry is still a successful read.
+    await get(ref(current.database, "admin/registry"));
+    return true;
+  } catch (cause: unknown) {
+    if ((cause as { code?: string })?.code === "PERMISSION_DENIED") return false;
+    throw cause;
+  }
 }
 
 export interface AdminUser {
@@ -78,8 +79,13 @@ function unauthorized(): Error & { code?: string } {
 async function requireAdmin() {
   const current = await getServices();
   if (!current) throw notConfigured();
-  if (!isAdminUser(current.auth.currentUser?.uid)) throw unauthorized();
   return current;
+}
+
+/** Maps Firebase's permission failure onto a message worth showing. */
+function rethrow(cause: unknown): never {
+  if ((cause as { code?: string })?.code === "PERMISSION_DENIED") throw unauthorized();
+  throw cause;
 }
 
 /**
@@ -115,7 +121,7 @@ export async function listUsers(): Promise<AdminUser[]> {
   const [registrySnapshot, usersSnapshot] = await Promise.all([
     get(ref(database, "admin/registry")),
     get(ref(database, "users")),
-  ]);
+  ]).catch(rethrow);
 
   const names = (registrySnapshot.val() ?? {}) as Record<
     string,
@@ -152,7 +158,7 @@ export async function listUsers(): Promise<AdminUser[]> {
 
 export async function listChats(uid: string): Promise<AdminChat[]> {
   const { database } = await requireAdmin();
-  const snapshot = await get(ref(database, `users/${uid}/chats`));
+  const snapshot = await get(ref(database, `users/${uid}/chats`)).catch(rethrow);
   const value = (snapshot.val() ?? {}) as Record<
     string,
     { id?: string; title?: string; createdAt?: number; updatedAt?: number }
@@ -170,7 +176,7 @@ export async function listChats(uid: string): Promise<AdminChat[]> {
 
 export async function getChat(uid: string, chatId: string): Promise<{ title: string; messages: AdminMessage[] }> {
   const { database } = await requireAdmin();
-  const snapshot = await get(ref(database, `users/${uid}/chats/${chatId}`));
+  const snapshot = await get(ref(database, `users/${uid}/chats/${chatId}`)).catch(rethrow);
   const chat = snapshot.val() as
     | { title?: string; messages?: Record<string, { role?: string; content?: string; model?: string; createdAt?: number; error?: string }> }
     | null;
@@ -196,11 +202,11 @@ export async function wipeUser(uid: string): Promise<void> {
   await Promise.all([
     remove(ref(database, `users/${uid}`)),
     remove(ref(database, `admin/registry/${uid}`)),
-  ]);
+  ]).catch(rethrow);
 }
 
 /** Removes every logged chat and every visitor entry. */
 export async function wipeAll(): Promise<void> {
   const { database } = await requireAdmin();
-  await Promise.all([remove(ref(database, "users")), remove(ref(database, "admin/registry"))]);
+  await Promise.all([remove(ref(database, "users")), remove(ref(database, "admin/registry"))]).catch(rethrow);
 }

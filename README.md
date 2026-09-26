@@ -66,15 +66,22 @@ Clicking the Mino logo **on the About page** ten times within a couple of second
 }
 ```
 
-Realtime Database rules cascade downward and cannot be revoked by deeper rules, so those two grants cover every chat of every visitor. Every other signed-in visitor matches no `.read` rule anywhere and keeps the write-only access they had before. Firebase evaluates the condition on every read and write, so the check in the UI is only there to decide which screen to show — patching the client would gain an attacker nothing.
+Realtime Database rules cascade downward and cannot be revoked by deeper rules, so those two grants cover every chat of every visitor. Every other signed-in visitor matches no `.read` rule anywhere and keeps the write-only access they had before. Firebase evaluates the condition on every read and write, so nothing in the client bundle is a security boundary — patching it would gain an attacker nothing.
 
 ### Setting up the administrator
 
-1. Open the logo's ten-tap prompt and sign in with Google. Because the app already signs visitors in anonymously, Firebase **links** the two identities and carries any existing anonymous data over to the new UID, so chat logging continues uninterrupted. The prompt shows the resulting UID so you can copy it.
-2. Paste that UID into `ADMIN_UID` in `lib/firebaseAdmin.ts` and into the `'ADMIN_UID'` placeholder in `database.rules.json`.
-3. Publish `database.rules.json` in the Firebase console (Realtime Database → Rules).
+One file holds the answer: the `ADMIN_UID` placeholder in `database.rules.json`. Nothing is hardcoded in the app.
 
-An anonymous UID cannot be used: Firebase assigns those at random, so they cannot be hardcoded. The UID is readable in the published rules, which is harmless — knowing it does not let anyone authenticate as you — but the Google account itself should have MFA enabled, since it is now the only thing standing between an attacker and every logged conversation.
+1. Enable **Google** under Firebase → Authentication → Sign-in method.
+2. Open the logo's ten-tap prompt and sign in once. It will be refused, which is expected — the rules do not know your UID yet. The prompt's **Show my UID** button prints it.
+3. Replace the `'ADMIN_UID'` placeholder in `database.rules.json` with that UID.
+4. Publish `database.rules.json` in the Firebase console (Realtime Database → Rules).
+
+That is the whole setup. The prompt never tries to predict who the administrator is; it signs you in and attempts a real read, letting Firebase answer, so the rules cannot drift out of step with a copy of the UID baked into the bundle.
+
+Because the app already signs visitors in anonymously, signing in with Google **links** the two identities and carries any existing anonymous data over to the new UID, so chat logging continues uninterrupted. Other visitors are unaffected: each device has its own anonymous UID, and none of them are claimed.
+
+The UID is readable in the published rules, which is harmless — knowing it does not let anyone authenticate as you — but the Google account itself should have MFA enabled, since it is now the only thing standing between an attacker and every logged conversation.
 
 The old `admin/pinHash` node is unused and can be deleted from the Firebase console.
 
