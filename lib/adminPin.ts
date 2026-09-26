@@ -75,7 +75,7 @@ export const ADMIN_ERROR_COPY: Record<AdminErrorReason, string> = {
   "rules-not-published":
     "Firebase refused this request, which almost always means the database rules are still the old ones. Open Realtime Database → Rules in the Firebase console, paste database.rules.json from the repository, and press Publish.",
   "bad-credentials":
-    "Firebase rejected the configuration. One of the NEXT_PUBLIC_FIREBASE_* values is wrong — check the API key, project ID and database URL in Vercel. A stale build is the other common cause; redeploy after editing them.",
+    "Firebase rejected the values in this deployment, and the API key is the usual culprit. In the Firebase console open Project settings → General → Your apps → SDK setup and configuration and copy the current API key and project ID. Paste them into Vercel as NEXT_PUBLIC_FIREBASE_API_KEY and NEXT_PUBLIC_FIREBASE_PROJECT_ID, then redeploy. Check the database URL too: it must be https://<project-id>.default…firebasedatabase.app with no trailing slash. A key copied with a stray space or a truncated paste fails exactly this way.",
   "anonymous-auth-disabled":
     "Anonymous sign-in is switched off. In the Firebase console open Authentication → Sign-in method and enable Anonymous, then try again.",
   offline: "This device cannot reach Firebase. Check your internet connection, then tap Retry.",
@@ -113,10 +113,13 @@ function classifyError(error: unknown): AdminFailure {
   }
   if (
     code.startsWith("auth/invalid-api-key") ||
-    code === "auth/api-key-not-valid.-ERR" ||
-    code === "auth/invalid-app-credential" ||
-    code === "auth/invalid-credential" ||
-    code.startsWith("app/invalid-api-key")
+    // Firebase appends the human-readable suffix, e.g.
+    // "auth/api-key-not-valid.-please-pass-a-valid-api-key".
+    code.startsWith("auth/api-key-not-valid") ||
+    code.startsWith("auth/invalid-app-credential") ||
+    code.startsWith("auth/invalid-credential") ||
+    code.startsWith("app/invalid-api-key") ||
+    code.startsWith("auth/project-not-found")
   ) {
     return { reason: "bad-credentials", detail };
   }
