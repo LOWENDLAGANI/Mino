@@ -9,6 +9,8 @@ import ModeSelector from "@/components/ModelSelector";
 import MinoMark from "@/components/MinoMark";
 import MinoTutorial from "@/components/MinoTutorial";
 import SettingsPanel from "@/components/SettingsPanel";
+import AdminGate from "@/components/AdminGate";
+import AdminPanel from "@/components/AdminPanel";
 import {
   db,
   createChat,
@@ -63,6 +65,8 @@ export default function HomePage() {
   const [streamingId, setStreamingId] = useState<string | null>(null);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [adminGateOpen, setAdminGateOpen] = useState(false);
+  const [adminPanelOpen, setAdminPanelOpen] = useState(false);
   const [hydrated, setHydrated] = useState(false);
   const [modelNotice, setModelNotice] = useState<string | null>(null);
   const [searchMode, setSearchMode] = useState<SearchMode>("auto");
@@ -339,6 +343,10 @@ export default function HomePage() {
           setSettingsOpen(true);
           setSidebarOpen(false);
         }}
+        onOpenAdmin={() => {
+          setAdminGateOpen(true);
+          setSidebarOpen(false);
+        }}
       />
 
       <main className="app-surface relative flex min-w-0 flex-1 flex-col overflow-hidden">
@@ -424,6 +432,17 @@ export default function HomePage() {
         appearance={appearance}
         onAppearanceChange={handleAppearanceChange}
       />
+
+      <AdminGate
+        open={adminGateOpen}
+        onClose={() => setAdminGateOpen(false)}
+        onUnlocked={() => {
+          setAdminGateOpen(false);
+          setAdminPanelOpen(true);
+        }}
+      />
+
+      <AdminPanel open={adminPanelOpen} onClose={() => setAdminPanelOpen(false)} />
     </div>
   );
 }

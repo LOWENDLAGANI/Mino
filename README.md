@@ -50,7 +50,21 @@ To enable automatic logging:
 
 `NEXT_PUBLIC_FIREBASE_API_KEY`, `NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN`, `NEXT_PUBLIC_FIREBASE_DATABASE_URL`, `NEXT_PUBLIC_FIREBASE_PROJECT_ID`, `NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET`, `NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID`, `NEXT_PUBLIC_FIREBASE_APP_ID`
 
-3. In Firebase Console → Realtime Database → Rules, paste the contents of `database.rules.json` and publish. You do not need the Firebase CLI or an Admin SDK/private key. The rules deny all database reads and allow writes only under the signed-in anonymous user’s UID.
+3. In Firebase Console → Realtime Database → Rules, paste the contents of `database.rules.json` and publish. You do not need the Firebase CLI or an Admin SDK/private key. The rules deny all reads of chat data and allow writes only under the signed-in anonymous user’s UID. The single exception is `admin/pinHash`, which any signed-in anonymous visitor may read (see **Admin console** below).
+
+### Admin console
+
+Clicking the Mino logo in the sidebar **ten times** within a couple of seconds opens a PIN prompt. A correct PIN opens a read-only console showing which providers are configured, local chat/message counts, storage used, and the anonymous Firebase identity.
+
+To set the PIN, create a node `admin` with a child `pinHash` in Realtime Database and paste the **SHA-256 hex digest of your PIN** — not the PIN itself:
+
+```bash
+echo -n "your-pin-here" | shasum -a 256
+```
+
+Mino hashes the entered PIN in the browser with Web Crypto and compares it against that digest, so the database never stores or transmits the PIN. Five wrong attempts trigger a one-minute cooldown.
+
+**This is a convenience gate, not a security boundary.** Any visitor can create an anonymous Firebase session and read the digest, so a short PIN is brute-forceable. Keep the console read-only, and put anything genuinely privileged behind a real server-side authorisation check.
 
 The browser creates a hidden anonymous Firebase session and logs chat titles, text, model metadata, and sources. Images and document contents stay in the local Dexie cache because base64 image payloads can make database writes unnecessarily large. Clearing local data does not load or restore chats from the database; use the Firebase console if you need to remove logged data.
 
@@ -85,6 +99,9 @@ components/
   ChatThread.tsx       # Streaming message list, markdown, image rendering
   ChatInput.tsx        # Input bar, image picker, drag & drop, paste
   SettingsPanel.tsx    # Web search, response length, custom instructions, appearance
+  AdminGate.tsx        # Ten-tap logo trigger and PIN prompt
+  AdminPanel.tsx       # Read-only diagnostics console
+  about/page.tsx       # Public About page: logo, creator, date, progress
   MinoMark.tsx         # Brand mark (renders /public/mino-logo.png with SVG fallback)
   ModelSelector.tsx    # Navbar model dropdown
   Markdown.tsx         # react-markdown + Prism + copy button
@@ -94,9 +111,10 @@ lib/
   models.ts            # Model catalog + token estimator
   webSearch.ts         # Server-side current-web search and source formatting
   firebaseHistory.ts   # Anonymous write-only Firebase chat logging
+  adminPin.ts          # SHA-256 PIN verification against the Realtime Database digest
   settings.ts           # Local response, instruction, and appearance preferences
   types.ts             # Shared TypeScript types
-database.rules.json    # Realtime Database rules for anonymous-user isolation
+database.rules.json    # Realtime Database rules for anonymous-user isolation and the admin digest
 ```
 
 ## Privacy

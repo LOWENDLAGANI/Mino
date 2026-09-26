@@ -1,12 +1,19 @@
 {
   "rules": {
+    "admin": {
+      ".read": false,
+      "pinHash": {
+        ".read": "auth != null",
+        ".write": false
+      }
+    },
     "users": {
       "$uid": {
         ".read": false,
         ".write": "auth != null && auth.uid === $uid",
         "chats": {
           "$chatId": {
-            ".validate": "newData.hasChildren(['id', 'title', 'createdAt', 'updatedAt', 'messages'])"
+            ".validate": "newData.hasChildren(['id','title','createdAt','updatedAt','messages'])"
           }
         }
       }

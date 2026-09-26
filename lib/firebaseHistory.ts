@@ -2,6 +2,7 @@ import { getApp, getApps, initializeApp } from "firebase/app";
 import { browserLocalPersistence, getAuth, setPersistence, signInAnonymously, type User } from "firebase/auth";
 import {
   getDatabase,
+  get,
   ref,
   set,
   type Database,
@@ -26,7 +27,7 @@ export const firebaseConfigured = Boolean(
 type FirebaseServices = { auth: ReturnType<typeof getAuth>; database: Database; user: User };
 let services: FirebaseServices | null = null;
 
-async function getServices(): Promise<FirebaseServices | null> {
+export async function getServices(): Promise<FirebaseServices | null> {
   if (!firebaseConfigured || typeof window === "undefined") return null;
   if (services) return services;
   const app = getApps().length > 0 ? getApp() : initializeApp(config);
@@ -90,4 +91,21 @@ export async function syncFirebaseHistory(): Promise<{ synced: boolean; reason?:
     });
   }
   return { synced: true };
+}
+
+/**
+ * Reads the admin PIN verifier from Realtime Database.
+ *
+ * This is the one read Mino performs. Chat history itself is never read back —
+ * see syncFirebaseHistory above. Only a signed-in anonymous visitor can call it,
+ * and it returns a SHA-256 digest rather than the PIN, so the database never
+ * holds or discloses the secret itself.
+ */
+export async function fetchAdminPinHash(): Promise<string | null> {
+  const current = await getServices();
+  if (!current) return null;
+  const snapshot = await get(ref(current.database, "admin/pinHash"));
+  const value = snapshot.val();
+  if (typeof value !== "string" || value.trim() === "") return null;
+  return value.trim().toLowerCase();
 }

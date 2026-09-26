@@ -20,6 +20,7 @@ interface SidebarProps {
   open: boolean;
   onClose: () => void;
   onOpenSettings: () => void;
+  onOpenAdmin: () => void;
 }
 
 function downloadJson(filename: string, data: unknown) {
@@ -31,6 +32,8 @@ function downloadJson(filename: string, data: unknown) {
   a.click();
   URL.revokeObjectURL(url);
 }
+
+const ADMIN_TAPS = 10;
 
 function timeAgo(ts: number): string {
   const diff = Date.now() - ts;
@@ -52,7 +55,7 @@ function UtilityIcon({ children }: { children: ReactNode }) {
   );
 }
 
-export default function Sidebar({ activeChatId, onSelectChat, onNewChat, open, onClose, onOpenSettings }: SidebarProps) {
+export default function Sidebar({ activeChatId, onSelectChat, onNewChat, open, onClose, onOpenSettings, onOpenAdmin }: SidebarProps) {
   const chats = useLiveQuery(
     () => db.chats.orderBy("updatedAt").reverse().toArray(),
     [],
@@ -60,8 +63,9 @@ export default function Sidebar({ activeChatId, onSelectChat, onNewChat, open, o
   );
 
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const [confirmClear, setConfirmClear] = useState(false);
-  const [notice, setNotice] = useState<string | null>(null);
+  // Ten taps on the logo within a rolling window opens the admin PIN prompt.
+  const tapsRef = useRef<number[]>([]);
+  const [confirmClear, setConfirmClear] = useState(false);  const [notice, setNotice] = useState<string | null>(null);
   const [showSearch, setShowSearch] = useState(false);
   const [search, setSearch] = useState("");
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -105,6 +109,17 @@ export default function Sidebar({ activeChatId, onSelectChat, onNewChat, open, o
     onNewChat();
   };
 
+  const handleLogoClick = () => {
+    const now = Date.now();
+    const recent = tapsRef.current.filter((time) => now - time < 2500);
+    recent.push(now);
+    tapsRef.current = recent;
+    if (recent.length >= ADMIN_TAPS) {
+      tapsRef.current = [];
+      onOpenAdmin();
+    }
+  };
+
   return (
     <>
       {open && (
@@ -122,7 +137,13 @@ export default function Sidebar({ activeChatId, onSelectChat, onNewChat, open, o
         }`}
       >
         <div className="safe-top flex items-center justify-between px-5 pb-5 pt-6">
-          <button onClick={onNewChat} className="flex items-center gap-3 text-left" aria-label="Start a new Mino chat">
+          <button
+            onClick={onNewChat}
+            onClickCapture={handleLogoClick}
+            className="flex items-center gap-3 text-left"
+            aria-label="Start a new Mino chat"
+            title="Mino"
+          >
             <MinoMark className="h-10 w-10" />
             <span>
               <span className="block text-[25px] font-semibold leading-none tracking-[-0.045em] text-white">Mino</span>
@@ -180,6 +201,17 @@ export default function Sidebar({ activeChatId, onSelectChat, onNewChat, open, o
             </UtilityIcon>
             Settings
           </button>
+          <a
+            href="/about"
+            className="flex w-full items-center gap-2 rounded-xl px-2 py-2 text-[14px] text-white/60 transition-colors hover:bg-white/[0.05] hover:text-white"
+          >
+            <UtilityIcon>
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
+                <circle cx="12" cy="12" r="9" /><path d="M12 11v5.5M12 7.6v.6" />
+              </svg>
+            </UtilityIcon>
+            About
+          </a>
         </nav>
 
         {showSearch && (
