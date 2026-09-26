@@ -72,19 +72,53 @@ function throttleReason(): "locked" | null {
   return attempts.length >= MAX_ATTEMPTS ? "locked" : null;
 }
 
-export async function verifyPinServer(pin: string): Promise<{ ok: true } | { ok: false; reason: "locked" | "invalid" | "not-set-up" }> {
-  if (throttleReason() === "locked") return { ok: false, reason: "locked" };
+export interface AdminDiagnostics {
+  /** Host of the Realtime Database the server actually read from. */
+  databaseHost: string;
+  /** Whether a digest node exists there at all. */
+  foundDigest: boolean;
+  /** Length of the stored value, so a stray newline or truncation is visible. */
+  storedLength: number;
+  /** True when the caller's own read of the digest matched its own hash. */
+  browserDigestMatched: boolean | null;
+}
 
-  const stored = (await adminDatabase().ref("admin/pinHash").get()).val();
-  if (typeof stored !== "string" || stored.length !== 64) {
-    return { ok: false, reason: "not-set-up" };
+/**
+ * Verifies the caller against the stored digest.
+ *
+ * The browser sends the SHA-256 digest it computed rather than the PIN itself —
+ * the digest is the secret either way, and receiving it lets the server report
+ * whether the two sides are even looking at the same database, which is the
+ * usual cause of a mismatch that looks impossible.
+ */
+export async function verifyPinServer(
+  digestFromBrowser: string
+): Promise<{ ok: true; diagnostics: AdminDiagnostics } | { ok: false; reason: "locked" | "invalid" | "not-set-up"; diagnostics: AdminDiagnostics }> {
+  const database = adminDatabase();
+  const diagnostics: AdminDiagnostics = {
+    databaseHost: process.env.NEXT_PUBLIC_FIREBASE_DATABASE_URL ?? "(not set)",
+    foundDigest: false,
+    storedLength: 0,
+    browserDigestMatched: null,
+  };
+
+  if (throttleReason() === "locked") return { ok: false, reason: "locked", diagnostics };
+
+  const stored = (await database.ref("admin/pinHash").get()).val();
+  if (typeof stored === "string") {
+    diagnostics.foundDigest = true;
+    diagnostics.storedLength = stored.length;
   }
 
-  if (!safeEqual(sha256Hex(pin.trim()), String(stored).toLowerCase())) {
+  if (!diagnostics.foundDigest || diagnostics.storedLength !== 64) {
+    return { ok: false, reason: "not-set-up", diagnostics };
+  }
+
+  if (!safeEqual(digestFromBrowser.trim().toLowerCase(), String(stored).toLowerCase())) {
     attempts.push(Date.now());
-    return { ok: false, reason: "invalid" };
+    return { ok: false, reason: "invalid", diagnostics };
   }
 
   attempts.length = 0;
-  return { ok: true };
+  return { ok: true, diagnostics };
 }

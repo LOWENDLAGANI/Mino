@@ -39,7 +39,17 @@ function when(ts?: number | null): string {
   return new Date(ts).toLocaleString(undefined, { dateStyle: "short", timeStyle: "short" });
 }
 
-export default function AdminPanel({ open, onClose, pin }: { open: boolean; onClose: () => void; pin: string }) {
+export default function AdminPanel({
+  open,
+  onClose,
+  digest,
+  browserMismatch = false,
+}: {
+  open: boolean;
+  onClose: () => void;
+  digest: string;
+  browserMismatch?: boolean;
+}) {
   const [view, setView] = useState<View>({ name: "users" });
   const [users, setUsers] = useState<AdminUser[] | null>(null);
   const [chats, setChats] = useState<AdminChat[] | null>(null);
@@ -47,6 +57,7 @@ export default function AdminPanel({ open, onClose, pin }: { open: boolean; onCl
   const [providers, setProviders] = useState<{ available: string[]; searchAvailable: boolean } | null>(null);
   const [named, setNamed] = useState<Array<VisitorProfile & { uid: string }> | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [diagnostics, setDiagnostics] = useState<Record<string, unknown> | null>(null);
   const [busy, setBusy] = useState(false);
   const [confirmWipe, setConfirmWipe] = useState<null | { scope: "all" | "user"; uid?: string; label: string }>(null);
 
@@ -54,20 +65,24 @@ export default function AdminPanel({ open, onClose, pin }: { open: boolean; onCl
     async (action: string, extra: Record<string, string> = {}) => {
       setBusy(true);
       setError(null);
+      setDiagnostics(null);
       try {
         const response = await fetch("/api/admin", {
           method: "POST",
-          headers: { "Content-Type": "application/json", "x-mino-pin": pin },
+          headers: { "Content-Type": "application/json", "x-mino-digest": digest },
           body: JSON.stringify({ action, ...extra }),
         });
         const data = await response.json();
-        if (!response.ok) throw new Error(data?.error ?? `Request failed (${response.status}).`);
+        if (!response.ok) {
+          setDiagnostics(data?.diagnostics ?? null);
+          throw new Error(data?.error ?? `Request failed (${response.status}).`);
+        }
         return data;
       } finally {
         setBusy(false);
       }
     },
-    [pin]
+    [digest]
   );
 
   const goHome = useCallback(() => {
@@ -172,7 +187,18 @@ export default function AdminPanel({ open, onClose, pin }: { open: boolean; onCl
           </button>
         </header>
 
-        {error && <p className="mx-5 mt-3 rounded-[12px] border border-red-400/20 bg-red-500/[0.08] px-3 py-2 text-[11px] leading-relaxed text-red-200/95">{error}</p>}
+        {error && (
+          <div className="mx-5 mt-3 rounded-[12px] border border-red-400/20 bg-red-500/[0.08] px-3 py-2.5">
+            <p className="text-[11px] leading-relaxed text-red-200/95">{error}</p>
+            {browserMismatch && (
+              <p className="mt-2 text-[10px] leading-relaxed text-red-200/70">
+                The browser itself does not see the PIN you just entered. The stored digest and
+                your PIN disagree, so the value in the database is not what you think it is.
+              </p>
+            )}
+            {diagnostics && <DiagnosticsBlock diagnostics={diagnostics} />}
+          </div>
+        )}
 
         <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4">
           {view.name === "users" && (
@@ -333,6 +359,20 @@ export default function AdminPanel({ open, onClose, pin }: { open: boolean; onCl
           </div>
         )}
       </section>
+    </div>
+  );
+}
+
+function DiagnosticsBlock({ diagnostics }: { diagnostics: Record<string, unknown> }) {
+  const entries = Object.entries(diagnostics).filter(([, value]) => value !== null && value !== undefined);
+  if (entries.length === 0) return null;
+  return (
+    <div className="mt-2 space-y-1 rounded-lg bg-black/30 px-2 py-2 font-mono text-[10px] text-red-200/70">
+      {entries.map(([key, value]) => (
+        <div key={key} className="break-all">
+          <span className="opacity-60">{key}:</span> {String(value)}
+        </div>
+      ))}
     </div>
   );
 }

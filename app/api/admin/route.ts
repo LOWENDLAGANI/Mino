@@ -45,18 +45,47 @@ export async function POST(req: NextRequest) {
     return fail("Malformed request.", 400);
   }
 
-  const pin = (req.headers.get("x-mino-pin") ?? "").trim();
-  if (!pin) return fail("Missing PIN.", 401);
+  const digest = (req.headers.get("x-mino-digest") ?? "").trim();
+  if (!/^[a-f0-9]{64}$/.test(digest)) return fail("Missing or malformed PIN digest.", 400);
 
-  const verified = await verifyPinServer(pin).catch(() => ({ ok: false as const, reason: "invalid" as const }));
+  const verified = await verifyPinServer(digest).catch(
+    (error: unknown) => ({
+      ok: false as const,
+      reason: "invalid" as const,
+      diagnostics: {
+        databaseHost: process.env.NEXT_PUBLIC_FIREBASE_DATABASE_URL ?? "(not set)",
+        foundDigest: false,
+        storedLength: 0,
+        browserDigestMatched: null,
+        error: error instanceof Error ? error.message : String(error),
+      },
+    })
+  );
+
   if (!verified.ok) {
     if (verified.reason === "locked") {
-      return fail("Too many attempts. Wait a few minutes and try again.", 429);
+      return NextResponse.json(
+        { error: "Too many attempts. Wait a few minutes and try again.", diagnostics: verified.diagnostics },
+        { status: 429 }
+      );
     }
     if (verified.reason === "not-set-up") {
-      return fail("No admin PIN exists yet. Open the app and set one up first.", 409);
+      return NextResponse.json(
+        {
+          error:
+            "The server cannot see an admin PIN. The browser and the server are probably pointed at different databases — check NEXT_PUBLIC_FIREBASE_DATABASE_URL.",
+          diagnostics: verified.diagnostics,
+        },
+        { status: 409 }
+      );
     }
-    return fail("Incorrect PIN.", 401);
+    return NextResponse.json(
+      {
+        error: "The PIN did not match the digest stored on the server.",
+        diagnostics: verified.diagnostics,
+      },
+      { status: 401 }
+    );
   }
 
   const database = adminDatabase();

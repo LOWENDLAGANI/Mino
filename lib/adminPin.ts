@@ -131,6 +131,14 @@ export interface SetupState {
   failure?: AdminFailure;
 }
 
+/**
+ * Reads the stored digest directly, so a failure can be attributed to either
+ * the browser's view of the database or the server's.
+ */
+export async function readStoredDigest(): Promise<string | null> {
+  return fetchAdminPinHash();
+}
+
 /** True when the database has no digest yet and the setup form should show. */
 export async function needsSetup(): Promise<SetupState> {
   if (!firebaseConfigured) {
