@@ -4,7 +4,7 @@ import type { ReasoningEffort } from "@/lib/settings";
 import type { ApiMessage, SearchMode, SearchSource } from "@/lib/types";
 import { getMode, getModelDisplayName, type ModeId } from "@/lib/models";
 import { formatSearchContext, searchWeb, shouldUseWebSearch } from "@/lib/webSearch";
-import { consumeUsage, isAdmin, readConfig, verifyCaller } from "@/lib/serverControl";
+import { checkRateLimit, consumeUsage, identityGate, isAdmin, readConfig, verifyCaller } from "@/lib/serverControl";
 
 // ── Mino — resilient SSE proxy for Auto and Dev ─────────────────────────────
 //   OPENROUTER_API_KEY → OpenRouter Auto Router
@@ -465,8 +465,17 @@ export async function POST(req: NextRequest): Promise<Response> {
   if (!config.chatEnabled) {
     return errorStream("Mino is paused right now. Please try again shortly.");
   }
-  if (identity && config.bannedUids.includes(identity.uid)) {
-    return errorStream("This device is not allowed to use Mino.");
+  // A backstop that does not depend on anything the caller sends, so the
+  // deployment's provider quota cannot be drained by one client.
+  const limit = checkRateLimit(req, identity, 30);
+  if (!limit.allowed) {
+    return errorStream(`Too many messages at once. Please wait ${limit.retryAfterSeconds}s and try again.`);
+  }
+  // Refuses an unidentified caller once a ban or a cap is configured, so those
+  // controls cannot be sidestepped by leaving the Authorization header off.
+  const gate = identityGate(identity, config, config.dailyChatCap);
+  if (!gate.allowed) {
+    return errorStream(gate.error ?? "Mino is not available to this device.");
   }
   if (identity && config.dailyChatCap > 0) {
     const { used, allowed } = await consumeUsage(authorization, identity.uid, "chat");

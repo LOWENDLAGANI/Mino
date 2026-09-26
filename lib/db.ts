@@ -121,9 +121,16 @@ export async function exportBackup(): Promise<BackupPayload> {
   };
 }
 
+/** A restore is a whole-file replace, so a hostile or accidental huge file has a bound. */
+const MAX_IMPORT_CHATS = 2000;
+const MAX_IMPORT_MESSAGES = 50000;
+
 export async function importBackup(payload: BackupPayload): Promise<{ chats: number; messages: number }> {
   if (payload?.app !== "mino" || !Array.isArray(payload.chats) || !Array.isArray(payload.messages)) {
     throw new Error("Invalid Mino backup file");
+  }
+  if (payload.chats.length > MAX_IMPORT_CHATS || payload.messages.length > MAX_IMPORT_MESSAGES) {
+    throw new Error("That backup is too large to restore");
   }
   await db.transaction("rw", db.chats, db.messages, async () => {
     await db.chats.bulkPut(payload.chats);

@@ -128,6 +128,100 @@ export function isAdmin(identity: CallerIdentity | null): boolean {
   return Boolean(identity && adminEmail && identity.email === adminEmail);
 }
 
+/**
+ * A small in-process rate limiter, keyed by client address.
+ *
+ * This exists because the identity controls above can be switched off: with no
+ * ban list and no cap configured, anyone can post to the routes and spend the
+ * deployment's provider quota. Per-device caps are the wrong tool for that,
+ * since the attacker controls the device, so there needs to be a backstop that
+ * does not depend on anything they send.
+ *
+ * In-process means per instance, so a serverless deployment resets it on cold
+ * start and scales it out. It is a speed bump against a casual flood, not a
+ * defence against a determined one; making it exact needs a shared store such
+ * as Redis or Upstash, which this project deliberately does not have.
+ */
+const buckets = new Map<string, { count: number; resetAt: number }>();
+const BUCKET_WINDOW_MS = 60_000;
+
+export interface RateLimit {
+  allowed: boolean;
+  remaining: number;
+  retryAfterSeconds: number;
+}
+
+/** Reads the client address from the headers a proxy sets. */
+function clientKey(req: { headers: Headers }, identity: CallerIdentity | null): string {
+  if (identity) return `uid:${identity.uid}`;
+  const forwarded = req.headers.get("x-forwarded-for") ?? "";
+  const address = forwarded.split(",")[0]?.trim() || req.headers.get("x-real-ip")?.trim() || "unknown";
+  return `ip:${address}`;
+}
+
+export function checkRateLimit(
+  req: { headers: Headers },
+  identity: CallerIdentity | null,
+  max: number
+): RateLimit {
+  const now = Date.now();
+  const key = clientKey(req, identity);
+  const bucket = buckets.get(key);
+  if (!bucket || bucket.resetAt <= now) {
+    buckets.set(key, { count: 1, resetAt: now + BUCKET_WINDOW_MS });
+    // Drop expired buckets occasionally so the map cannot grow without bound
+    // on a long-lived instance.
+    if (buckets.size > 5000) {
+      for (const [entryKey, entry] of buckets) {
+        if (entry.resetAt <= now) buckets.delete(entryKey);
+      }
+    }
+    return { allowed: true, remaining: max - 1, retryAfterSeconds: 0 };
+  }
+  bucket.count += 1;
+  if (bucket.count > max) {
+    return {
+      allowed: false,
+      remaining: 0,
+      retryAfterSeconds: Math.max(1, Math.ceil((bucket.resetAt - now) / 1000)),
+    };
+  }
+  return { allowed: true, remaining: max - bucket.count, retryAfterSeconds: 0 };
+}
+/** Whether the administrator has configured anything that needs an identity. */
+export function identityControlsActive(config: AppConfig, cap: number): boolean {
+  return config.bannedUids.length > 0 || cap > 0;
+}
+
+/**
+ * Decides whether a caller may spend quota.
+ *
+ * The important case is an *unidentified* one. Every identity-dependent check
+ * below is written as `if (identity && ...)`, which means a caller who simply
+ * omits the Authorization header has no identity, skips every check, and is
+ * waved through — turning the ban list and the daily caps into decoration
+ * removable with a single header. So once the administrator has configured
+ * either one, a caller that cannot be identified is refused instead. They may
+ * retry, but they cannot proceed anonymously.
+ */
+export function identityGate(
+  identity: CallerIdentity | null,
+  config: AppConfig,
+  cap: number
+): { allowed: boolean; error?: string } {
+  if (!identityControlsActive(config, cap)) return { allowed: true };
+  if (!identity) {
+    return {
+      allowed: false,
+      error: "Mino needs to identify this device before it can answer. Reload the page and try again.",
+    };
+  }
+  if (config.bannedUids.includes(identity.uid)) {
+    return { allowed: false, error: "This device is not allowed to use Mino." };
+  }
+  return { allowed: true };
+}
+
 export { adminEmail };
 
 /**

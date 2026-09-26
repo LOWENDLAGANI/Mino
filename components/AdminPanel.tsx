@@ -1,8 +1,9 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import { onAuthStateChanged } from "firebase/auth";
 import AdminControls from "./AdminControls";
-import { firebaseConfigured, fetchVisitorRegistry, type VisitorProfile } from "@/lib/firebaseHistory";
+import { firebaseConfigured, fetchVisitorRegistry, getServices, type VisitorProfile } from "@/lib/firebaseHistory";
 import { getChat, listChats, listUsers, wipeAll, wipeUser } from "@/lib/firebaseAdmin";
 
 // ── Admin console ────────────────────────────────────────────────────────────
@@ -59,6 +60,34 @@ export default function AdminPanel({
   const [diagnostics, setDiagnostics] = useState<Record<string, unknown> | null>(null);
   const [busy, setBusy] = useState(false);
   const [confirmWipe, setConfirmWipe] = useState<null | { scope: "all" | "user"; uid?: string; label: string }>(null);
+
+  // Signing out must actually empty the screen. The gate only watches the
+  // session while its own dialog is open, so a sign-out triggered from inside
+  // the panel would otherwise leave every loaded conversation on display. This
+  // covers that path and a sign-out in another tab, and clears what was read
+  // rather than only hiding it.
+  useEffect(() => {
+    if (!open) return;
+    let unsubscribe = () => {};
+    let cancelled = false;
+    void getServices()
+      .then((services) => {
+        if (!services || cancelled) return;
+        unsubscribe = onAuthStateChanged(services.auth, (user) => {
+          if (user) return;
+          setUsers(null);
+          setChats(null);
+          setChat(null);
+          setNamed(null);
+          onClose();
+        });
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+      unsubscribe();
+    };
+  }, [open, onClose]);
 
   const call = useCallback(
     async (action: string, extra: Record<string, string> = {}): Promise<Record<string, unknown>> => {

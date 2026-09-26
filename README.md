@@ -154,11 +154,20 @@ After changing the rules in `database.rules.json`, **publish them in the Firebas
 
 Two limits worth knowing:
 
+- **Configuring a ban or a cap makes identity mandatory.** The identity checks read `if (identity && ...)`, which on its own would mean a caller who simply omits the `Authorization` header has no identity, skips every check, and is waved through — turning both controls into decoration removable with one header. So once either is configured, a caller that cannot be identified is refused. With no ban list and no cap set, anonymous callers are allowed as before.
 - **Caps are approximate.** Each request reads the counter and writes it back, which two simultaneous requests can race on, so a burst can exceed the cap slightly. Closing that needs a transaction the REST API cannot express, and an approximate cap is a better trade than no cap.
 - **A cap is per device, not per person.** It follows the anonymous Firebase identity in that browser, so clearing site data or using a private window starts a new allowance.
 - **Today's counters are shown in the console**, per visitor and in total. They are the numbers the caps are counted against, so they are also the quickest way to see that the caps are counting at all rather than silently doing nothing.
 
 If `config/` cannot be read, every default is permissive: the app keeps working rather than locking everyone out.
+
+### Rate limiting
+
+Both routes are limited per minute — 30 messages, 8 images — keyed by the verified uid where there is one and by the forwarded client address otherwise. This is the backstop for the case the per-device caps cannot cover: with no ban list and no cap configured, anyone can post and spend the deployment's provider quota, and the attacker controls their own device, so a device-scoped control would not help. It is in-process and therefore per instance, which is enough to blunt a casual flood and not enough to stop a determined one; making it exact needs a shared store this project does not have.
+
+### Untrusted content
+
+Search excerpts are third-party text and are injected into the system prompt, so the prompt labels them as untrusted reference material and instructs the model to report on instructions found in a page rather than follow them. This reduces the risk of prompt injection; it does not eliminate it, because no prompt-level defence is a guarantee.
 
 ## Branding
 

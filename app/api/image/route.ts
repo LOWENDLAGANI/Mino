@@ -1,5 +1,5 @@
 import { NextRequest } from "next/server";
-import { consumeUsage, isAdmin, readConfig, verifyCaller } from "@/lib/serverControl";
+import { checkRateLimit, consumeUsage, identityGate, isAdmin, readConfig, verifyCaller } from "@/lib/serverControl";
 
 // ── Mino image generation — Cloudflare Workers AI ───────────────────────────
 //   CLOUDFLARE_ACCOUNT_ID → Cloudflare account holding the Workers AI model
@@ -136,8 +136,21 @@ export async function POST(req: NextRequest): Promise<Response> {
   if (!controls.imageEnabled) {
     return Response.json({ error: "Image generation is turned off right now." }, { status: 503 });
   }
-  if (identity && controls.bannedUids.includes(identity.uid)) {
-    return Response.json({ error: "This device is not allowed to use Mino." }, { status: 403 });
+  // Deliberately tighter than chat: each call spends image quota, and the free
+  // allowance is small enough that a handful of parallel clients would use it
+  // up for everyone.
+  const limit = checkRateLimit(req, identity, 8);
+  if (!limit.allowed) {
+    return Response.json(
+      { error: `Too many images at once. Please wait ${limit.retryAfterSeconds}s and try again.` },
+      { status: 429 }
+    );
+  }
+  // Refuses an unidentified caller once a ban or a cap is configured, so those
+  // controls cannot be sidestepped by leaving the Authorization header off.
+  const gate = identityGate(identity, controls, controls.dailyImageCap);
+  if (!gate.allowed) {
+    return Response.json({ error: gate.error }, { status: 403 });
   }
   if (identity && controls.dailyImageCap > 0) {
     const { used, allowed } = await consumeUsage(authorization, identity.uid, "image");
