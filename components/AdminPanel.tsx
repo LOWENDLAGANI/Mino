@@ -160,7 +160,9 @@ export default function AdminPanel({
 
   return (
     <div className="fixed inset-0 z-[70] flex items-end justify-center sm:items-center sm:p-6">
-      <div className="absolute inset-0 bg-black/75" style={{ backdropFilter: "blur(6px)" }} onClick={onClose} aria-hidden />
+      {/* Not dismissible on an outside tap: it would throw away the drill-down
+          position. Use the back arrow or the close button. */}
+      <div className="absolute inset-0 cursor-default bg-black/75" style={{ backdropFilter: "blur(6px)" }} aria-hidden />
       <section
         role="dialog"
         aria-modal="true"

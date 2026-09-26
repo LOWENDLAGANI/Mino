@@ -99,10 +99,11 @@ export default function AdminGate({ open, onClose, onUnlocked }: AdminGateProps)
 
   return (
     <div className="fixed inset-0 z-[70] flex items-center justify-center p-4">
+      {/* Deliberately not dismissible: on a phone a stray tap outside the card
+          was closing the prompt mid-PIN. Use Cancel or Escape. */}
       <div
-        className="absolute inset-0 bg-black/75"
+        className="absolute inset-0 cursor-default bg-black/75"
         style={{ backdropFilter: "blur(6px)" }}
-        onClick={onClose}
         aria-hidden
       />
       <section
