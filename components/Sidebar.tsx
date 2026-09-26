@@ -19,6 +19,7 @@ interface SidebarProps {
   onNewChat: () => void;
   open: boolean;
   onClose: () => void;
+  onOpenSettings: () => void;
 }
 
 function downloadJson(filename: string, data: unknown) {
@@ -51,7 +52,7 @@ function UtilityIcon({ children }: { children: ReactNode }) {
   );
 }
 
-export default function Sidebar({ activeChatId, onSelectChat, onNewChat, open, onClose }: SidebarProps) {
+export default function Sidebar({ activeChatId, onSelectChat, onNewChat, open, onClose, onOpenSettings }: SidebarProps) {
   const chats = useLiveQuery(
     () => db.chats.orderBy("updatedAt").reverse().toArray(),
     [],
@@ -169,6 +170,15 @@ export default function Sidebar({ activeChatId, onSelectChat, onNewChat, open, o
               </svg>
             </UtilityIcon>
             Library
+          </button>
+          <button className="flex w-full items-center gap-2 rounded-xl px-2 py-2 text-left text-[14px] text-white/60 transition-colors hover:bg-white/[0.05] hover:text-white" onClick={onOpenSettings}>
+            <UtilityIcon>
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
+                <circle cx="12" cy="12" r="3" />
+                <path d="M19.4 15a1.6 1.6 0 0 0 .32 1.77l.06.06a1.9 1.9 0 1 1-2.7 2.7l-.05-.06a1.6 1.6 0 0 0-1.78-.32 1.6 1.6 0 0 0-.97 1.47V21a1.9 1.9 0 1 1-3.8 0v-.1A1.6 1.6 0 0 0 9.4 19.4a1.6 1.6 0 0 0-1.77.32l-.06.06a1.9 1.9 0 1 1-2.7-2.7l.06-.06a1.6 1.6 0 0 0 .32-1.77 1.6 1.6 0 0 0-1.47-.97H3a1.9 1.9 0 1 1 0-3.8h.1A1.6 1.6 0 0 0 4.6 9.4a1.6 1.6 0 0 0-.32-1.77l-.06-.06a1.9 1.9 0 1 1 2.7-2.7l.06.06a1.6 1.6 0 0 0 1.77.32H9a1.6 1.6 0 0 0 .97-1.47V3a1.9 1.9 0 1 1 3.8 0v.1a1.6 1.6 0 0 0 .97 1.47 1.6 1.6 0 0 0 1.78-.32l.05-.06a1.9 1.9 0 1 1 2.7 2.7l-.06.06a1.6 1.6 0 0 0-.32 1.77V9a1.6 1.6 0 0 0 1.47.97H21a1.9 1.9 0 1 1 0 3.8h-.1a1.6 1.6 0 0 0-1.47.97Z" />
+              </svg>
+            </UtilityIcon>
+            Settings
           </button>
         </nav>
 

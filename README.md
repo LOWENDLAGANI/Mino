@@ -14,7 +14,8 @@ Built with **Next.js 14 (App Router)**, **TypeScript**, **Tailwind CSS**, and **
 - **Streaming** — real-time word-by-word responses over Server-Sent Events
 - **Web search** — Mino stays off for general knowledge questions and searches when you explicitly request it or say an answer may be wrong, with source links shown in the response; the composer supports Auto, On, and Off modes
 - **Markdown + code** — syntax-highlighted code blocks (Prism) with per-block copy button
-- **Chat management** — pin and rename chats, retry/edit-and-resend, copy chats, source history, quick prompt presets, response-length control, custom instructions, voice input, and text/code file attachments
+- **Chat management** — pin and rename chats, retry/edit-and-resend, copy chats, source history, quick prompt presets, voice input, and text/code file attachments
+- **Settings** — a single panel in the sidebar for web search mode, response length, custom instructions, and dark/light appearance; the composer's `+` menu stays limited to per-message tools
 
 ## Getting started
 
@@ -81,6 +82,7 @@ components/
   Sidebar.tsx          # IndexedDB chat history, backup/restore
   ChatThread.tsx       # Streaming message list, markdown, image rendering
   ChatInput.tsx        # Input bar, image picker, drag & drop, paste
+  SettingsPanel.tsx    # Web search, response length, custom instructions, appearance
   MinoMark.tsx         # Brand mark (renders /public/mino-logo.png with SVG fallback)
   ModelSelector.tsx    # Navbar model dropdown
   Markdown.tsx         # react-markdown + Prism + copy button

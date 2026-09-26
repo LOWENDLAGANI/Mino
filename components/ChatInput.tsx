@@ -1,7 +1,6 @@
 "use client";
 
-import type { DocumentAttachment, ImageAttachment, SearchMode } from "@/lib/types";
-import type { Appearance, ResponseLength } from "@/lib/settings";
+import type { DocumentAttachment, ImageAttachment } from "@/lib/types";
 import { compressFiles, formatBytes } from "@/lib/imageUtils";
 import { useEffect, useRef, useState, type ClipboardEvent, type DragEvent, type KeyboardEvent } from "react";
 
@@ -11,15 +10,6 @@ interface ChatInputProps {
   onSend: (text: string, images: ImageAttachment[], documents?: DocumentAttachment[]) => void;
   disabled: boolean;
   onStop?: () => void;
-  searchMode: SearchMode;
-  onSearchModeChange: (mode: SearchMode) => void;
-  searchAvailable: boolean;
-  responseLength: ResponseLength;
-  onResponseLengthChange: (value: ResponseLength) => void;
-  customInstructions: string;
-  onCustomInstructionsChange: (value: string) => void;
-  appearance: Appearance;
-  onAppearanceChange: (value: Appearance) => void;
 }
 
 const MAX_IMAGES = 4;
@@ -49,26 +39,7 @@ const PROMPT_PRESETS = [
   { label: "Write a plan", prompt: "Create a clear step-by-step plan for: " },
 ];
 
-const SEARCH_OPTIONS: Array<{ id: SearchMode; label: string; description: string }> = [
-  { id: "auto", label: "Auto", description: "Only when asked" },
-  { id: "always", label: "On", description: "Every message" },
-  { id: "off", label: "Off", description: "Never search" },
-];
-
-export default function ChatInput({
-  onSend,
-  disabled,
-  onStop,
-  searchMode,
-  onSearchModeChange,
-  searchAvailable,
-  responseLength,
-  onResponseLengthChange,
-  customInstructions,
-  onCustomInstructionsChange,
-  appearance,
-  onAppearanceChange,
-}: ChatInputProps) {
+export default function ChatInput({ onSend, disabled, onStop }: ChatInputProps) {
   const [text, setText] = useState("");
   const [attachments, setAttachments] = useState<ImageAttachment[]>([]);
   const [documents, setDocuments] = useState<DocumentAttachment[]>([]);
@@ -178,10 +149,6 @@ export default function ChatInput({
     recognition.start();
     setIsListening(true);
   };
-
-  const searchLabel = !searchAvailable
-    ? "Web setup"
-    : SEARCH_OPTIONS.find((option) => option.id === searchMode)?.label ?? "Auto";
 
   const handleSend = () => {
     // While streaming the send button becomes Stop.
@@ -374,31 +341,6 @@ export default function ChatInput({
                 </button>
                 <div className="my-1.5 border-t border-white/[0.07]" />
                 <div className="px-2 pb-1.5 pt-1">
-                  <div className="flex items-center justify-between gap-2">
-                    <span className="text-[13px] font-semibold text-white">Web search</span>
-                    <span className={`text-[10px] ${searchAvailable ? "text-[#9ee7ff]/70" : "text-amber-200/65"}`}>{searchAvailable ? searchLabel : "Setup needed"}</span>
-                  </div>
-                  <div className="mt-2 grid grid-cols-3 gap-1 rounded-[14px] bg-white/[0.05] p-1">
-                    {SEARCH_OPTIONS.map((option) => (
-                      <button
-                        key={option.id}
-                        type="button"
-                        onClick={() => {
-                          onSearchModeChange(option.id);
-                          setShowTools(false);
-                        }}
-                        className={`rounded-[10px] px-1 py-1.5 text-left transition-colors ${searchMode === option.id ? "bg-white/[0.12] text-white" : "text-white/40 hover:bg-white/[0.06] hover:text-white/70"}`}
-                        title={option.description}
-                      >
-                        <span className="block text-[11px] font-medium">{option.label}</span>
-                        <span className="mt-0.5 block truncate text-[8px] text-white/30">{option.description}</span>
-                      </button>
-                    ))}
-                  </div>
-                  <p className="mt-2 text-[10px] leading-relaxed text-white/30">Auto stays quiet for general knowledge questions.</p>
-                </div>
-                <div className="my-1.5 border-t border-white/[0.07]" />
-                <div className="px-2 pb-1.5 pt-1">
                   <div className="mb-2 text-[10px] font-semibold uppercase tracking-[0.14em] text-white/35">Quick starts</div>
                   <div className="grid grid-cols-2 gap-1">
                     {PROMPT_PRESETS.map((preset) => (
@@ -406,23 +348,6 @@ export default function ChatInput({
                         {preset.label}
                       </button>
                     ))}
-                  </div>
-                </div>
-                <div className="my-1.5 border-t border-white/[0.07]" />
-                <div className="space-y-2.5 px-2 pb-1.5 pt-1">
-                  <div className="flex items-center justify-between gap-2">
-                    <span className="text-[13px] font-semibold text-white">Response length</span>
-                    <select value={responseLength} onChange={(event) => onResponseLengthChange(event.target.value as ResponseLength)} className="rounded-[10px] border border-white/[0.08] bg-white/[0.05] px-2 py-1 text-[10px] text-white/70 outline-none">
-                      <option value="short">Short</option><option value="balanced">Balanced</option><option value="detailed">Detailed</option>
-                    </select>
-                  </div>
-                  <label className="block text-[13px] font-semibold text-white">Custom instructions<textarea value={customInstructions} onChange={(event) => onCustomInstructionsChange(event.target.value.slice(0, 1200))} rows={2} placeholder="e.g. Prefer concise examples…" className="mt-1.5 w-full resize-none rounded-[12px] border border-white/[0.08] bg-white/[0.04] px-2.5 py-2 text-[11px] leading-relaxed text-white/70 outline-none placeholder:text-white/25 focus:border-[#8b7cf6]/50" /></label>
-                  <div className="flex items-center justify-between gap-2">
-                    <span className="text-[13px] font-semibold text-white">Appearance</span>
-                    <div className="flex rounded-[10px] bg-white/[0.05] p-0.5">
-                      <button type="button" onClick={() => onAppearanceChange("dark")} className={`rounded-[8px] px-2.5 py-1 text-[10px] ${appearance === "dark" ? "bg-white/[0.12] text-white" : "text-white/35"}`}>Dark</button>
-                      <button type="button" onClick={() => onAppearanceChange("light")} className={`rounded-[8px] px-2.5 py-1 text-[10px] ${appearance === "light" ? "bg-white/[0.12] text-white" : "text-white/35"}`}>Light</button>
-                    </div>
                   </div>
                 </div>
               </div>

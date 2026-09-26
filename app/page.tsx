@@ -8,6 +8,7 @@ import ChatInput from "@/components/ChatInput";
 import ModeSelector from "@/components/ModelSelector";
 import MinoMark from "@/components/MinoMark";
 import MinoTutorial from "@/components/MinoTutorial";
+import SettingsPanel from "@/components/SettingsPanel";
 import {
   db,
   createChat,
@@ -61,6 +62,7 @@ export default function HomePage() {
   const [available, setAvailable] = useState<ModeId[]>([DEFAULT_MODE_ID, "dev"]);
   const [streamingId, setStreamingId] = useState<string | null>(null);
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
   const [hydrated, setHydrated] = useState(false);
   const [modelNotice, setModelNotice] = useState<string | null>(null);
   const [searchMode, setSearchMode] = useState<SearchMode>("auto");
@@ -333,6 +335,10 @@ export default function HomePage() {
         onNewChat={handleNewChat}
         open={sidebarOpen}
         onClose={() => setSidebarOpen(false)}
+        onOpenSettings={() => {
+          setSettingsOpen(true);
+          setSidebarOpen(false);
+        }}
       />
 
       <main className="app-surface relative flex min-w-0 flex-1 flex-col overflow-hidden">
@@ -393,15 +399,6 @@ export default function HomePage() {
             onSend={sendMessage}
             disabled={isStreaming}
             onStop={stopStreaming}
-            searchMode={searchMode}
-            onSearchModeChange={setSearchMode}
-            searchAvailable={searchAvailable}
-            responseLength={responseLength}
-            onResponseLengthChange={handleResponseLengthChange}
-            customInstructions={customInstructions}
-            onCustomInstructionsChange={handleCustomInstructionsChange}
-            appearance={appearance}
-            onAppearanceChange={handleAppearanceChange}
           />
         </div>
       </main>
@@ -413,6 +410,20 @@ export default function HomePage() {
           onFinished={finishTutorial}
         />
       )}
+
+      <SettingsPanel
+        open={settingsOpen}
+        onClose={() => setSettingsOpen(false)}
+        searchMode={searchMode}
+        onSearchModeChange={setSearchMode}
+        searchAvailable={searchAvailable}
+        responseLength={responseLength}
+        onResponseLengthChange={handleResponseLengthChange}
+        customInstructions={customInstructions}
+        onCustomInstructionsChange={handleCustomInstructionsChange}
+        appearance={appearance}
+        onAppearanceChange={handleAppearanceChange}
+      />
     </div>
   );
 }
