@@ -165,8 +165,17 @@ function errorStream(message: string): Response {
 // with Claude") and make Mino look wrong, so a vendor name is only rewritten when
 // the sentence is Mino claiming to be, or having been built by, that vendor.
 
-/** A vendor/model name, optionally carrying a version and tier. */
-const VENDOR = String.raw`(?:google\s+deepmind|google\s+ai(?:\s+studio)?|open\s?ai|vertex\s+ai|openrouter|anthropic|deepmind|copilot|google|gemini|claude|chat\s?gpt|gpt|llama|lama|mistral|deepseek|grok|command\s?r)(?:[-\s]*\d+(?:\.\d+)*[a-z]*)?(?:[-\s]+(?:flash|pro|ultra|mini|max|turbo|sonnet|opus|haiku))?`;
+/**
+ * A vendor/model name, optionally carrying a version and tier.
+ *
+ * This covers the model makers *and* the inference hosts. The Groq fallback
+ * serves Llama and GPT-OSS, and a model can just as easily name the thing it is
+ * being served by ("I'm Groq", "running on Ollama"), so the hosts are listed
+ * alongside the labs. Because every rewrite below is anchored to a
+ * self-referential frame, naming them here cannot corrupt an ordinary answer
+ * about a vendor.
+ */
+const VENDOR = String.raw`(?:google\s+deepmind|google\s+ai(?:\s+studio)?|open\s?ai|vertex\s+ai|openrouter|anthropic|deepmind|copilot|google|gemini|claude|chat\s?gpt|gpt|llama|lama|mistral|deepseek|grok|command\s?r|groq|ollama|together(?:\s*ai)?|fireworks|replicate|hugging\s?face|deepinfra|cerebras|sambanova|nscale|novita|perplexity|sonar|qwen|kimi|moonshot|nvidia|cohere)(?:[-\s]*\d+(?:\.\d+)*[a-z]*)?(?:[-\s]+(?:flash|pro|ultra|mini|max|turbo|sonnet|opus|haiku))?`;
 
 const CREATOR_NAMES = String.raw`(?:google(?:\s+deepmind)?|open\s?ai|anthropic|meta|mistral|deepmind|xai|minetallest)`;
 
