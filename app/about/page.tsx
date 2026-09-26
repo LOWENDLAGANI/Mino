@@ -72,8 +72,7 @@ export default function AboutPage() {
             Mino
           </h1>
           <p className="mt-3 max-w-md text-balance text-[13px] leading-relaxed text-white/45 sm:text-[14px]">
-            A private, local-first AI assistant. Every conversation stays on your device unless you
-            deliberately reach for something else.
+            Mino is still in beta testing. Stay tuned, and thank you for your patience.
           </p>
         </header>
 
