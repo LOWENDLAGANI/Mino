@@ -32,13 +32,6 @@ type SpeechRecognition = {
 };
 type SpeechWindow = Window & { SpeechRecognition?: new () => SpeechRecognition; webkitSpeechRecognition?: new () => SpeechRecognition };
 
-const PROMPT_PRESETS = [
-  { label: "Explain simply", prompt: "Explain this in simple terms: " },
-  { label: "Review my code", prompt: "Review this code and suggest concrete improvements:\n\n" },
-  { label: "Brainstorm ideas", prompt: "Brainstorm 10 thoughtful ideas around: " },
-  { label: "Write a plan", prompt: "Create a clear step-by-step plan for: " },
-];
-
 export default function ChatInput({ onSend, disabled, onStop }: ChatInputProps) {
   const [text, setText] = useState("");
   const [attachments, setAttachments] = useState<ImageAttachment[]>([]);
@@ -339,17 +332,6 @@ export default function ChatInput({ onSend, disabled, onStop }: ChatInputProps) 
                     <span className="mt-0.5 block text-[11px] leading-snug text-white/40">Dictate a message with your mic</span>
                   </span>
                 </button>
-                <div className="my-1.5 border-t border-white/[0.07]" />
-                <div className="px-2 pb-1.5 pt-1">
-                  <div className="mb-2 text-[10px] font-semibold uppercase tracking-[0.14em] text-white/35">Quick starts</div>
-                  <div className="grid grid-cols-2 gap-1">
-                    {PROMPT_PRESETS.map((preset) => (
-                      <button key={preset.label} type="button" onClick={() => { handleTextChange(text ? `${text}\n${preset.prompt}` : preset.prompt); setShowTools(false); textareaRef.current?.focus(); }} className="rounded-[12px] bg-white/[0.05] px-2 py-2 text-left text-[10px] text-white/55 transition-colors hover:bg-white/[0.1] hover:text-white/85">
-                        {preset.label}
-                      </button>
-                    ))}
-                  </div>
-                </div>
               </div>
             )}
             <input
