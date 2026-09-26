@@ -2,11 +2,13 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { firebaseConfigured, fetchVisitorRegistry, type VisitorProfile } from "@/lib/firebaseHistory";
+import { getChat, listChats, listUsers, wipeAll, wipeUser } from "@/lib/firebaseAdmin";
 
 // ── Admin console ────────────────────────────────────────────────────────────
-// Chat data is fetched from /api/admin, which verifies the PIN server-side and
-// reads with the Admin SDK. Nothing sensitive is ever requested from the
-// browser against the Realtime Database directly.
+// Reads and wipes go straight to the Realtime Database from the browser. Access
+// is granted by `database.rules.json` to one Auth UID, and Firebase enforces
+// that on every call, so the console holds no credential of its own and the
+// deployment environment holds no service-account key.
 
 interface AdminUser {
   uid: string;
@@ -42,13 +44,9 @@ function when(ts?: number | null): string {
 export default function AdminPanel({
   open,
   onClose,
-  digest,
-  browserMismatch = false,
 }: {
   open: boolean;
   onClose: () => void;
-  digest: string;
-  browserMismatch?: boolean;
 }) {
   const [view, setView] = useState<View>({ name: "users" });
   const [users, setUsers] = useState<AdminUser[] | null>(null);
@@ -62,27 +60,38 @@ export default function AdminPanel({
   const [confirmWipe, setConfirmWipe] = useState<null | { scope: "all" | "user"; uid?: string; label: string }>(null);
 
   const call = useCallback(
-    async (action: string, extra: Record<string, string> = {}) => {
+    async (action: string, extra: Record<string, string> = {}): Promise<Record<string, unknown>> => {
       setBusy(true);
       setError(null);
       setDiagnostics(null);
       try {
-        const response = await fetch("/api/admin", {
-          method: "POST",
-          headers: { "Content-Type": "application/json", "x-mino-digest": digest },
-          body: JSON.stringify({ action, ...extra }),
-        });
-        const data = await response.json();
-        if (!response.ok) {
-          setDiagnostics(data?.diagnostics ?? null);
-          throw new Error(data?.error ?? `Request failed (${response.status}).`);
+        switch (action) {
+          case "listUsers":
+            return { users: await listUsers() };
+          case "listChats":
+            return { chats: await listChats(extra.uid!) };
+          case "getChat":
+            return await getChat(extra.uid!, extra.chatId!);
+          case "wipeUser":
+            await wipeUser(extra.uid!);
+            return { ok: true };
+          case "wipeAll":
+            await wipeAll();
+            return { ok: true };
+          default:
+            throw new Error("Unknown action.");
         }
-        return data;
+      } catch (cause: unknown) {
+        const code = (cause as { code?: string })?.code ?? "";
+        if (code === "app/permission-denied") {
+          setDiagnostics({ auth: "the signed-in account is not the administrator" });
+        }
+        throw cause;
       } finally {
         setBusy(false);
       }
     },
-    [digest]
+    []
   );
 
   const goHome = useCallback(() => {
@@ -130,7 +139,7 @@ export default function AdminPanel({
     setView({ name: "chat", uid, chatId: item.chatId, title: item.title });
     setChat(null);
     void call("getChat", { uid, chatId: item.chatId })
-      .then((data) => setChat({ title: data.title, messages: data.messages as AdminMessage[] }))
+      .then((data) => setChat({ title: String(data.title), messages: data.messages as AdminMessage[] }))
       .catch((e: unknown) => setError(e instanceof Error ? e.message : "Could not load the chat."));
   };
 
@@ -192,12 +201,6 @@ export default function AdminPanel({
         {error && (
           <div className="mx-5 mt-3 rounded-[12px] border border-red-400/20 bg-red-500/[0.08] px-3 py-2.5">
             <p className="text-[11px] leading-relaxed text-red-200/95">{error}</p>
-            {browserMismatch && (
-              <p className="mt-2 text-[10px] leading-relaxed text-red-200/70">
-                The browser itself does not see the PIN you just entered. The stored digest and
-                your PIN disagree, so the value in the database is not what you think it is.
-              </p>
-            )}
             {diagnostics && <DiagnosticsBlock diagnostics={diagnostics} />}
           </div>
         )}

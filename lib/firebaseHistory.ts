@@ -104,35 +104,6 @@ export async function syncFirebaseHistory(): Promise<{ synced: boolean; reason?:
  * Throws a coded error rather than returning null when Firebase is unusable, so
  * callers can tell "no PIN yet" apart from "Firebase is broken".
  */
-export async function fetchAdminPinHash(): Promise<string | null> {
-  const current = await getServices();
-  if (!current) {
-    const error = new Error("Firebase is not configured") as Error & { code?: string };
-    error.code = "app/not-configured";
-    throw error;
-  }
-  const snapshot = await get(ref(current.database, "admin/pinHash"));
-  const value = snapshot.val();
-  if (typeof value !== "string" || value.trim() === "") return null;
-  return value.trim().toLowerCase();
-}
-
-/**
- * Creates `admin/pinHash` if it is missing.
- *
- * The database rule allows exactly this one write and refuses every later one,
- * so the digest can be set up automatically but never silently replaced.
- */
-export async function setAdminPinHash(hash: string): Promise<void> {
-  const current = await getServices();
-  if (!current) {
-    const error = new Error("Firebase is not configured") as Error & { code?: string };
-    error.code = "app/not-configured";
-    throw error;
-  }
-  await set(ref(current.database, "admin/pinHash"), hash);
-}
-
 export interface VisitorProfile {
   name: string;
   firstSeen: number;

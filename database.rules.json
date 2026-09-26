@@ -1,14 +1,9 @@
 {
   "rules": {
     "admin": {
-      ".read": false,
-      "pinHash": {
-        ".read": "auth != null",
-        ".write": "!data.exists() && auth != null",
-        ".validate": "newData.isString() && newData.val().length === 64"
-      },
+      ".read": "auth != null && auth.uid === 'ADMIN_UID'",
+      ".write": "auth != null && auth.uid === 'ADMIN_UID'",
       "registry": {
-        ".read": "auth != null",
         "$uid": {
           ".write": "auth != null && auth.uid === $uid",
           ".validate": "newData.hasChildren(['name','firstSeen','lastSeen']) && newData.child('name').isString() && newData.child('name').val().length <= 40"
@@ -16,6 +11,8 @@
       }
     },
     "users": {
+      ".read": "auth != null && auth.uid === 'ADMIN_UID'",
+      ".write": "auth != null && auth.uid === 'ADMIN_UID'",
       "$uid": {
         ".read": false,
         ".write": "auth != null && auth.uid === $uid",

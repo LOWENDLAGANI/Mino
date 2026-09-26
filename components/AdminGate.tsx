@@ -1,106 +1,116 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import { onAuthStateChanged } from "firebase/auth";
 import {
-  ADMIN_ERROR_COPY,
-  createAdminPin,
-  needsSetup,
-  verifyPin,
-  type AdminFailure,
-  type AdminResult,
-} from "@/lib/adminPin";
+  ADMIN_UID,
+  adminConfigured,
+  currentUid,
+  isAdminUser,
+  signInAsAdmin,
+  signOutAdmin,
+} from "@/lib/firebaseAdmin";
+import { firebaseConfigured, getServices } from "@/lib/firebaseHistory";
 
 interface AdminGateProps {
   open: boolean;
   onClose: () => void;
-  /** Receives the verified PIN so the console can call the server-side API. */
-  onUnlocked: (pin: string) => void;
+  /** Fires once the signed-in account is the administrator. */
+  onUnlocked: () => void;
 }
 
-type Mode = "checking" | "setup" | "unlock" | "blocked";
+type Mode = "checking" | "signin" | "denied" | "setup" | "unavailable";
 
+/**
+ * The hidden admin prompt. Reached by tapping the logo on the About page ten
+ * times, so the gesture stays as unobtrusive as before — only the credential
+ * changes. There is no PIN to guess: the console opens for exactly the one
+ * Firebase Auth UID named in the database rules, and Firebase enforces that on
+ * every read regardless of what this component decides.
+ */
 export default function AdminGate({ open, onClose, onUnlocked }: AdminGateProps) {
   const [mode, setMode] = useState<Mode>("checking");
-  const [pin, setPin] = useState("");
-  const [confirmPin, setConfirmPin] = useState("");
-  const [failure, setFailure] = useState<(AdminFailure & { remaining?: number }) | null>(null);
+  const [uid, setUid] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
-  const reset = useCallback(() => {
-    setPin("");
-    setConfirmPin("");
-    setFailure(null);
-  }, []);
-
-  const check = useCallback(async () => {
-    setMode("checking");
-    setFailure(null);
-    const state = await needsSetup();
-    if (state.failure) {
-      setFailure(state.failure);
-      setMode("blocked");
-      return;
-    }
-    setMode(state.needsSetup ? "setup" : "unlock");
-  }, []);
-
+  // React to the account changing so a sign-out lands back on the sign-in
+  // screen rather than leaving a stale console open.
   useEffect(() => {
-    if (!open) return;
-    reset();
-    void check();
-  }, [open, reset, check]);
+    if (!open || !firebaseConfigured) return;
+    let unsubscribe: (() => void) | undefined;
+    let cancelled = false;
 
-  useEffect(() => {
-    if (!open) return;
-    const onKey = (event: KeyboardEvent) => {
-      if (event.key === "Escape") onClose();
+    void getServices()
+      .then((services) => {
+        if (!services || cancelled) return;
+        unsubscribe = onAuthStateChanged(services.auth, (user) => {
+          const current = user?.uid ?? null;
+          setUid(current);
+          if (!adminConfigured()) setMode("setup");
+          else if (isAdminUser(current)) {
+            setMode("checking");
+            onUnlocked();
+          } else {
+            setMode((previous) => (previous === "checking" ? "signin" : previous));
+          }
+        });
+      })
+      .catch(() => {
+        if (!cancelled) setMode("unavailable");
+      });
+
+    return () => {
+      cancelled = true;
+      unsubscribe?.();
     };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [open, onClose]);
+  }, [open, onUnlocked]);
 
-  if (!open) return null;
-
-  const fail = (result: AdminResult) => {
-    if (result.ok) return;
-    setFailure({ reason: result.reason, detail: result.detail, remaining: result.remaining });
-    setPin("");
-    setConfirmPin("");
-    if (result.reason === "no-pin-yet") setMode("setup");
-    if (result.reason === "already-set") setMode("unlock");
-  };
-
-  const submit = async () => {
-    if (busy) return;
+  const signIn = useCallback(async () => {
     setBusy(true);
-    setFailure(null);
+    setError(null);
     try {
-      const result = mode === "setup"
-        ? await createAdminPin(pin, confirmPin)
-        : await verifyPin(pin);
-      if (result.ok) {
-        onUnlocked(pin.trim());
-        return;
-      }
-      // A mismatch while creating simply means the two entries differ.
-      if (mode === "setup" && result.reason === "mismatch") {
-        setFailure({ reason: "mismatch" });
-        setPin("");
-        setConfirmPin("");
+      const signedInUid = await signInAsAdmin();
+      if (isAdminUser(signedInUid)) {
+        onUnlocked();
       } else {
-        fail(result);
+        setUid(signedInUid);
+        setMode("denied");
       }
-    } catch (error) {
-      setFailure({ reason: "unknown", detail: (error as { code?: string } | null)?.code });
+    } catch (cause: unknown) {
+      const code = (cause as { code?: string })?.code ?? "";
+      if (code === "auth/popup-closed-by-user" || code === "auth/cancelled-popup-request") {
+        setError("Sign-in was cancelled.");
+      } else {
+        setError(cause instanceof Error ? cause.message : "Sign-in failed.");
+      }
     } finally {
       setBusy(false);
     }
-  };
+  }, [onUnlocked]);
+
+  const leave = useCallback(async () => {
+    setBusy(true);
+    try {
+      await signOutAdmin();
+      setError(null);
+      setMode("signin");
+    } catch (cause: unknown) {
+      setError(cause instanceof Error ? cause.message : "Could not sign out.");
+    } finally {
+      setBusy(false);
+    }
+  }, []);
+
+  if (!open) return null;
 
   return (
-    <div className="fixed inset-0 z-[70] flex items-center justify-center p-4">
-      {/* Deliberately not dismissible: on a phone a stray tap outside the card
-          was closing the prompt mid-PIN. Use Cancel or Escape. */}
+    <div
+      className="fixed inset-0 z-[80] flex items-end justify-center sm:items-center sm:p-6"
+      onKeyDown={(event) => {
+        if (event.key === "Escape") onClose();
+      }}
+    >
       <div
         className="absolute inset-0 cursor-default bg-black/75"
         style={{ backdropFilter: "blur(6px)" }}
@@ -109,155 +119,88 @@ export default function AdminGate({ open, onClose, onUnlocked }: AdminGateProps)
       <section
         role="dialog"
         aria-modal="true"
-        aria-label="Admin access"
-        className="relative max-h-[92dvh] w-full max-w-sm overflow-y-auto rounded-[26px] border border-white/[0.09] bg-[#131316] p-5 shadow-2xl shadow-black/80 animate-rise sm:p-6"
+        aria-label="Mino administrator sign-in"
+        className="relative w-full max-w-sm rounded-t-[28px] border border-white/[0.09] bg-[#131316] p-5 shadow-2xl shadow-black/80 animate-rise sm:rounded-[28px]"
       >
-        <div className="mb-1 flex items-center gap-2.5">
-          <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-white/[0.09] text-white">
-            <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">
-              <rect x="4" y="10.5" width="16" height="10" rx="2.5" />
-              <path d="M8 10.5V7.5a4 4 0 0 1 8 0v3" />
-            </svg>
-          </span>
-          <h2 className="text-[16px] font-semibold tracking-[-0.02em] text-white">Admin access</h2>
-        </div>
+        <h2 className="text-[15px] font-semibold text-white">Mino administrator</h2>
 
-        {mode === "checking" ? (
-          <p className="py-5 text-center text-[12px] text-white/40">Checking Firebase…</p>
-        ) : mode === "blocked" ? (
-          <BlockedState failure={failure} onRetry={() => void check()} onClose={onClose} />
-        ) : (
-          <>
-            <p className="mb-4 text-[11px] leading-relaxed text-white/40">
-              {mode === "setup"
-                ? "No admin PIN exists yet. Choose one and Mino stores its hash in the Realtime Database automatically. This can only be done once."
-                : "Enter the admin PIN to open the Mino console."}
-            </p>
-            <form
-              className="space-y-2"
-              onSubmit={(event) => {
-                event.preventDefault();
-                void submit();
-              }}
-            >
-              <input
-                key={mode}
-                autoFocus
-                type="password"
-                autoComplete="off"
-                value={pin}
-                onChange={(event) => setPin(event.target.value)}
-                placeholder={mode === "setup" ? "New PIN (min 4 characters)" : "PIN"}
-                className="w-full rounded-[14px] border border-white/[0.09] bg-white/[0.04] px-3.5 py-3 text-[15px] tracking-[0.3em] text-white outline-none placeholder:tracking-normal placeholder:text-white/25 focus:border-[#8b7cf6]/60"
-              />
-              {mode === "setup" && (
-                <input
-                  type="password"
-                  autoComplete="off"
-                  value={confirmPin}
-                  onChange={(event) => setConfirmPin(event.target.value)}
-                  placeholder="Confirm PIN"
-                  className="w-full rounded-[14px] border border-white/[0.09] bg-white/[0.04] px-3.5 py-3 text-[15px] tracking-[0.3em] text-white outline-none placeholder:tracking-normal placeholder:text-white/25 focus:border-[#8b7cf6]/60"
-                />
-              )}
-              {failure && <ErrorBlock failure={failure} />}
-              <GateActions
-                busy={busy}
-                disabled={pin === "" || (mode === "setup" && confirmPin === "")}
-                onClose={onClose}
-                label={mode === "setup" ? "Create" : "Unlock"}
-              />
-            </form>
-          </>
+        {mode === "checking" && <p className="mt-2 text-[13px] text-white/50">Checking this browser…</p>}
+
+        {mode === "unavailable" && (
+          <p className="mt-2 text-[13px] text-red-200/80">
+            Mino cannot reach Firebase right now, so the console cannot be opened.
+          </p>
         )}
+
+        {mode === "setup" && (
+          <div className="mt-2 space-y-2 text-[13px] text-white/60">
+            <p>
+              The console is not configured yet. Sign in, then paste the UID below into{" "}
+              <code className="rounded bg-black/40 px-1">lib/firebaseAdmin.ts</code> and into{" "}
+              <code className="rounded bg-black/40 px-1">database.rules.json</code>, then
+              publish the rules.
+            </p>
+            {uid && (
+              <button
+                type="button"
+                onClick={() => void navigator.clipboard?.writeText(uid)}
+                className="w-full break-all rounded-lg bg-black/40 px-2 py-2 text-left font-mono text-[11px] text-white/80"
+              >
+                {uid}
+              </button>
+            )}
+            {uid && <p className="text-[11px] text-white/35">Tap the UID above to copy it.</p>}
+            <SignInButton busy={busy} onClick={signIn} />
+          </div>
+        )}
+
+        {mode === "signin" && (
+          <div className="mt-2 space-y-2 text-[13px] text-white/60">
+            <p>Sign in with the Google account that owns this Firebase project.</p>
+            <SignInButton busy={busy} onClick={signIn} />
+            {error && <p className="text-[12px] text-red-200/80">{error}</p>}
+          </div>
+        )}
+
+        {mode === "denied" && (
+          <div className="mt-2 space-y-2 text-[13px] text-white/60">
+            <p>
+              That account is signed in, but it is not the administrator. The UID the rules expect
+              is {ADMIN_UID || "(not set)"}.
+            </p>
+            <button
+              type="button"
+              onClick={() => void leave()}
+              disabled={busy}
+              className="w-full rounded-xl border border-white/[0.09] py-2 text-[13px] text-white/70 transition hover:bg-white/[0.06] disabled:opacity-50"
+            >
+              {busy ? "Signing out…" : "Use a different account"}
+            </button>
+            {error && <p className="text-[12px] text-red-200/80">{error}</p>}
+          </div>
+        )}
+
+        <button
+          type="button"
+          onClick={onClose}
+          className="mt-4 w-full rounded-xl border border-white/[0.09] py-2 text-[13px] text-white/70 transition hover:bg-white/[0.06]"
+        >
+          Cancel
+        </button>
       </section>
     </div>
   );
 }
 
-function ErrorBlock({ failure }: { failure: AdminFailure & { remaining?: number } }) {
-  const copy = ADMIN_ERROR_COPY[failure.reason] ?? ADMIN_ERROR_COPY.unknown;
-  const remaining = failure.remaining;
+function SignInButton({ busy, onClick }: { busy: boolean; onClick: () => void }) {
   return (
-    <div className="mt-1 rounded-[12px] border border-red-400/20 bg-red-500/[0.08] p-3">
-      <p className="text-[11px] leading-relaxed text-red-200/95">
-        {copy}
-        {failure.reason === "mismatch" && remaining !== undefined && (
-          <> {remaining} attempt{remaining === 1 ? "" : "s"} left.</>
-        )}
-      </p>
-      {failure.detail && (
-        <p className="mt-2 break-all rounded-lg bg-black/30 px-2 py-1.5 font-mono text-[10px] text-red-200/70">
-          Error code: {failure.detail}
-        </p>
-      )}
-    </div>
-  );
-}
-
-function BlockedState({
-  failure,
-  onRetry,
-  onClose,
-}: {
-  failure: (AdminFailure & { remaining?: number }) | null;
-  onRetry: () => void;
-  onClose: () => void;
-}) {
-  return (
-    <div className="pt-1">
-      {failure && <ErrorBlock failure={failure} />}
-      <p className="mt-3 text-[10px] leading-relaxed text-white/30">
-        Mino cannot continue until Firebase is reachable, so the setup form is hidden rather than
-        failing on submit. Fix the problem above, then tap Retry.
-      </p>
-      <div className="mt-4 flex gap-2">
-        <button
-          type="button"
-          onClick={onClose}
-          className="flex-1 rounded-[12px] px-3 py-2.5 text-[12px] font-medium text-white/50 transition-colors hover:bg-white/[0.06] hover:text-white"
-        >
-          Close
-        </button>
-        <button
-          type="button"
-          onClick={onRetry}
-          className="flex-1 rounded-[12px] bg-white px-3 py-2.5 text-[12px] font-semibold text-black transition-opacity hover:opacity-90"
-        >
-          Retry
-        </button>
-      </div>
-    </div>
-  );
-}
-
-function GateActions({
-  busy,
-  disabled,
-  onClose,
-  label,
-}: {
-  busy: boolean;
-  disabled: boolean;
-  onClose: () => void;
-  label: string;
-}) {
-  return (
-    <div className="mt-4 flex gap-2">
-      <button
-        type="button"
-        onClick={onClose}
-        className="flex-1 rounded-[12px] px-3 py-2.5 text-[12px] font-medium text-white/50 transition-colors hover:bg-white/[0.06] hover:text-white"
-      >
-        Cancel
-      </button>
-      <button
-        type="submit"
-        disabled={busy || disabled}
-        className="flex-1 rounded-[12px] bg-white px-3 py-2.5 text-[12px] font-semibold text-black transition-opacity hover:opacity-90 disabled:opacity-40"
-      >
-        {busy ? "Working…" : label}
-      </button>
-    </div>
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={busy}
+      className="w-full rounded-xl bg-white/[0.08] py-2.5 text-[13px] font-medium text-white transition hover:bg-white/[0.12] disabled:opacity-50"
+    >
+      {busy ? "Opening Google…" : "Sign in with Google"}
+    </button>
   );
 }

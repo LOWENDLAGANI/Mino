@@ -8,7 +8,7 @@ Built with **Next.js 14 (App Router)**, **TypeScript**, **Tailwind CSS**, and **
 
 - **Zero-login persistence** — chats and messages load only from the current browser’s IndexedDB via Dexie; Firebase Realtime Database is used only to log chat text under the anonymous user identity
 - **Two modes** — **Mino Auto** routes every message to the best available model; **Mino Dev** uses Mino 3.8, tuned for code and technical work. Each mode is powered by its own server-side API key, with automatic fallback if one is missing.
-- **Secure API keys** — keys are only ever read server-side in the `/api/chat` Route Handler
+- **Secure API keys** — provider keys are only ever read server-side in the `/api/chat` Route Handler; the admin console holds no service-account credential at all
 - **Strict persona** — the Mino system prompt is prepended server-side to *every* completion request and the client cannot bypass it. Because a prompt is an instruction rather than a guarantee, every streamed token is additionally passed through a server-side identity guard that rewrites *self-referential* vendor claims ("I am Gemini", "I was created by Google", "I'm powered by GPT-4") into Mino. The guard is deliberately scoped: vendor names in ordinary answers ("Gemini changed its pricing", "compare Gemini with Claude") are left untouched, so Mino never misattributes or confuses legitimate content
 - **Multimodal** — attach images via the phone camera, file picker, drag-and-drop, or clipboard paste; compressed client-side on `<canvas>` (max 1024px, JPEG q0.8) before upload
 - **Streaming** — real-time word-by-word responses over Server-Sent Events
@@ -50,39 +50,39 @@ To enable automatic logging:
 
 `NEXT_PUBLIC_FIREBASE_API_KEY`, `NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN`, `NEXT_PUBLIC_FIREBASE_DATABASE_URL`, `NEXT_PUBLIC_FIREBASE_PROJECT_ID`, `NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET`, `NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID`, `NEXT_PUBLIC_FIREBASE_APP_ID`
 
-3. In Firebase Console → Realtime Database → Rules, paste the contents of `database.rules.json` and publish. The rules deny all reads of chat data and allow writes only under the signed-in anonymous user’s UID. The two exceptions are `admin/pinHash`, which a signed-in visitor may read and may create once, and `admin/registry`, which lists visitor names. Reading conversations is deliberately not permitted by any rule — it happens server-side (see **Admin console**).
+3. In Firebase Console → Realtime Database → Rules, paste the contents of `database.rules.json` and publish. The rules deny all reads of chat data and allow writes only under the signed-in user’s UID. The single exception is the administrator’s UID, which is also granted read and write so the console can work (see **Admin console**).
 
 ### Admin console
 
-Clicking the Mino logo **on the About page** ten times within a couple of seconds opens a PIN prompt. A correct PIN opens a read-only console showing which providers are configured, local chat/message counts, storage used, the anonymous Firebase identity, and the list of visitors who have given Mino a name.
+Clicking the Mino logo **on the About page** ten times within a couple of seconds opens a sign-in prompt. Signing in with the administrator's Google account opens a read-only console showing which providers are configured, local chat/message counts, storage used, the signed-in identity, and the list of visitors who have given Mino a name.
 
-**There is no manual Firebase setup.** The first time the prompt opens, Mino checks whether a PIN already exists. If not, it shows a setup form, and saving it creates `admin/pinHash` in the Realtime Database for you — the browser hashes the PIN with Web Crypto and only the digest is written. The database rule permits that creation exactly once (`!data.exists()`), so the digest can never be silently replaced afterwards. To start over, delete the `admin/pinHash` node in the Firebase console.
+**There is no PIN and no service account.** Access is granted by the Realtime Database rules themselves, which name a single Firebase Auth UID:
 
-Only the rules still need publishing once. Failures are diagnosed on screen rather than in a console, because the panel is usually opened on a phone: the prompt names the specific cause — unpublished rules, missing `NEXT_PUBLIC_FIREBASE_*` values, anonymous sign-in disabled, an offline device, a PIN that already exists — and prints the raw Firebase error code underneath so it can be reported. A **Retry** button re-runs the check without closing the dialog.
+```json
+"users": {
+  ".read": "auth != null && auth.uid === 'ADMIN_UID'",
+  ".write": "auth != null && auth.uid === 'ADMIN_UID'",
+  "$uid": { ".write": "auth != null && auth.uid === $uid" }
+}
+```
 
-Five wrong attempts trigger a one-minute cooldown.
+Realtime Database rules cascade downward and cannot be revoked by deeper rules, so those two grants cover every chat of every visitor. Every other signed-in visitor matches no `.read` rule anywhere and keeps the write-only access they had before. Firebase evaluates the condition on every read and write, so the check in the UI is only there to decide which screen to show — patching the client would gain an attacker nothing.
 
-**This is a convenience gate, not a security boundary.** Anyone can create an anonymous Firebase session and read the digest from the database, and whoever reaches the setup screen first becomes the administrator. The PIN check that guards *logged chat data*, however, does run on the server — see below.
+### Setting up the administrator
 
-### Reading logged chats (server-side)
+1. Open the logo's ten-tap prompt and sign in with Google. Because the app already signs visitors in anonymously, Firebase **links** the two identities and carries any existing anonymous data over to the new UID, so chat logging continues uninterrupted. The prompt shows the resulting UID so you can copy it.
+2. Paste that UID into `ADMIN_UID` in `lib/firebaseAdmin.ts` and into the `'ADMIN_UID'` placeholder in `database.rules.json`.
+3. Publish `database.rules.json` in the Firebase console (Realtime Database → Rules).
 
-Browsing conversations, listing people, and wiping data all go through `app/api/admin/route.ts`. That route verifies the PIN against the stored digest **on the server** and reads the database with the Firebase Admin SDK, which is not subject to Realtime Database rules. The browser never requests chat data directly, so the write-only rules on `users/$uid` stay intact and no visitor can read anyone's conversations.
+An anonymous UID cannot be used: Firebase assigns those at random, so they cannot be hardcoded. The UID is readable in the published rules, which is harmless — knowing it does not let anyone authenticate as you — but the Google account itself should have MFA enabled, since it is now the only thing standing between an attacker and every logged conversation.
 
-The trade-off is that the Admin SDK needs a service account. Generate one at Firebase → Project settings → Service accounts → Generate new private key, then add these to the deployment environment and redeploy:
+The old `admin/pinHash` node is unused and can be deleted from the Firebase console.
 
-| Variable | Value |
-|---|---|
-| `FIREBASE_ADMIN_PROJECT_ID` | the `project_id` field from the JSON |
-| `FIREBASE_ADMIN_CLIENT_EMAIL` | the `client_email` field from the JSON |
-| `FIREBASE_ADMIN_PRIVATE_KEY` | the `private_key` field |
+### Reading and wiping logged chats
 
-Pasting a PEM key into a dashboard is easy to get wrong, and a mangled one fails as the opaque `Failed to parse private key`. The server therefore rebuilds the key before use: it strips surrounding quotes, expands JSON-escaped `\n` and double-escaped `\\n`, takes only the first block if the value was pasted twice, and re-wraps the base64 body at 64 characters. A key whose line breaks were dropped on paste therefore still works.
+Browsing conversations, listing people, and wiping data all go through `lib/firebaseAdmin.ts`, which calls the Realtime Database directly from the browser under those rules. There is no API route and no server-side credential: the deployment environment holds no `FIREBASE_ADMIN_*` variables and never needs a key pasted into a dashboard.
 
-The trailing `=` padding is treated as part of the key rather than as decoration. A service-account key is a DER structure whose length is rarely a multiple of 3, so its base64 body nearly always ends in `==`, and OpenSSL rejects a PEM whose last quantum is missing that padding even when the key is otherwise perfect. The server keeps padding that arrived intact and re-derives it from the body length when a paste lost it, so a stored length that is not a multiple of 4 is not by itself an error.
-
-What the rebuilder cannot repair is real damage: a body whose length falls outside 1620–1628 has lost or gained base64 characters, and that key must be copied again from the JSON. If the console reports `privateKey: …` in its diagnostics, that line describes the shape it actually received without revealing the key.
-
-Until those are set, `/api/admin` returns a clear "not configured" message and the console shows that instead of data. The client-side PIN setup in `lib/adminPin.ts` is unaffected and still works.
+A wiped user loses `users/{uid}` and `admin/registry/{uid}`; a full wipe clears both trees. `.validate` rules are not evaluated on delete, so neither operation is blocked by the schema checks.
 
 ## Visitor names
 
@@ -90,7 +90,7 @@ On first visit Mino asks what to call you. The name is stored in that browser's 
 
 That registry is names and timestamps **only**. Logged chat text under `users/{uid}/chats` is read exclusively by the server-side admin API, never by the browser, so opening the console does not expose anyone's conversations to a visitor.
 
-Note that `admin/registry` is still readable by any signed-in visitor, since Realtime Database rules cannot verify that someone knows the PIN. The names list in the console comes from the server API as well, but the underlying node is not private on its own — move the name into the same server-gated namespace if that matters.
+Note that `admin/registry` is readable by the administrator through the console; ordinary visitors can write their own entry but cannot read the node.
 
 The browser creates a hidden anonymous Firebase session and logs chat titles, text, model metadata, and sources. Images and document contents stay in the local Dexie cache because base64 image payloads can make database writes unnecessarily large. Clearing local data does not load or restore chats from the database; use the Firebase console if you need to remove logged data.
 
@@ -106,7 +106,7 @@ Resilience behavior:
 
 ## Deploying to Vercel
 
-Add the Firebase variables above and paste `database.rules.json` into the Firebase Realtime Database Rules editor to enable automatic logging. `/api/chat` remains a Node.js Route Handler; Firebase is initialized only in the browser when configured. If Firebase is not configured, the app remains local-only.
+Add the Firebase variables above and publish `database.rules.json` in the Firebase Realtime Database Rules editor to enable automatic logging. `/api/chat` remains a Node.js Route Handler; Firebase is initialized only in the browser when configured. If Firebase is not configured, the app remains local-only. No service account or `FIREBASE_ADMIN_*` variable is needed.
 
 ## Branding
 
@@ -127,26 +127,23 @@ components/
   NamePrompt.tsx       # First-visit display name prompt
   AboutLogo.tsx        # About page logo carrying the ten-tap admin trigger
   SettingsPanel.tsx    # Web search, response length, custom instructions, appearance
-  AdminGate.tsx        # Ten-tap logo trigger, first-run setup, and PIN prompt
+  AdminGate.tsx        # Ten-tap logo trigger and administrator sign-in
   AdminPanel.tsx       # Diagnostics console: people, chats, messages, wipes
-  api/admin/route.ts   # Server-side admin API: PIN check + Admin SDK reads and wipes
   about/page.tsx       # Public About page: logo, creator, date, progress
   MinoMark.tsx         # Brand mark (renders /public/mino-logo.png with SVG fallback)
   ModelSelector.tsx    # Navbar model dropdown
-  Markdown.tsx         # react-markdown + Prism + copy button
-lib/
+  Markdown.tsx         # react-markdown + Prism + copy buttonlib/
   db.ts                # Dexie schema, chat/message ops, backup, persona prompt
   imageUtils.ts        # Canvas compression (1024px, JPEG q0.8)
   models.ts            # Model catalog + token estimator
   webSearch.ts         # Server-side current-web search and source formatting
   firebaseHistory.ts   # Anonymous write-only Firebase chat logging
-  adminPin.ts          # Client-side SHA-256 PIN setup and verification
-  adminServer.ts       # Server-side admin client, PIN check, and database access
+  firebaseAdmin.ts     # Rules-gated admin reads and wipes, plus admin sign-in
   visitorName.ts       # Local display name storage
   useAdminTaps.ts      # Ten-tap gesture shared by the header and sidebar logos
-  settings.ts           # Local response, instruction, and appearance preferences
+  settings.ts          # Local response, instruction, and appearance preferences
   types.ts             # Shared TypeScript types
-database.rules.json    # Realtime Database rules for anonymous-user isolation and the admin digest
+database.rules.json    # Realtime Database rules for anonymous-user isolation and the admin UID
 ```
 
 ## Privacy
