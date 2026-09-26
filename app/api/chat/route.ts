@@ -6,7 +6,8 @@ import { formatSearchContext, searchWeb, shouldUseWebSearch } from "@/lib/webSea
 
 // ── Mino — resilient SSE proxy for Auto and Dev ─────────────────────────────
 //   OPENROUTER_API_KEY → OpenRouter Auto Router
-//   GEMINI_API_KEY     → Google Gemini 3.8 Flash
+//   GEMINI_API_KEY     → Google Gemini 3.8 / 3.7 / 3.6 Flash
+//   GROQ_API_KEY       → Groq-hosted models, the last-resort fallback
 //
 // If the requested provider is unavailable, Mino automatically tries the other
 // configured key. This keeps a single model outage, quota issue, or temporarily
@@ -16,9 +17,11 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
 
+type ProviderFamily = "openrouter" | "gemini" | "groq";
+
 interface ProviderConfig {
   id: ModeId;
-  family: "openrouter" | "gemini";
+  family: ProviderFamily;
   label: string;
   url: string;
   key: string;
@@ -46,9 +49,17 @@ class ProviderError extends Error {
   }
 }
 
+/** Which Mino mode a provider family belongs to, for user-facing error copy. */
+const FAMILY_MODE: Record<ProviderFamily, string> = {
+  openrouter: "Mino Auto",
+  gemini: "Mino Dev",
+  groq: "the Mino fallback",
+};
+
 function getProviders(requested: ModeId): ProviderConfig[] {
   const openrouterKey = process.env.OPENROUTER_API_KEY?.trim();
   const geminiKey = process.env.GEMINI_API_KEY?.trim();
+  const groqKey = process.env.GROQ_API_KEY?.trim();
 
   const openrouter: ProviderConfig | null = openrouterKey
     ? {
@@ -87,8 +98,24 @@ function getProviders(requested: ModeId): ProviderConfig[] {
       }))
     : [];
 
-  if (requested === "dev") return [...gemini, ...(openrouter ? [openrouter] : [])];
-  return [...(openrouter ? [openrouter] : []), ...gemini];
+  // Last resort. Groq is a separate vendor with its own quota, so when every
+  // Gemini model is down, rate-limited, or out of capacity the chat still
+  // answers instead of erroring out. Ordered strongest-first.
+  const groqModels = ["llama-3.3-70b-versatile", "openai/gpt-oss-120b", "llama-3.1-8b-instant"];
+  const groq: ProviderConfig[] = groqKey
+    ? groqModels.map((model) => ({
+        id: requested,
+        family: "groq" as const,
+        label: "Mino",
+        url: "https://api.groq.com/openai/v1/chat/completions",
+        key: groqKey,
+        model,
+        extraBody: { stream_options: { include_usage: true } },
+      }))
+    : [];
+
+  if (requested === "dev") return [...gemini, ...(openrouter ? [openrouter] : []), ...groq];
+  return [...(openrouter ? [openrouter] : []), ...gemini, ...groq];
 }
 
 function sseHeaders(): HeadersInit {
@@ -319,10 +346,10 @@ function explainProviderError(error: unknown): string {
   const detail = extractUpstreamError(error.message);
 
   if (status === 400) {
-    return `${provider.label} rejected the request (HTTP 400): ${detail} Check that this key belongs to the ${provider.family === "gemini" ? "Mino Dev" : "Mino Auto"} provider.`;
+    return `${provider.label} rejected the request (HTTP 400): ${detail} Check that this key belongs to ${FAMILY_MODE[provider.family]}.`;
   }
   if (status === 401 || status === 403) {
-    return `${provider.label} rejected this key (HTTP ${status}). Make sure the ${provider.family === "gemini" ? "Mino Dev" : "Mino Auto"} key is configured correctly.`;
+    return `${provider.label} rejected this key (HTTP ${status}). Make sure the ${FAMILY_MODE[provider.family]} key is configured correctly.`;
   }
   if (status === 402) {
     return `${provider.label} needs account credit before it can answer. Add credit or use the other configured mode.`;
@@ -444,8 +471,8 @@ export async function POST(req: NextRequest): Promise<Response> {
   const failures: unknown[] = [];
   const exhaustedFamilies = new Set<ProviderConfig["family"]>();
 
-  // Retry temporary failures with the next stable Gemini model, then with the
-  // other configured provider. Authentication, quota, and malformed-request
+  // Retry temporary failures with the next stable model in the same family, then
+  // move to the next family. Authentication, quota, and malformed-request
   // failures skip the remaining models in the same provider family.
   for (const provider of providers) {
     if (exhaustedFamilies.has(provider.family)) continue;
@@ -583,5 +610,12 @@ export async function GET(): Promise<Response> {
   const available: ModeId[] = [];
   if (process.env.OPENROUTER_API_KEY?.trim()) available.push("auto");
   if (process.env.GEMINI_API_KEY?.trim()) available.push("dev");
+  // Groq can serve either mode, so it keeps the chat usable on its own even when
+  // the mode's own key is missing.
+  if (process.env.GROQ_API_KEY?.trim()) {
+    for (const mode of ["auto", "dev"] as ModeId[]) {
+      if (!available.includes(mode)) available.push(mode);
+    }
+  }
   return Response.json({ available, searchAvailable: Boolean(process.env.TAVILY_API_KEY?.trim()) });
 }

@@ -36,6 +36,7 @@ Set either (or both) via `process.env` — locally in `.env.local`, or in Vercel
 |---|---|---|
 | `OPENROUTER_API_KEY` | **Mino Auto** | Universal routing that picks the best available model per message |
 | `GEMINI_API_KEY` | **Mino Dev** | Mino 3.8 model access via the compatible endpoint |
+| `GROQ_API_KEY` | **Fallback** | Last-resort provider used when every Gemini model is unavailable |
 | `TAVILY_API_KEY` | **Web search** | Enables explicit web research and source links |
 
 ### Automatic Firebase logging
@@ -58,7 +59,8 @@ Get keys from the providers linked in your deployment environment. The product U
 Resilience behavior:
 - Requested mode's key missing → Mino uses the other configured key; the chat keeps working.
 - Provider outage or rate limit before streaming starts → Mino retries stable Mino 3.7 and Mino 3.6 fallbacks, then the other configured route as needed, with a small automatic model-change notice in the chat header.
-- Both providers unavailable → the conversation shows the provider name, HTTP status, and a safe diagnostic instead of the generic “Mino hit an error” message.
+- Every Gemini model exhausted → Mino falls back to the Groq provider (`GROQ_API_KEY`) with its own quota, so a Google capacity outage does not break the chat.
+- All providers unavailable → the conversation shows the provider name, HTTP status, and a safe diagnostic instead of the generic “Mino hit an error” message.
 - No keys at all → chat UI still works and displays a setup notice in the conversation instead of an error page.
 - Web search key missing → Mino keeps answering without web context and the composer shows a setup state instead of failing the chat.
 
