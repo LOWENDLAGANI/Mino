@@ -16,7 +16,8 @@ type Mode = "checking" | "signin" | "denied" | "unavailable" | "notconfigured";
 
 /** Turns a Firebase error into something worth reading on a phone. */
 function describe(cause: unknown): { code: string; message: string } {
-  const code = (cause as { code?: string })?.code ?? "unknown";
+  const error = cause as { code?: string; name?: string } | null;
+  const code = error?.code ?? error?.name ?? "unknown";
   const message = cause instanceof Error ? cause.message : String(cause);
 
   const hints: Record<string, string> = {
@@ -27,7 +28,8 @@ function describe(cause: unknown): { code: string; message: string } {
     "auth/unauthorized-domain":
       "This domain is not authorised. Under Firebase → Authentication → Settings → Authorized domains, add the domain you are visiting from.",
     "auth/too-many-requests": "Too many attempts. Wait a minute and try again.",
-    PERMISSION_DENIED: "The database refused the read.",
+    PERMISSION_DENIED:
+      "The database rules do not list this account as the administrator. The rules may still contain the ADMIN_EMAIL placeholder — publish database.rules.json with your real address.",
   };
 
   return { code, message: hints[code] ?? message };

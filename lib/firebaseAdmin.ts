@@ -25,6 +25,22 @@ import { firebaseConfigured, getServices } from "./firebaseHistory";
  * the single source of truth, so they can never drift out of step with a copy
  * of the UID baked into the bundle.
  */
+/**
+ * Whether an error is the database refusing us.
+ *
+ * The Realtime Database rejects with `PERMISSION_DENIED`, but the shape of that
+ * error has varied between SDK versions and a `name` is sometimes present
+ * instead of a `code`, so the message is checked too. Getting this wrong is not
+ * cosmetic: a refusal must be reported as "you are not the administrator" and
+ * must never be shown as "cannot reach Firebase".
+ */
+function isPermissionDenied(cause: unknown): boolean {
+  const error = cause as { code?: string; name?: string } | null;
+  const code = error?.code ?? error?.name ?? "";
+  const message = cause instanceof Error ? cause.message : String(cause ?? "");
+  return code === "PERMISSION_DENIED" || /permission[ _-]?denied/i.test(message);
+}
+
 export async function verifyAdminAccess(): Promise<boolean> {
   const current = await getServices();
   if (!current) throw notConfigured();
@@ -34,7 +50,7 @@ export async function verifyAdminAccess(): Promise<boolean> {
     await get(ref(current.database, "admin/registry"));
     return true;
   } catch (cause: unknown) {
-    if ((cause as { code?: string })?.code === "PERMISSION_DENIED") return false;
+    if (isPermissionDenied(cause)) return false;
     throw cause;
   }
 }
@@ -84,7 +100,7 @@ async function requireAdmin() {
 
 /** Maps Firebase's permission failure onto a message worth showing. */
 function rethrow(cause: unknown): never {
-  if ((cause as { code?: string })?.code === "PERMISSION_DENIED") throw unauthorized();
+  if (isPermissionDenied(cause)) throw unauthorized();
   throw cause;
 }
 
