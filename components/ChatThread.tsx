@@ -1,7 +1,8 @@
 "use client";
 
-import type { ChatMessage } from "@/lib/types";
+import type { ChatMessage, GeneratedImage } from "@/lib/types";
 import { getModelDisplayName } from "@/lib/models";
+import { imageDownloadName } from "@/lib/imageGeneration";
 import Markdown from "./Markdown";
 import MinoMark from "./MinoMark";
 import { useEffect, useRef, useState } from "react";
@@ -9,6 +10,8 @@ import { useEffect, useRef, useState } from "react";
 interface ChatThreadProps {
   messages: ChatMessage[];
   streamingId: string | null;
+  /** Assistant message currently being drawn by the image model, if any. */
+  drawingId: string | null;
   isEmpty: boolean;
   suggestedMode: string;
   onRegenerate: (assistantId: string) => void;
@@ -98,7 +101,7 @@ function MessageActions({ onRegenerate }: { onRegenerate: () => void }) {
   );
 }
 
-function MessageRow({ msg, streaming, onRegenerate, onEditMessage }: { msg: ChatMessage; streaming: boolean; onRegenerate: () => void; onEditMessage: (content: string) => void }) {
+function MessageRow({ msg, streaming, drawing, onRegenerate, onEditMessage }: { msg: ChatMessage; streaming: boolean; drawing: boolean; onRegenerate: () => void; onEditMessage: (content: string) => void }) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(msg.content);
   if (msg.role === "user") {
@@ -165,6 +168,16 @@ function MessageRow({ msg, streaming, onRegenerate, onEditMessage }: { msg: Chat
         )}
       </div>
 
+      {drawing && <DrawingPlaceholder />}
+
+      {msg.generatedImages && msg.generatedImages.length > 0 && (
+        <div className="mb-2 max-w-md">
+          {msg.generatedImages.map((image) => (
+            <GeneratedImageCard key={image.createdAt} image={image} />
+          ))}
+        </div>
+      )}
+
       {msg.images && msg.images.length > 0 && (
         <div className="mb-2 flex flex-wrap gap-2">
           {msg.images.map((img, i) => (
@@ -194,6 +207,51 @@ function MessageRow({ msg, streaming, onRegenerate, onEditMessage }: { msg: Chat
         </div>
       )}
     </div>
+  );
+}
+
+function DrawingPlaceholder() {
+  return (
+    <div className="overflow-hidden rounded-2xl border border-white/10" role="status" aria-live="polite">
+      <div className="flex aspect-[4/3] w-full max-w-md items-center justify-center bg-white/[0.03]">
+        <span className="flex items-center gap-2 text-[12px] text-white/45">
+          <span className="h-4 w-4 animate-spin rounded-full border-2 border-[#9ee7ff]/40 border-t-transparent" />
+          Drawing your image…
+        </span>
+      </div>
+    </div>
+  );
+}
+
+function GeneratedImageCard({ image }: { image: GeneratedImage }) {
+  const download = () => {
+    const link = document.createElement("a");
+    link.href = image.url;
+    link.download = imageDownloadName(image);
+    link.click();
+  };
+  return (
+    <figure className="group/img mb-2 overflow-hidden rounded-2xl border border-white/10 bg-black/20">
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img
+        src={image.url}
+        alt={image.prompt}
+        className="w-full cursor-zoom-in object-cover"
+        onClick={() => window.open(image.url, "_blank")}
+      />
+      <figcaption className="flex items-center gap-2 border-t border-white/[0.07] px-3 py-2">
+        <span className="min-w-0 flex-1 truncate text-[11px] text-white/40" title={image.prompt}>
+          {image.prompt}
+        </span>
+        <button
+          type="button"
+          onClick={download}
+          className="shrink-0 rounded-full border border-white/10 px-2.5 py-1 text-[10px] font-medium text-white/55 transition-colors hover:bg-white/[0.07] hover:text-white"
+        >
+          Save
+        </button>
+      </figcaption>
+    </figure>
   );
 }
 
@@ -377,7 +435,10 @@ function nextHeadline(): string {
   return headline;
 }
 
-export default function ChatThread({ messages, streamingId, isEmpty, suggestedMode, onRegenerate, onEditMessage, onCopyConversation }: ChatThreadProps) {
+export default function ChatThread({  messages,
+  streamingId,
+  drawingId,
+  isEmpty, suggestedMode, onRegenerate, onEditMessage, onCopyConversation }: ChatThreadProps) {
   const bottomRef = useRef<HTMLDivElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const stickRef = useRef(true);
@@ -451,6 +512,7 @@ export default function ChatThread({ messages, streamingId, isEmpty, suggestedMo
               key={msg.id}
               msg={msg}
               streaming={msg.id === streamingId}
+              drawing={msg.id === drawingId}
               onRegenerate={() => onRegenerate(msg.id)}
               onEditMessage={(content) => onEditMessage(msg.id, content)}
             />

@@ -23,7 +23,8 @@ import {
   loadSelectedMode,
   saveSelectedMode,
 } from "@/lib/db";
-import { DEFAULT_MODE_ID, getMode, type ModeId } from "@/lib/models";
+import { DEFAULT_MODE_ID, getMode, IMAGE_ENGINE, type ModeId } from "@/lib/models";
+import { generateImage, imageGenerationConfigured } from "@/lib/imageGeneration";
 // getMode is used for the assistant message engine label below.
 import type {
   ApiContentPart,
@@ -72,6 +73,9 @@ export default function HomePage() {
   const [modelNotice, setModelNotice] = useState<string | null>(null);
   const [searchMode, setSearchMode] = useState<SearchMode>("auto");
   const [searchAvailable, setSearchAvailable] = useState(false);
+  const [imageMode, setImageMode] = useState(false);
+  const [imageAvailable, setImageAvailable] = useState(false);
+  const [drawingId, setDrawingId] = useState<string | null>(null);
   const [tutorialFinished, setTutorialFinished] = useState(false);
   const [responseLength, setResponseLength] = useState<ResponseLength>("balanced");
   const [reasoningEffort, setReasoningEffort] = useState<ReasoningEffort>("low");
@@ -128,6 +132,14 @@ export default function HomePage() {
       if (historyTimerRef.current) clearTimeout(historyTimerRef.current);
     };
   }, [hydrated, chats, messages]);
+
+  // Image generation is optional: probe once and show the setup note in the
+  // composer tools if the Cloudflare keys are not in the environment.
+  useEffect(() => {
+    void imageGenerationConfigured()
+      .then(setImageAvailable)
+      .catch(() => setImageAvailable(false));
+  }, []);
 
   useEffect(() => {
     if (!loggingError) return;
@@ -330,6 +342,63 @@ export default function HomePage() {
     [activeChatId, reasoningEffort, responseLength, searchMode, selectedMode, streamingId]
   );
 
+  // ── Image generation ───────────────────────────────────────────────────────
+  // The prompt becomes a normal user message so the image lives in the same
+  // thread as everything else, and the result is stored locally like any
+  // attachment. The Cloudflare key is only ever read by /api/image.
+  const drawImage = useCallback(
+    async (prompt: string) => {
+      if (drawingId) return;
+      const clean = prompt.trim();
+      if (!clean) return;
+
+      let chatId = activeChatId;
+      if (!chatId) {
+        const chat = await createChat();
+        chatId = chat.id;
+        setActiveChatId(chatId);
+      }
+      if (!chatId) return;
+      await addMessage({ chatId, role: "user", content: clean });
+      await maybeAutoTitle(chatId, clean);
+
+      const assistantMsg = await addMessage({ chatId, role: "assistant", content: "", model: IMAGE_ENGINE });
+      setDrawingId(assistantMsg.id);
+      setModelNotice(null);
+      const controller = new AbortController();
+      abortRef.current = controller;
+      try {
+        const image = await generateImage({ prompt: clean, signal: controller.signal });
+        await db.messages.update(assistantMsg.id, {
+          content: "",
+          generatedImages: [image],
+          model: IMAGE_ENGINE,
+        });
+        if (!imageAvailable) setImageAvailable(true);
+      } catch (err) {
+        const aborted = err instanceof DOMException && err.name === "AbortError";
+        if (!aborted) {
+          await setMessageError(assistantMsg.id, err instanceof Error ? err.message : "Image generation failed");
+        }
+      } finally {
+        setDrawingId(null);
+        abortRef.current = null;
+      }
+    },
+    [activeChatId, drawingId, imageAvailable]
+  );
+
+  const handleSend = useCallback(
+    (text: string, images: ImageAttachment[], documents?: DocumentAttachment[]) => {
+      if (imageMode) {
+        void drawImage(text);
+        return;
+      }
+      void sendMessage(text, images, documents);
+    },
+    [drawImage, imageMode, sendMessage]
+  );
+
   const handleRegenerate = useCallback((assistantId: string) => {
     void sendMessage("", [], [], { regenerateAssistantId: assistantId });
   }, [sendMessage]);
@@ -349,7 +418,11 @@ export default function HomePage() {
   }, [messages]);
 
   const isStreaming = streamingId !== null;
-  const visibleMessages = messages.filter((m) => m.content || m.images || m.error);
+  // The message being drawn has no content yet, so it is kept explicitly to
+  // show the drawing placeholder.
+  const visibleMessages = messages.filter(
+    (m) => m.content || m.images || m.generatedImages || m.error || m.id === drawingId
+  );
 
   // Nothing is rendered until localStorage has been read, so a returning
   // visitor never sees the chat flash before their name is known.
@@ -429,6 +502,7 @@ export default function HomePage() {
           <ChatThread
             messages={visibleMessages}
             streamingId={streamingId}
+            drawingId={drawingId}
             isEmpty={visibleMessages.length === 0}
             suggestedMode={hydrated ? selectedMode : DEFAULT_MODE_ID}
             onRegenerate={handleRegenerate}
@@ -436,9 +510,12 @@ export default function HomePage() {
             onCopyConversation={handleCopyConversation}
           />
           <ChatInput
-            onSend={sendMessage}
-            disabled={isStreaming}
+            onSend={handleSend}
+            disabled={isStreaming || drawingId !== null}
             onStop={stopStreaming}
+            imageMode={imageMode}
+            onImageModeChange={setImageMode}
+            imageAvailable={imageAvailable}
           />
         </div>
       </main>

@@ -38,6 +38,11 @@ export const MINO_MODES: ModeOption[] = [
 
 export const DEFAULT_MODE_ID: ModeId = "auto";
 
+/** Engine label used for messages produced by the image model. */
+export const IMAGE_ENGINE = "mino-canvas";
+
+export const IMAGE_ENGINE_NAME = "Mino Canvas";
+
 export function getMode(id: string): ModeOption {
   return MINO_MODES.find((m) => m.id === id) ?? MINO_MODES[0];
 }
@@ -46,6 +51,7 @@ export function getMode(id: string): ModeOption {
 export function getModelDisplayName(model?: string): string {
   if (!model) return "Mino";
   if (model === "openrouter/auto") return "Mino Auto";
+  if (model === IMAGE_ENGINE) return IMAGE_ENGINE_NAME;
 
   const version = model.match(/gemini-(\d+\.\d+)/)?.[1];
   return version ? `Mino ${version}` : "Mino";

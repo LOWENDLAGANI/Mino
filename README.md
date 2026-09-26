@@ -38,6 +38,8 @@ Set either (or both) via `process.env` — locally in `.env.local`, or in Vercel
 | `GEMINI_API_KEY` | **Mino Dev** | Mino 3.8 model access via the compatible endpoint |
 | `GROQ_API_KEY` | **Fallback** | Last-resort provider used when every Gemini model is unavailable |
 | `TAVILY_API_KEY` | **Web search** | Enables explicit web research and source links |
+| `CLOUDFLARE_ACCOUNT_ID` | **Image generation** | Cloudflare account that hosts the Workers AI model |
+| `CLOUDFLARE_API_TOKEN` | **Image generation** | API token with the *Workers AI: Read* permission |
 
 ### Automatic Firebase logging
 
@@ -116,6 +118,25 @@ Resilience behavior:
 
 Add the Firebase variables above and publish `database.rules.json` in the Firebase Realtime Database Rules editor to enable automatic logging. `/api/chat` remains a Node.js Route Handler; Firebase is initialized only in the browser when configured. If Firebase is not configured, the app remains local-only. No service account or `FIREBASE_ADMIN_*` variable is needed.
 
+## Image generation
+
+Mino can also draw. The composer's `+` menu has a **Create image** item, which switches the composer into image mode: the prompt is sent to `/api/image`, which calls **Cloudflare Workers AI** and returns the finished image. The result is stored in the same local Dexie database as the rest of the thread, so images survive a reload exactly like chat history.
+
+The default model is `@cf/black-forest-labs/flux-1-schnell`, which is covered by Cloudflare's free allocation, so image generation costs the deployment nothing beyond that allowance.
+
+Setup, in the Cloudflare dashboard:
+
+1. Create or pick a Cloudflare account and copy its **Account ID** from the dashboard sidebar.
+2. Create an API token under **My Profile → API Tokens → Create Custom Token** with the **Workers AI: Read** permission (plus the *Account Settings: Read* permission that Cloudflare requires alongside it).
+3. Add both values in Vercel → Settings → Environment Variables, and redeploy.
+
+| Variable | Purpose |
+|---|---|
+| `CLOUDFLARE_ACCOUNT_ID` | The account that owns the Workers AI model |
+| `CLOUDFLARE_API_TOKEN` | Token with Workers AI read access |
+
+The token is only ever read inside `/api/image`; it never reaches the browser. Like every other provider, image generation is optional — if the two variables are missing the route answers with a setup message, the **Create image** item explains that the key is needed, and the rest of the app is unaffected.
+
 ## Branding
 
 Drop a transparent-background logo at `public/mino-logo.png`. Every brand mark in the app (sidebar header, top bar, empty state, message avatars, quick tour) renders that file, and the browser tab / Apple touch icon use it too. The path is configurable through the `src` prop on `components/MinoMark.tsx`; if the file is missing or fails to load, the app falls back to the built-in sparkle mark so nothing ever renders broken.
@@ -125,6 +146,7 @@ Drop a transparent-background logo at `public/mino-logo.png`. Every brand mark i
 ```
 app/
   api/chat/route.ts    # SSE streaming proxy with server-side keys, web search, and Mino persona
+  api/image/route.ts   # Cloudflare Workers AI image generation with a server-side token
   layout.tsx           # Root layout, dark theme
   page.tsx             # Main chat orchestration: state, streaming, model switching
   globals.css          # Tailwind + Mino dark blue design system
@@ -145,6 +167,7 @@ components/
   imageUtils.ts        # Canvas compression (1024px, JPEG q0.8)
   models.ts            # Model catalog + token estimator
   webSearch.ts         # Server-side current-web search and source formatting
+  imageGeneration.ts   # Client helper for the Cloudflare Workers AI image route
   firebaseHistory.ts   # Anonymous write-only Firebase chat logging
   firebaseAdmin.ts     # Rules-gated admin reads and wipes, plus admin sign-in
   visitorName.ts       # Local display name storage

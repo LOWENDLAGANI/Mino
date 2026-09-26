@@ -10,6 +10,10 @@ interface ChatInputProps {
   onSend: (text: string, images: ImageAttachment[], documents?: DocumentAttachment[]) => void;
   disabled: boolean;
   onStop?: () => void;
+  /** Image mode turns the composer into a prompt box for the image model. */
+  imageMode: boolean;
+  onImageModeChange: (enabled: boolean) => void;
+  imageAvailable: boolean;
 }
 
 const MAX_IMAGES = 4;
@@ -32,7 +36,7 @@ type SpeechRecognition = {
 };
 type SpeechWindow = Window & { SpeechRecognition?: new () => SpeechRecognition; webkitSpeechRecognition?: new () => SpeechRecognition };
 
-export default function ChatInput({ onSend, disabled, onStop }: ChatInputProps) {
+export default function ChatInput({ onSend, disabled, onStop, imageMode, onImageModeChange, imageAvailable }: ChatInputProps) {
   const [text, setText] = useState("");
   const [attachments, setAttachments] = useState<ImageAttachment[]>([]);
   const [documents, setDocuments] = useState<DocumentAttachment[]>([]);
@@ -56,7 +60,11 @@ export default function ChatInput({ onSend, disabled, onStop }: ChatInputProps) 
     return () => document.removeEventListener("pointerdown", handlePointerDown);
   }, [showTools]);
 
-  const canSend = (text.trim().length > 0 || attachments.length > 0 || documents.length > 0) && !compressing;
+  // In image mode the prompt is the only input, so attachments and documents
+  // are hidden and cannot be attached to an image request.
+  const canSend = imageMode
+    ? text.trim().length > 0
+    : (text.trim().length > 0 || attachments.length > 0 || documents.length > 0) && !compressing;
 
   const addFiles = async (files: File[]) => {
     const imageFiles = files.filter((f) => f.type.startsWith("image/"));
@@ -151,7 +159,7 @@ export default function ChatInput({ onSend, disabled, onStop }: ChatInputProps) 
       return;
     }
     if (!canSend) return;
-    onSend(text.trim(), attachments, documents);
+    onSend(text.trim(), imageMode ? [] : attachments, imageMode ? [] : documents);
     setText("");
     setAttachments([]);
     setDocuments([]);
@@ -202,8 +210,29 @@ export default function ChatInput({ onSend, disabled, onStop }: ChatInputProps) 
           </div>
         )}
 
+        {/* Image mode banner */}
+        {imageMode && (
+          <div className="mb-2 flex items-center gap-2.5 rounded-2xl border border-[#9ee7ff]/15 bg-[#9ee7ff]/[0.05] px-3 py-2 animate-rise">
+            <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-[#9ee7ff]/12 text-[#9ee7ff]">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">
+                <rect x="3" y="4" width="18" height="16" rx="3.5" /><circle cx="8.75" cy="9.75" r="1.6" /><path d="M20.5 15.5 16 11l-9 9.5" />
+              </svg>
+            </span>
+            <span className="min-w-0 flex-1 text-[11px] leading-snug text-white/60">
+              Describe the image you want. Mino draws it and saves it in this chat.
+            </span>
+            <button
+              type="button"
+              onClick={() => onImageModeChange(false)}
+              className="shrink-0 rounded-full border border-white/10 px-2.5 py-1 text-[10px] font-medium text-white/55 transition-colors hover:bg-white/[0.07] hover:text-white"
+            >
+              Exit
+            </button>
+          </div>
+        )}
+
         {/* Attachment previews */}
-        {attachments.length > 0 && (
+        {!imageMode && attachments.length > 0 && (
           <div className="mb-2 flex flex-wrap gap-2 animate-rise">
             {attachments.map((img, i) => (
               <div key={i} className="group relative">
@@ -236,7 +265,7 @@ export default function ChatInput({ onSend, disabled, onStop }: ChatInputProps) 
           </div>
         )}
 
-        {documents.length > 0 && (
+        {!imageMode && documents.length > 0 && (
           <div className="mb-2 flex flex-wrap gap-2 animate-rise">
             {documents.map((document, i) => (
               <div key={`${document.name}-${i}`} className="flex max-w-full items-center gap-2 rounded-xl border border-line bg-white/[0.05] px-3 py-2">
@@ -340,6 +369,26 @@ export default function ChatInput({ onSend, disabled, onStop }: ChatInputProps) 
                   </span>
                   <span className="min-w-0 flex-1 text-[15px] font-semibold leading-tight tracking-[-0.01em] text-white">{isListening ? "Listening…" : "Voice input"}</span>
                 </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowTools(false);
+                    onImageModeChange(true);
+                  }}
+                  className="flex w-full items-center gap-3.5 rounded-[18px] px-2 py-2.5 text-left transition-colors hover:bg-white/[0.06] active:bg-white/[0.09]"
+                >
+                  <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-white/[0.09] text-white">
+                    <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                      <path d="m12 3 1.9 4.8L19 9.6l-4.1 3 1.2 5.1L12 15.2 7.9 17.7l1.2-5.1L5 9.6l5.1-1.8z" />
+                    </svg>
+                  </span>
+                  <span className="min-w-0 flex-1">
+                    <span className="block text-[15px] font-semibold leading-tight tracking-[-0.01em] text-white">Create image</span>
+                    {!imageAvailable && (
+                      <span className="block text-[11px] leading-snug text-white/35">Needs the Cloudflare key in the deployment environment</span>
+                    )}
+                  </span>
+                </button>
               </div>
             )}
             <input
@@ -387,7 +436,13 @@ export default function ChatInput({ onSend, disabled, onStop }: ChatInputProps) 
             onKeyDown={handleKeyDown}
             onPaste={handlePaste}
             rows={1}
-            placeholder={compressing ? "Compressing…" : "Ask Mino anything…"}
+            placeholder={
+              imageMode
+                ? "Describe the image to create…"
+                : compressing
+                  ? "Compressing…"
+                  : "Ask Mino anything…"
+            }
             className="max-h-[180px] flex-1 resize-none bg-transparent py-3.5 text-[16px] leading-snug text-white/90 placeholder-white/32 outline-none md:text-[17px]"
           />
 
