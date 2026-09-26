@@ -128,7 +128,7 @@ export default function AdminPanel({
   }, [open, call, goHome, onClose]);
 
   const openChats = (user: AdminUser) => {
-    setView({ name: "chats", uid: user.uid, label: user.name ?? user.uid.slice(0, 12) });
+    setView({ name: "chats", uid: user.uid, label: user.name ?? "Unnamed visitor" });
     setChats(null);
     void call("listChats", { uid: user.uid })
       .then((data) => setChats(data.chats as AdminChat[]))
@@ -241,16 +241,16 @@ export default function AdminPanel({
                           onClick={() => openChats(user)}
                           className="min-w-0 flex-1 rounded-[12px] border border-white/[0.06] bg-white/[0.03] px-3 py-2.5 text-left transition-colors hover:bg-white/[0.07]"
                         >
-                          <span className="block truncate text-[12px] font-medium text-white/85">{user.name ?? "Unnamed visitor"}</span>
+                          <span className="block truncate text-[13px] font-semibold text-white/90">{user.name ?? "Unnamed visitor"}</span>
                           <span className="mt-0.5 block text-[10px] text-white/30">
                             {user.chats} chat{user.chats === 1 ? "" : "s"} · {user.messages} message{user.messages === 1 ? "" : "s"} · {when(user.lastSeen)}
                           </span>
                         </button>
                         <button
                           type="button"
-                          onClick={() => setConfirmWipe({ scope: "user", uid: user.uid, label: user.name ?? user.uid.slice(0, 12) })}
+                          onClick={() => setConfirmWipe({ scope: "user", uid: user.uid, label: user.name ?? "Unnamed visitor" })}
                           className="shrink-0 rounded-[10px] px-2 py-2 text-[10px] text-white/30 hover:bg-red-500/10 hover:text-red-300"
-                          aria-label={`Delete data for ${user.name ?? user.uid}`}
+                          aria-label={`Delete data for ${user.name ?? "this visitor"}`}
                         >
                           Wipe
                         </button>
@@ -268,6 +268,25 @@ export default function AdminPanel({
                 <p className="text-[10px] leading-relaxed text-white/30">
                   Read live from the browser database. {firebaseConfigured ? "Firebase is configured." : "Firebase is not configured."}
                 </p>
+                {named === null ? (
+                  <p className="py-2 text-[11px] text-white/35">Loading…</p>
+                ) : named.length === 0 ? (
+                  <p className="py-2 text-[11px] text-white/35">No one has entered a name yet.</p>
+                ) : (
+                  <ul className="mt-1 space-y-1">
+                    {named.map((visitor) => (
+                      <li
+                        key={visitor.uid}
+                        className="flex items-center justify-between gap-2 rounded-[12px] border border-white/[0.06] bg-white/[0.03] px-3 py-2"
+                      >
+                        <span className="min-w-0 truncate text-[12px] font-medium text-white/85">
+                          {visitor.name}
+                        </span>
+                        <span className="shrink-0 text-[10px] text-white/30">{when(visitor.lastSeen)}</span>
+                      </li>
+                    ))}
+                  </ul>
+                )}
               </section>
 
               <div className="rounded-[16px] border border-red-400/15 bg-red-500/[0.05] p-3.5">

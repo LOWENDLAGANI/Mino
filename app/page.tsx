@@ -67,7 +67,6 @@ export default function HomePage() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [displayName, setDisplayName] = useState("");
-  const [namePromptOpen, setNamePromptOpen] = useState(false);
   const [hydrated, setHydrated] = useState(false);
   const [modelNotice, setModelNotice] = useState<string | null>(null);
   const [searchMode, setSearchMode] = useState<SearchMode>("auto");
@@ -100,7 +99,6 @@ export default function HomePage() {
     saveAppearance(nextAppearance);
     const savedName = loadDisplayName();
     setDisplayName(savedName);
-    setNamePromptOpen(savedName === "");
     setHydrated(true);
   }, []);
 
@@ -132,7 +130,6 @@ export default function HomePage() {
   const handleSaveName = useCallback((name: string) => {
     const saved = saveDisplayName(name);
     setDisplayName(saved);
-    setNamePromptOpen(false);
     void syncVisitorProfile(saved).catch((error: unknown) => {
       console.error("[Mino] Could not log the visitor name", error);
     });
@@ -345,6 +342,20 @@ export default function HomePage() {
   const isStreaming = streamingId !== null;
   const visibleMessages = messages.filter((m) => m.content || m.images || m.error);
 
+  // Nothing is rendered until localStorage has been read, so a returning
+  // visitor never sees the chat flash before their name is known.
+  if (!hydrated) return null;
+
+  // Entry gate: the name is what the admin console lists visitors by, so Mino
+  // is not usable until one is given. There is no skip out of this screen.
+  if (!displayName) {
+    return (
+      <div className="flex h-[100dvh] overflow-hidden bg-[#030304] text-text-body">
+        <NamePrompt open onSave={handleSaveName} />
+      </div>
+    );
+  }
+
   return (
     <div className="flex h-[100dvh] overflow-hidden bg-[#030304] text-text-body">
       <Sidebar
@@ -445,11 +456,6 @@ export default function HomePage() {
         onAppearanceChange={handleAppearanceChange}
       />
 
-      <NamePrompt
-        open={namePromptOpen}
-        onSave={handleSaveName}
-        onSkip={() => setNamePromptOpen(false)}
-      />
     </div>
   );
 }
