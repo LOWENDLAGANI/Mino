@@ -142,7 +142,7 @@ The token is only ever read inside `/api/image`; it never reaches the browser. L
 
 The console can change how the live site behaves without a redeploy: **maintenance mode**, kill switches for chat, image generation and web search; an announcement banner shown to every visitor; daily per-device caps on messages and images; and banning a device outright.
 
-**Maintenance mode** replaces the whole interface with a notice carrying a reason you write, and the routes refuse every request, so it holds for a modified client as well as the page. The administrator is deliberately exempt — otherwise the switch would lock its own owner out and there would be no way back. To get in during maintenance: open the **About page**, tap the logo **ten times**, and sign in with Google. The About page stays reachable while the chat is closed, and its logo carries the trigger.
+**Maintenance mode** replaces every page with a notice carrying a reason you write, and the routes refuse every request, so it holds for a modified client as well as the page. The administrator is deliberately exempt — otherwise the switch would lock its own owner out and there would be no way back. To get in during maintenance: **tap the logo on the notice ten times** and sign in with Google; the console opens over the notice and the switch is turned off from there. The logo is the only thing on the screen that does anything, which is the point.
 
 **These are enforced on the server, not in the browser.** `/api/chat` and `/api/image` read the settings on every request and refuse before any provider is called, so the switches hold even for someone running a modified bundle. That works without giving the deployment a service account:
 

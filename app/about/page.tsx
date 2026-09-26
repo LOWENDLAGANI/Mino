@@ -1,5 +1,6 @@
 import Link from "next/link";
 import AboutLogo from "@/components/AboutLogo";
+import MaintenanceGate from "@/components/MaintenanceGate";
 
 // ── Fill these in ────────────────────────────────────────────────────────────
 /** When the first Mino build was created. */
@@ -50,6 +51,15 @@ export const metadata = {
 };
 
 export default function AboutPage() {
+  return (
+    <MaintenanceGate>
+      <AboutContent />
+    </MaintenanceGate>
+  );
+}
+
+/** The page itself, kept separate so the gate can wrap it wholesale. */
+function AboutContent() {
   return (
     <div className="app-surface flex min-h-[100dvh] flex-col overflow-y-auto">
       <div className="mx-auto w-full max-w-2xl px-5 py-8 sm:px-7 sm:py-12">
