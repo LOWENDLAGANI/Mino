@@ -149,9 +149,6 @@ export default function AboutPage() {
           <p className="text-[12px] text-white/35">
             Mino · created by <span className="text-white/60">Minetallest</span>
           </p>
-          <p className="mt-1.5 text-[10px] text-white/20">
-            Tip: tap the logo above ten times for the admin console.
-          </p>
           <Link
             href="/"
             className="mt-4 inline-flex items-center justify-center rounded-full bg-white px-5 py-2.5 text-[12px] font-semibold text-black transition-opacity hover:opacity-90"
