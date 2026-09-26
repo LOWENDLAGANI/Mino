@@ -18,17 +18,33 @@ export const maxDuration = 60;
 /** Free-tier text-to-image model. Fast, no per-call cost on the free plan. */
 const DEFAULT_MODEL = "@cf/black-forest-labs/flux-1-schnell";
 
-/** Free models cap the side length; keeping the default modest also cuts latency. */
-const DEFAULT_WIDTH = 768;
-const DEFAULT_HEIGHT = 768;
-const MAX_SIDE = 1024;
-const MAX_PROMPT_LENGTH = 900;
+const MAX_PROMPT_LENGTH = 2048;
 
-const ALLOWED_MODELS = new Set([
-  DEFAULT_MODEL,
-  "@cf/black-forest-labs/flux-1-dev",
-  "@cf/stabilityai/stable-diffusion-xl-base-1.0",
-]);
+/**
+ * Each model's input schema, which differs. Sending a field a model does not
+ * declare is a hard 400 (error 5006), not a silently ignored extra, so the
+ * payload is built per model rather than from one shared shape.
+ *
+ * flux-1-schnell accepts only a prompt and a step count, and picks its own
+ * output size. SDXL and the DreamShaper family do take width and height.
+ */
+interface ModelSpec {
+  slug: string;
+  acceptsDimensions: boolean;
+  maxSteps?: number;
+}
+
+const ALLOWED_MODELS: Record<string, ModelSpec> = {
+  "@cf/black-forest-labs/flux-1-schnell": { slug: DEFAULT_MODEL, acceptsDimensions: false, maxSteps: 8 },
+  "@cf/black-forest-labs/flux-1-dev": { slug: "@cf/black-forest-labs/flux-1-dev", acceptsDimensions: false, maxSteps: 8 },
+  "@cf/stabilityai/stable-diffusion-xl-base-1.0": {
+    slug: "@cf/stabilityai/stable-diffusion-xl-base-1.0",
+    acceptsDimensions: true,
+  },
+  "@cf/stabilityai/sdxl-turbo": { slug: "@cf/stabilityai/sdxl-turbo", acceptsDimensions: true },
+};
+
+const MAX_SIDE = 1024;
 
 interface ImageRequestBody {
   prompt?: string;
@@ -45,7 +61,10 @@ function imageConfig(): { accountId: string; token: string } | null {
   return accountId && token ? { accountId, token } : null;
 }
 
-/** Cloudflare requires both sides to be a positive multiple of 8. */
+const DEFAULT_WIDTH = 768;
+const DEFAULT_HEIGHT = 768;
+
+/** SDXL and friends require both sides to be a positive multiple of 8. */
 function sanitizeSide(value: unknown, fallback: number): number {
   const requested = typeof value === "number" && Number.isFinite(value) ? Math.round(value) : fallback;
   const clamped = Math.min(Math.max(requested, 256), MAX_SIDE);
@@ -56,6 +75,9 @@ function errorMessage(status: number, detail: string): string {
   // Cloudflare answers 7000 for any path that matches no model, and reports it
   // with a 400 rather than a 404. The usual causes are a wrong account ID or a
   // model slug that was percent-encoded, so name them instead of echoing.
+  if (detail.includes("5006") || detail.toLowerCase().includes("unevaluated properties")) {
+    return "The image model rejected the request as malformed (error 5006). This is a bug in the route's payload, not something wrong with the prompt.";
+  }
   if (detail.includes("7000") || detail.toLowerCase().includes("no route for that uri")) {
     return "Cloudflare does not recognise that image model for this account. Check `CLOUDFLARE_ACCOUNT_ID`, and make sure `CLOUDFLARE_API_TOKEN` belongs to the same account.";
   }
@@ -104,15 +126,20 @@ export async function POST(req: NextRequest): Promise<Response> {
   }
 
   const requestedModel = typeof body.model === "string" ? body.model.trim() : "";
-  const model = ALLOWED_MODELS.has(requestedModel) ? requestedModel : DEFAULT_MODEL;
+  const spec = ALLOWED_MODELS[requestedModel] ?? ALLOWED_MODELS[DEFAULT_MODEL];
 
-  const payload: Record<string, unknown> = {
-    prompt: prompt.slice(0, MAX_PROMPT_LENGTH),
-    width: sanitizeSide(body.width, DEFAULT_WIDTH),
-    height: sanitizeSide(body.height, DEFAULT_HEIGHT),
-  };
+  const payload: Record<string, unknown> = { prompt: prompt.slice(0, MAX_PROMPT_LENGTH) };
+  // Schnell has no width/height in its schema, and a model rejects the whole
+  // request with "Additional or unevaluated properties" if they are sent.
+  if (spec.acceptsDimensions) {
+    payload.width = sanitizeSide(body.width, DEFAULT_WIDTH);
+    payload.height = sanitizeSide(body.height, DEFAULT_HEIGHT);
+  }
   if (typeof body.seed === "number" && Number.isFinite(body.seed)) payload.seed = Math.trunc(body.seed);
-  if (typeof body.steps === "number" && Number.isFinite(body.steps)) payload.steps = body.steps;
+  if (typeof body.steps === "number" && Number.isFinite(body.steps)) {
+    const max = spec.maxSteps ?? 50;
+    payload.steps = Math.min(Math.max(Math.trunc(body.steps), 1), max);
+  }
 
   let response: Response;
   try {
@@ -122,7 +149,7 @@ export async function POST(req: NextRequest): Promise<Response> {
       // "No route for that URI" (error 7000), because the encoded name
       // matches no model. It is safe unescaped because ALLOWED_MODELS above
       // is the only thing that can ever reach this line.
-      `https://api.cloudflare.com/client/v4/accounts/${encodeURIComponent(config.accountId)}/ai/run/${model}`,
+      `https://api.cloudflare.com/client/v4/accounts/${encodeURIComponent(config.accountId)}/ai/run/${spec.slug}`,
       {
         method: "POST",
         headers: {
@@ -147,23 +174,69 @@ export async function POST(req: NextRequest): Promise<Response> {
   }
 
   const contentType = response.headers.get("content-type") ?? "";
-  // A malformed or blocked upstream answer arrives as JSON with a 200, which
-  // would otherwise be forwarded as a broken image.
-  if (!contentType.startsWith("image/")) {
-    const detail = (await response.text().catch(() => "")).trim().slice(0, 300);
+
+  // Workers AI answers an image model in one of two shapes, and which one
+  // arrives is a property of the model, not of the request: some return the
+  // bytes directly with an image content type, and the FLUX models return a
+  // JSON envelope carrying the picture as a base64 string. Both are valid, so
+  // both are accepted rather than assuming the first.
+  if (contentType.startsWith("image/")) {
+    return new Response(await response.arrayBuffer(), {
+      headers: {
+        "Content-Type": contentType,
+        "Cache-Control": "no-store",
+        "X-Mino-Image-Model": spec.slug,
+      },
+    });
+  }
+
+  const raw = (await response.text().catch(() => "")).trim();
+  let base64: string | null = null;
+  let mime = "image/png";
+  try {
+    const parsed = JSON.parse(raw) as {
+      result?: { image?: string } | string;
+      error?: { message?: string };
+    };
+    if (typeof parsed.result === "string") {
+      base64 = parsed.result;
+    } else if (parsed.result && typeof parsed.result.image === "string") {
+      base64 = parsed.result.image;
+      // FLUX answers JPEG; a bare string with no envelope is PNG on the
+      // models that use that shape.
+      if (base64.startsWith("/9j/")) mime = "image/jpeg";
+    }
+  } catch {
+    base64 = null;
+  }
+
+  if (!base64) {
     return Response.json(
-      { error: `Cloudflare returned no image (${contentType || "unknown type"}).${detail ? ` ${detail}` : ""}` },
+      {
+        error: `Cloudflare returned no image (${contentType || "unknown type"}).${raw ? ` ${raw.slice(0, 300)}` : ""}`,
+      },
       { status: 502 }
     );
   }
 
-  // The bytes are passed through untouched; the client turns them into a data
-  // URL so the result can be stored locally alongside the chat message.
-  return new Response(await response.arrayBuffer(), {
+  // Workers AI base64 is occasionally unpadded; Buffer is strict about that
+  // and silently truncates, so the padding is restored before decoding.
+  const padded = base64.length % 4 === 0 ? base64 : base64 + "=".repeat(4 - (base64.length % 4));
+  let bytes: Buffer;
+  try {
+    bytes = Buffer.from(padded, "base64");
+  } catch {
+    return Response.json({ error: "Cloudflare returned an image that could not be decoded." }, { status: 502 });
+  }
+  if (!bytes.length) {
+    return Response.json({ error: "Cloudflare returned an empty image. Try again." }, { status: 502 });
+  }
+
+  return new Response(new Uint8Array(bytes), {
     headers: {
-      "Content-Type": contentType,
+      "Content-Type": mime,
       "Cache-Control": "no-store",
-      "X-Mino-Image-Model": model,
+      "X-Mino-Image-Model": spec.slug,
     },
   });
 }
