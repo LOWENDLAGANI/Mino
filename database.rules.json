@@ -1,8 +1,8 @@
 {
   "rules": {
     "admin": {
-      ".read": "auth != null && auth.token.email === 'ADMIN_EMAIL'",
-      ".write": "auth != null && auth.token.email === 'ADMIN_EMAIL'",
+      ".read": "auth != null && auth.token.email === 'myrealmetvreal@gmail.com'",
+      ".write": "auth != null && auth.token.email === 'myrealmetvreal@gmail.com'",
       "registry": {
         "$uid": {
           ".write": "auth != null && auth.uid === $uid",
@@ -11,8 +11,8 @@
       }
     },
     "users": {
-      ".read": "auth != null && auth.token.email === 'ADMIN_EMAIL'",
-      ".write": "auth != null && auth.token.email === 'ADMIN_EMAIL'",
+      ".read": "auth != null && auth.token.email === 'myrealmetvreal@gmail.com'",
+      ".write": "auth != null && auth.token.email === 'myrealmetvreal@gmail.com'",
       "$uid": {
         ".read": false,
         ".write": "auth != null && auth.uid === $uid",
