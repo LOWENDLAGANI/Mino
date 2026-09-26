@@ -58,7 +58,7 @@ Clicking the Mino logo **ten times** within a couple of seconds opens a PIN prom
 
 **There is no manual Firebase setup.** The first time the prompt opens, Mino checks whether a PIN already exists. If not, it shows a setup form, and saving it creates `admin/pinHash` in the Realtime Database for you — the browser hashes the PIN with Web Crypto and only the digest is written. The database rule permits that creation exactly once (`!data.exists()`), so the digest can never be silently replaced afterwards. To start over, delete the `admin/pinHash` node in the Firebase console.
 
-Only the rules still need publishing once. Wrong PINs are specific rather than generic: unpublished rules, an offline client, a PIN that already exists, and a plain wrong PIN each say so.
+Only the rules still need publishing once. Failures are diagnosed on screen rather than in a console, because the panel is usually opened on a phone: the prompt names the specific cause — unpublished rules, missing `NEXT_PUBLIC_FIREBASE_*` values, anonymous sign-in disabled, an offline device, a PIN that already exists — and prints the raw Firebase error code underneath so it can be reported. A **Retry** button re-runs the check without closing the dialog.
 
 Five wrong attempts trigger a one-minute cooldown.
 

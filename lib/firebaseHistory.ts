@@ -100,10 +100,17 @@ export async function syncFirebaseHistory(): Promise<{ synced: boolean; reason?:
  * see syncFirebaseHistory above. Only a signed-in anonymous visitor can call it,
  * and it returns a SHA-256 digest rather than the PIN, so the database never
  * holds or discloses the secret itself.
+ *
+ * Throws a coded error rather than returning null when Firebase is unusable, so
+ * callers can tell "no PIN yet" apart from "Firebase is broken".
  */
 export async function fetchAdminPinHash(): Promise<string | null> {
   const current = await getServices();
-  if (!current) return null;
+  if (!current) {
+    const error = new Error("Firebase is not configured") as Error & { code?: string };
+    error.code = "app/not-configured";
+    throw error;
+  }
   const snapshot = await get(ref(current.database, "admin/pinHash"));
   const value = snapshot.val();
   if (typeof value !== "string" || value.trim() === "") return null;
@@ -118,6 +125,10 @@ export async function fetchAdminPinHash(): Promise<string | null> {
  */
 export async function setAdminPinHash(hash: string): Promise<void> {
   const current = await getServices();
-  if (!current) throw new Error("Firebase is not configured");
+  if (!current) {
+    const error = new Error("Firebase is not configured") as Error & { code?: string };
+    error.code = "app/not-configured";
+    throw error;
+  }
   await set(ref(current.database, "admin/pinHash"), hash);
 }

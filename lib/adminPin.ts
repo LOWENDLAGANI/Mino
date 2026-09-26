@@ -13,6 +13,11 @@ import { fetchAdminPinHash, firebaseConfigured, setAdminPinHash } from "./fireba
 // Firebase session and read the digest, and the first person to reach the setup
 // screen becomes the administrator. Do not put destructive or privileged
 // actions behind it.
+//
+// Every failure is mapped to a specific reason with plain instructions, and the
+// raw Firebase error code is returned with it. The panel is mostly opened on a
+// phone, where there is no developer console to read, so the diagnosis has to
+// happen on screen.
 
 const MAX_ATTEMPTS = 5;
 const LOCKOUT_AFTER = 5;
@@ -43,45 +48,98 @@ function resetAttempts() {
   lockedUntil = 0;
 }
 
-/** Turns a Firebase SDK error into a specific reason the UI can explain. */
-function classifyError(error: unknown): AdminErrorReason {
-  const code = (error as { code?: string } | null)?.code ?? "";
-  if (code === "PERMISSION_DENIED") return "rules-not-published";
-  if (code === "network-error" || code === "network-request-failed") return "offline";
-  return "unknown";
-}
-
 export type AdminErrorReason =
-  | "not-configured"
+  | "firebase-not-configured"
   | "rules-not-published"
+  | "bad-credentials"
+  | "anonymous-auth-disabled"
   | "offline"
   | "locked"
   | "mismatch"
   | "already-set"
+  | "no-pin-yet"
   | "too-short"
   | "unknown";
 
-export type AdminResult = { ok: true } | { ok: false; reason: AdminErrorReason; remaining?: number };
+export interface AdminFailure {
+  reason: AdminErrorReason;
+  /** The raw Firebase error code, shown on screen so it can be reported. */
+  detail?: string;
+}
+
+export type AdminResult = ({ ok: true } | ({ ok: false } & AdminFailure)) & { remaining?: number };
 
 export const ADMIN_ERROR_COPY: Record<AdminErrorReason, string> = {
-  "not-configured": "No admin PIN has been set up yet. Choose one below to create it.",
-  "rules-not-published": "Firebase denied this. Publish the latest database.rules.json in the Firebase console, then try again.",
-  offline: "Could not reach Firebase. Check your internet connection and try again.",
-  locked: "Too many wrong attempts. Wait a minute and try again.",
+  "firebase-not-configured":
+    "Firebase is not set up on this deployment. In Vercel → Settings → Environment Variables add NEXT_PUBLIC_FIREBASE_API_KEY, NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN, NEXT_PUBLIC_FIREBASE_DATABASE_URL, NEXT_PUBLIC_FIREBASE_PROJECT_ID and NEXT_PUBLIC_FIREBASE_APP_ID, then redeploy.",
+  "rules-not-published":
+    "Firebase refused this request, which almost always means the database rules are still the old ones. Open Realtime Database → Rules in the Firebase console, paste database.rules.json from the repository, and press Publish.",
+  "bad-credentials":
+    "Firebase rejected the configuration. One of the NEXT_PUBLIC_FIREBASE_* values is wrong — check the API key, project ID and database URL in Vercel. A stale build is the other common cause; redeploy after editing them.",
+  "anonymous-auth-disabled":
+    "Anonymous sign-in is switched off. In the Firebase console open Authentication → Sign-in method and enable Anonymous, then try again.",
+  offline: "This device cannot reach Firebase. Check your internet connection, then tap Retry.",
+  locked: "Too many wrong attempts. Wait one minute, then try again.",
   mismatch: "That PIN is not correct.",
-  "already-set": "An admin PIN already exists. The database only allows it to be created once — delete admin/pinHash in Firebase to start over.",
+  "already-set":
+    "An admin PIN already exists, and the database only allows it to be created once. To start over, delete the admin/pinHash node in the Firebase console and reopen this prompt.",
+  "no-pin-yet": "No admin PIN has been created yet.",
   "too-short": "Use a PIN of at least 4 characters.",
-  unknown: "Something went wrong talking to Firebase. Check the browser console for details.",
+  unknown: "Mino could not talk to Firebase. The error code below explains what the service returned.",
 };
 
+/**
+ * Turns a Firebase SDK error into a specific, actionable reason.
+ *
+ * The Firebase modular SDK puts a slash-delimited code on `error.code`; those
+ * are the only useful signal here, so they are matched explicitly rather than
+ * collapsing everything into a generic failure.
+ */
+function classifyError(error: unknown): AdminFailure {
+  const code = (error as { code?: string } | null)?.code ?? "";
+  const detail = code || (error instanceof Error ? error.name : undefined);
+
+  if (code === "PERMISSION_DENIED") return { reason: "rules-not-published", detail };
+  if (code === "app/not-configured") return { reason: "firebase-not-configured", detail };
+  if (code === "auth/operation-not-allowed" || code === "auth/user-disabled") {
+    return { reason: "anonymous-auth-disabled", detail };
+  }
+  if (
+    code === "network-error" ||
+    code === "network-request-failed" ||
+    code === "auth/network-request-failed"
+  ) {
+    return { reason: "offline", detail };
+  }
+  if (
+    code.startsWith("auth/invalid-api-key") ||
+    code === "auth/api-key-not-valid.-ERR" ||
+    code === "auth/invalid-app-credential" ||
+    code === "auth/invalid-credential" ||
+    code.startsWith("app/invalid-api-key")
+  ) {
+    return { reason: "bad-credentials", detail };
+  }
+  return { reason: "unknown", detail };
+}
+
+export interface SetupState {
+  needsSetup: boolean;
+  failure?: AdminFailure;
+}
+
 /** True when the database has no digest yet and the setup form should show. */
-export async function needsSetup(): Promise<{ needsSetup: boolean; reason?: AdminErrorReason }> {
-  if (!firebaseConfigured) return { needsSetup: true, reason: "not-configured" };
+export async function needsSetup(): Promise<SetupState> {
+  if (!firebaseConfigured) {
+    return { needsSetup: false, failure: { reason: "firebase-not-configured", detail: "app/not-configured" } };
+  }
   try {
     const hash = await fetchAdminPinHash();
     return { needsSetup: hash === null };
   } catch (error) {
-    return { needsSetup: true, reason: classifyError(error) };
+    // A read failure means we cannot tell whether a PIN exists, so do not offer
+    // to create one — that would fail confusingly instead.
+    return { needsSetup: false, failure: classifyError(error) };
   }
 }
 
@@ -92,7 +150,7 @@ export async function needsSetup(): Promise<{ needsSetup: boolean; reason?: Admi
  * Firebase rather than silently overwriting the existing digest.
  */
 export async function createAdminPin(pin: string, confirmPin: string): Promise<AdminResult> {
-  if (!firebaseConfigured) return { ok: false, reason: "not-configured" };
+  if (!firebaseConfigured) return { ok: false, reason: "firebase-not-configured" };
   if (pin !== confirmPin) return { ok: false, reason: "mismatch" };
   if (pin.trim().length < 4) return { ok: false, reason: "too-short" };
 
@@ -104,7 +162,7 @@ export async function createAdminPin(pin: string, confirmPin: string): Promise<A
     if ((error as { code?: string } | null)?.code === "PERMISSION_DENIED") {
       return { ok: false, reason: "already-set" };
     }
-    return { ok: false, reason: classifyError(error) };
+    return { ok: false, ...classifyError(error) };
   }
 
   resetAttempts();
@@ -113,7 +171,7 @@ export async function createAdminPin(pin: string, confirmPin: string): Promise<A
 
 /** Checks an entered PIN against the digest in the database. */
 export async function verifyPin(pin: string): Promise<AdminResult> {
-  if (!firebaseConfigured) return { ok: false, reason: "not-configured" };
+  if (!firebaseConfigured) return { ok: false, reason: "firebase-not-configured" };
   if (isLockedOut()) return { ok: false, reason: "locked" };
 
   const normalized = pin.trim();
@@ -123,10 +181,10 @@ export async function verifyPin(pin: string): Promise<AdminResult> {
   try {
     expected = await fetchAdminPinHash();
   } catch (error) {
-    return { ok: false, reason: classifyError(error) };
+    return { ok: false, ...classifyError(error) };
   }
 
-  if (!expected) return { ok: false, reason: "not-configured" };
+  if (expected === null) return { ok: false, reason: "no-pin-yet" };
 
   const actual = await hashPin(normalized);
   if (!constantTimeEquals(actual, expected)) {
