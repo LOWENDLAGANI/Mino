@@ -479,6 +479,11 @@ export default function ChatInput({ onSend, disabled, onStop, imageMode, onImage
           )}
         </div>
 
+        {/* Creator credit — kept deliberately; the keyboard hint was the
+            redundant part, not the attribution. */}
+        <p className="hidden pt-2.5 text-center text-[10px] text-white/25 md:block">
+          Created by Minetallest
+        </p>
         <div className="safe-bottom md:hidden" />
       </div>
     </div>
