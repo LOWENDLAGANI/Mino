@@ -97,15 +97,19 @@ export async function verifyCaller(authorization: string | null): Promise<Caller
     return fail(`lookup-http-${response.status}`, body);
   }
   const payload = (await response.json().catch(() => null)) as {
-    users?: Array<{ uid?: string; email?: string }>;
+    users?: Array<{ localId?: string; uid?: string; email?: string }>;
   } | null;
   const user = payload?.users?.[0];
-  if (!user?.uid) return fail("lookup-returned-no-user");
+  // The Identity Toolkit REST API names the user id `localId`. `uid` is what
+  // the client SDK exposes on a user object, and reading that field here
+  // silently identified nobody.
+  const uid = user?.localId ?? user?.uid;
+  if (!uid) return fail("lookup-returned-no-user", payload);
   // An anonymous visitor has no email, and that is the normal case: almost
   // every caller is anonymous. Demanding an email here would identify nobody,
   // which silently disables the ban list and the daily caps as well. The uid
   // is what those controls act on; only the admin check needs an address.
-  return { uid: user.uid, email: typeof user.email === "string" ? user.email.toLowerCase() : "" };
+  return { uid, email: typeof user?.email === "string" ? user.email.toLowerCase() : "" };
 }
 
 /**
