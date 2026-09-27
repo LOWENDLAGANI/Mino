@@ -125,6 +125,13 @@ function errorMessage(status: number, detail: string): string {
   // Quota and credential failures (401/403/429) are answered by
   // generationLimitResponse before this is reached, so only the genuinely
   // specific cases remain here.
+  // 8007 is Cloudflare's input classifier. It fires on the wording, not on the
+  // subject, so the message has to say that: the visitor asked for a road
+  // safety poster, and telling them the image model "declined" would be both
+  // alarming and useless.
+  if (detail.includes("8007") || detail.toLowerCase().includes("nsfw")) {
+    return "The image model's safety filter blocked this prompt. It reacts to certain words rather than to the subject, so try rephrasing with different wording.";
+  }
   // Cloudflare answers 7000 for any path that matches no model, and reports it
   // with a 400 rather than a 404. The usual causes are a wrong account ID or a
   // model slug that was percent-encoded, so name them instead of echoing.

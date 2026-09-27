@@ -138,11 +138,16 @@ export function planPoster(request: string, optimizedPrompt: string): PosterPlan
     artworkPrompt = "a clean modern graphic design composition, flat colour fields, geometric shapes, subtle gradient background, generous empty space";
   }
 
-  // Reserve the space and forbid the letters explicitly. The negative wording
-  // matters as much as the reserved area — an unprompted model fills a blank
-  // region with signage or watermarks on its own.
+  // Reserve the space, and describe the result positively.
+  //
+  // The obvious phrasing here is a list of prohibitions — "no text, no
+  // letters, no words..." — and it is a trap. Cloudflare moderates the prompt
+  // with a keyword classifier, and a sentence densely packed with those terms
+  // trips it (error 8007) even though every one is negated. Describing what
+  // the image *should* contain achieves the same result without handing the
+  // filter a list of the very words it watches for.
   artworkPrompt +=
-    ". Designed as a poster layout with a completely empty, clean, untextured band across the upper third reserved for a headline, and a clear empty area along the bottom edge reserved for a caption line. The image must contain absolutely no text, no letters, no words, no numbers, no typography, no signage, no watermark and no signature anywhere. Pure visual artwork only.";
+    ". Clean modern poster composition, with a large empty smooth untextured band running across the upper third and a clear empty strip along the bottom edge. Minimal, uncluttered abstract artwork and photography only.";
 
   return {
     isPoster: true,
