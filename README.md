@@ -121,7 +121,13 @@ Add the Firebase variables above and publish `database.rules.json` in the Fireba
 
 ## Image generation
 
-Mino can also draw. The composer's `+` menu has a **Create image** item, which switches the composer into image mode: the prompt is sent to `/api/image`, which calls **Cloudflare Workers AI** and returns the finished image. The result is stored in the same local Dexie database as the rest of the thread, so images survive a reload exactly like chat history.
+Mino can also draw. The composer's `+` menu has a **Create image** item, which switches the composer into image mode: the prompt is sent to `/api/image`, which runs a two-stage pipeline and returns the finished image. The result is stored in the same local Dexie database as the rest of the thread, so images survive a reload exactly like chat history.
+
+**Stage 1 — prompt optimization.** Short text like *"a girl named Mino"* is weak input for a diffusion model, so `lib/promptOptimizer.ts` first rewrites it through a fast text LLM (Groq → Gemini → OpenRouter, whichever keys the deployment has) with a strict system instruction: return **one** descriptive paragraph adding physical detail, setting, lighting, and an art style, and nothing else — no preamble, no quotes, no lists. The stage is best effort by design: it has a 6s budget, and if no text model is configured, the call fails, or the model returns a refusal or an echo of the input, the user's original prompt is passed through unchanged so image generation keeps working. Sending `"raw": true` in the request body skips it entirely for callers who already wrote a full prompt.
+
+**Stage 2 — image generation.** The optimized string goes straight to **Cloudflare Workers AI** (`@cf/black-forest-labs/flux-1-schnell`). Workers AI returns raw image bytes, which the route captures as a buffer and returns to the browser with the correct `image/png` content type. The pre-existing handling of Cloudflare's base64 JSON envelope is kept, because which of the two shapes arrives is a property of the model rather than of the request.
+
+**Errors.** A rate limit (HTTP 429) or a rejected API token (401/403) both return `{"error": "Daily generation limit reached. Please try again tomorrow."}`. They are indistinguishable from the outside — both mean no image right now — and the specific cause is written to the server log instead of leaking to the client. Other failures (malformed payload, unknown model, upstream outage, empty image) keep their own specific messages.
 
 The default model is `@cf/black-forest-labs/flux-1-schnell`, which is covered by Cloudflare's free allocation, so image generation costs the deployment nothing beyond that allowance.
 
@@ -202,6 +208,7 @@ components/
   webSearch.ts         # Server-side current-web search and source formatting
   appConfig.ts         # Runtime control settings, shared by client and server
   serverControl.ts     # Server-side enforcement: config read, token verify, usage
+  promptOptimizer.ts   # Stage 1: rewrites user text into a descriptive image prompt
   imageGeneration.ts   # Client helper for the Cloudflare Workers AI image route
   firebaseHistory.ts   # Anonymous write-only Firebase chat logging
   firebaseAdmin.ts     # Rules-gated admin reads and wipes, plus admin sign-in

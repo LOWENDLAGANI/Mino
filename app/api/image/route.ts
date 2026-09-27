@@ -1,9 +1,16 @@
 import { NextRequest } from "next/server";
 import { checkRateLimit, consumeUsage, identityGate, isAdmin, readConfig, verifyCaller } from "@/lib/serverControl";
+import { optimizePrompt } from "@/lib/promptOptimizer";
 
 // ── Mino image generation — Cloudflare Workers AI ───────────────────────────
 //   CLOUDFLARE_ACCOUNT_ID → Cloudflare account holding the Workers AI model
 //   CLOUDFLARE_API_TOKEN  → API token with "Workers AI: Read" permission
+//
+// Two stages run per request:
+//   1. lib/promptOptimizer expands the user's short text into a descriptive
+//      paragraph (physical detail, lighting, art style) using a fast text LLM.
+//   2. That string goes straight to Workers AI, whose raw image bytes are
+//      returned to the browser as image/png.
 //
 // The free tier of Workers AI covers this model, so image generation costs the
 // deployment nothing. The token never reaches the browser: the client posts a
@@ -47,8 +54,24 @@ const ALLOWED_MODELS: Record<string, ModelSpec> = {
 
 const MAX_SIDE = 1024;
 
+/**
+ * The single message the client receives whenever generation could not proceed
+ * for a quota or credential reason. Rate limits (429) and a rejected API token
+ * (401/403) are indistinguishable from the outside — both mean "no image for
+ * you right now" — and the specific cause is written to the server log
+ * instead, where it is useful and not user-facing.
+ */
+const GENERATION_LIMIT_MESSAGE = "Daily generation limit reached. Please try again tomorrow.";
+
+function generationLimitResponse(status: number, detail: string): Response {
+  console.warn(`[api/image] generation refused (HTTP ${status}): ${detail}`);
+  return Response.json({ error: GENERATION_LIMIT_MESSAGE }, { status });
+}
+
 interface ImageRequestBody {
   prompt?: string;
+  /** Skip Stage 1 and send `prompt` to the image model unchanged. */
+  raw?: boolean;
   model?: string;
   width?: number;
   height?: number;
@@ -73,6 +96,9 @@ function sanitizeSide(value: unknown, fallback: number): number {
 }
 
 function errorMessage(status: number, detail: string): string {
+  // Quota and credential failures (401/403/429) are answered by
+  // generationLimitResponse before this is reached, so only the genuinely
+  // specific cases remain here.
   // Cloudflare answers 7000 for any path that matches no model, and reports it
   // with a 400 rather than a 404. The usual causes are a wrong account ID or a
   // model slug that was percent-encoded, so name them instead of echoing.
@@ -82,14 +108,8 @@ function errorMessage(status: number, detail: string): string {
   if (detail.includes("7000") || detail.toLowerCase().includes("no route for that uri")) {
     return "Cloudflare does not recognise that image model for this account. Check `CLOUDFLARE_ACCOUNT_ID`, and make sure `CLOUDFLARE_API_TOKEN` belongs to the same account.";
   }
-  if (status === 401 || status === 403) {
-    return "The Cloudflare API token was rejected. Check that `CLOUDFLARE_API_TOKEN` is valid and has the Workers AI read permission.";
-  }
   if (status === 404) {
     return `Cloudflare could not find the image model. Check \`CLOUDFLARE_ACCOUNT_ID\` and the model name.${detail ? ` (${detail})` : ""}`;
-  }
-  if (status === 429) {
-    return "The Cloudflare free-tier image quota is used up for today. Try again tomorrow.";
   }
   if (status >= 500) {
     return `Cloudflare Workers AI is temporarily unavailable (HTTP ${status}). Please try again shortly.`;
@@ -146,6 +166,7 @@ export async function POST(req: NextRequest): Promise<Response> {
       { status: 429 }
     );
   }
+
   // Refuses an unidentified caller once a ban or a cap is configured, so those
   // controls cannot be sidestepped by leaving the Authorization header off.
   const gate = identityGate(identity, controls, controls.dailyImageCap);
@@ -173,7 +194,16 @@ export async function POST(req: NextRequest): Promise<Response> {
   const requestedModel = typeof body.model === "string" ? body.model.trim() : "";
   const spec = ALLOWED_MODELS[requestedModel] ?? ALLOWED_MODELS[DEFAULT_MODEL];
 
-  const payload: Record<string, unknown> = { prompt: prompt.slice(0, MAX_PROMPT_LENGTH) };
+  // ── Stage 1: prompt optimization ─────────────────────────────────────────
+  // Best effort by design — optimizePrompt always resolves, falling back to the
+  // caller's own words when no text model is configured or the call fails.
+  // `raw: true` skips the stage for callers that already wrote a full prompt.
+  const finalPrompt = body.raw
+    ? prompt.slice(0, MAX_PROMPT_LENGTH)
+    : (await optimizePrompt(prompt, req.signal)).prompt;
+
+  // ── Stage 2: image generation ────────────────────────────────────────────
+  const payload: Record<string, unknown> = { prompt: finalPrompt };
   // Schnell has no width/height in its schema, and a model rejects the whole
   // request with "Additional or unevaluated properties" if they are sent.
   if (spec.acceptsDimensions) {
@@ -215,6 +245,11 @@ export async function POST(req: NextRequest): Promise<Response> {
 
   if (!response.ok) {
     const detail = (await response.text().catch(() => "")).trim().slice(0, 300);
+    // A 429 or a rejected token is the client's "come back tomorrow" case, and
+    // is answered with the same JSON contract for all of them.
+    if (response.status === 401 || response.status === 403 || response.status === 429) {
+      return generationLimitResponse(response.status, detail);
+    }
     return Response.json({ error: errorMessage(response.status, detail) }, { status: response.status });
   }
 
@@ -226,9 +261,16 @@ export async function POST(req: NextRequest): Promise<Response> {
   // JSON envelope carrying the picture as a base64 string. Both are valid, so
   // both are accepted rather than assuming the first.
   if (contentType.startsWith("image/")) {
-    return new Response(await response.arrayBuffer(), {
+    // Raw binary from Workers AI: capture the bytes as a buffer and hand them
+    // back untouched. The upstream type is trusted, with PNG as the default.
+    const bytes = Buffer.from(await response.arrayBuffer());
+    if (!bytes.length) {
+      return Response.json({ error: "Cloudflare returned an empty image. Try again." }, { status: 502 });
+    }
+    return new Response(new Uint8Array(bytes), {
       headers: {
-        "Content-Type": contentType,
+        "Content-Type": contentType || "image/png",
+        "Content-Length": String(bytes.length),
         "Cache-Control": "no-store",
         "X-Mino-Image-Model": spec.slug,
       },
@@ -280,6 +322,7 @@ export async function POST(req: NextRequest): Promise<Response> {
   return new Response(new Uint8Array(bytes), {
     headers: {
       "Content-Type": mime,
+      "Content-Length": String(bytes.length),
       "Cache-Control": "no-store",
       "X-Mino-Image-Model": spec.slug,
     },
