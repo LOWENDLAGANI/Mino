@@ -41,10 +41,6 @@ export default function NamePrompt({ open, onSave }: NamePromptProps) {
         className="relative w-full max-w-sm rounded-[26px] border border-white/[0.09] bg-[#131316] p-6 shadow-2xl shadow-black/80 animate-rise"
       >
         <h2 className="text-[17px] font-semibold tracking-[-0.02em] text-white">Welcome to Mino</h2>
-        <p className="mt-2 text-[12px] leading-relaxed text-white/45">
-          Before you can use Mino, tell us your name. It is saved in this browser, so you will not
-          be asked again on this device.
-        </p>
 
         <form
           className="mt-4"
@@ -69,9 +65,6 @@ export default function NamePrompt({ open, onSave }: NamePromptProps) {
           >
             Enter Mino
           </button>
-          <p className="mt-3 text-center text-[10px] leading-relaxed text-white/25">
-            Mino cannot be opened until a name is entered.
-          </p>
         </form>
       </section>
     </div>
