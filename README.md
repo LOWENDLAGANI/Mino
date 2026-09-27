@@ -129,6 +129,20 @@ Mino can also draw. The composer's `+` menu has a **Create image** item, which s
 
 **Errors.** A rate limit (HTTP 429) or a rejected API token (401/403) both return `{"error": "Daily generation limit reached. Please try again tomorrow."}`. They are indistinguishable from the outside — both mean no image right now — and the specific cause is written to the server log instead of leaking to the client. Other failures (malformed payload, unknown model, upstream outage, empty image) keep their own specific messages.
 
+### Posters and readable text
+
+**A diffusion model cannot spell.** FLUX learns what text *looks like*, not what letters are, so a requested headline comes back as `KESEELAMATAN` and any fine print is shapes that resemble tiny text. No prompt wording fixes this; it is a property of the architecture, not a setting.
+
+So text is never asked of the image model. When a request looks like a poster (`lib/posterText.ts`), Mino:
+
+1. **Extracts the headline** from the user's own words — a quoted phrase is used verbatim, which is what makes the spelling correct. If no headline can be found, the request is generated as an ordinary image, because a poster with nothing to say is just a blank area.
+2. **Strips the text out of the artwork prompt** and reserves an empty band across the upper third plus a clear strip along the bottom, with an explicit instruction that the image contain no lettering at all.
+3. **Draws the real words afterwards** (`lib/posterRender.ts`) by rendering a transparent text layer with `next/og` and compositing it over the returned bytes with `sharp`.
+
+The text layer is rendered by `next/og` rather than by sharp's own SVG text support, and that is deliberate. sharp renders SVG text through the host's fontconfig, and a host with no fonts installed produces a **blank image with a success status** — no error, no warning, just missing letters. `next/og` bundles its own font file, so the result cannot depend on what happens to be installed on the host. Responses also carry `X-Mino-Poster-Text: 1` so the client can tell drawn text from generated pixels.
+
+If compositing fails for any reason, the unlettered artwork is returned rather than an error — imperfect lettering is worth more than no image, and the failure is recoverable by retrying.
+
 The default model is `@cf/black-forest-labs/flux-1-schnell`, which is covered by Cloudflare's free allocation, so image generation costs the deployment nothing beyond that allowance.
 
 Setup, in the Cloudflare dashboard:
@@ -209,6 +223,8 @@ components/
   appConfig.ts         # Runtime control settings, shared by client and server
   serverControl.ts     # Server-side enforcement: config read, token verify, usage
   promptOptimizer.ts   # Stage 1: rewrites user text into a descriptive image prompt
+  posterText.ts        # Poster detection, headline extraction, text-free artwork prompt
+  posterRender.tsx     # Draws the real headline over the artwork (next/og + sharp)
   imageGeneration.ts   # Client helper for the Cloudflare Workers AI image route
   firebaseHistory.ts   # Anonymous write-only Firebase chat logging
   firebaseAdmin.ts     # Rules-gated admin reads and wipes, plus admin sign-in
