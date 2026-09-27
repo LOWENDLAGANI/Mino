@@ -31,6 +31,10 @@
           "$chatId": {
             ".validate": "newData.hasChildren(['id','title','createdAt','updatedAt','messages'])"
           }
+        },
+        "profile": {
+          ".read": "auth != null && auth.uid === $uid",
+          ".validate": "newData.hasChildren(['name']) && newData.child('name').isString() && newData.child('name').val().length <= 40"
         }
       }
     }

@@ -1,5 +1,12 @@
 import { getApp, getApps, initializeApp } from "firebase/app";
-import { browserLocalPersistence, getAuth, setPersistence, signInAnonymously, type User } from "firebase/auth";
+import {
+  browserLocalPersistence,
+  getAuth,
+  setPersistence,
+  signInAnonymously,
+  type Auth,
+  type User,
+} from "firebase/auth";
 import {
   getDatabase,
   get,
@@ -25,7 +32,25 @@ export const firebaseConfigured = Boolean(
   config.apiKey && config.authDomain && config.databaseURL && config.projectId && config.appId
 );
 
-type FirebaseServices = { auth: ReturnType<typeof getAuth>; database: Database; user: User };
+/**
+ * A handle on Firebase, deliberately holding no user of its own.
+ *
+ * The user used to be read once and cached here. That is wrong the moment the
+ * signed-in identity changes — which is exactly what linking a Google account
+ * does — and it fails quietly rather than loudly: a stale User keeps returning a
+ * token for an identity that is no longer current, so chat logs land under an id
+ * nobody is signed in as any more. The account is read live instead, and
+ * `ensureUser` restores the anonymous sign-in when there is nobody at all.
+ */
+type FirebaseServices = {
+  auth: Auth;
+  database: Database;
+  /** Whoever is signed in right now, or null between a sign-out and a sign-in. */
+  user: User | null;
+  /** The signed-in user, signing in anonymously first if the browser has none. */
+  ensureUser: () => Promise<User>;
+};
+
 let services: FirebaseServices | null = null;
 
 export async function getServices(): Promise<FirebaseServices | null> {
@@ -34,9 +59,20 @@ export async function getServices(): Promise<FirebaseServices | null> {
   const app = getApps().length > 0 ? getApp() : initializeApp(config);
   const auth = getAuth(app);
   await setPersistence(auth, browserLocalPersistence);
-  const restoredUser = auth.currentUser ?? await auth.authStateReady();
+  const restoredUser = auth.currentUser ?? (await auth.authStateReady());
   const user = restoredUser ?? (await signInAnonymously(auth)).user;
-  services = { auth, database: getDatabase(app), user };
+  services = {
+    auth,
+    database: getDatabase(app),
+    get user() {
+      return auth.currentUser;
+    },
+    ensureUser: async () => {
+      const current = auth.currentUser;
+      if (current) return current;
+      return (await signInAnonymously(auth)).user;
+    },
+  };
   return services;
 }
 
@@ -58,7 +94,7 @@ export async function authHeader(): Promise<Record<string, string>> {
   try {
     const current = await getServices();
     if (!current) return {};
-    const token = await current.user.getIdToken();
+    const token = await (await current.ensureUser()).getIdToken();
     return { Authorization: `Bearer ${token}` };
   } catch {
     return {};
@@ -102,12 +138,13 @@ export async function syncFirebaseHistory(): Promise<{ synced: boolean; reason?:
   if (localChats.length === 0) return { synced: true, reason: "no-local-history" };
   const current = await getServices();
   if (!current) return { synced: false, reason: "not-configured" };
+  const user = await current.ensureUser();
 
   for (const chat of localChats) {
     const messages = await db.messages.where("chatId").equals(chat.id).sortBy("createdAt");
     const nextMessages: Record<string, Record<string, unknown>> = {};
     for (const message of messages) nextMessages[message.id] = serializableMessage(message);
-    await set(chatRef(current.database, current.user.uid, chat.id), {
+    await set(chatRef(current.database, user.uid, chat.id), {
       ...serializableChat(chat),
       messages: nextMessages,
     });
@@ -149,7 +186,7 @@ export async function syncVisitorProfile(name: string): Promise<void> {
   const current = await getServices();
   if (!current) return;
 
-  await set(ref(current.database, `admin/registry/${current.user.uid}`), {
+  await set(ref(current.database, `admin/registry/${(await current.ensureUser()).uid}`), {
     name: trimmed,
     firstSeen: firstSeen(),
     lastSeen: Date.now(),

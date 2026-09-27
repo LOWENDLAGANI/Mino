@@ -7,7 +7,7 @@
     "build": "next build",
     "start": "next start -H 0.0.0.0 -p 3000",
     "lint": "next lint",
-    "test": "bunx tsx tests/code-fence.test.ts",
+    "test": "bunx tsx tests/code-fence.test.ts && bunx tsx tests/account.test.ts",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {

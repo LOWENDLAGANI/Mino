@@ -3,10 +3,12 @@
 import type { Appearance, ReasoningEffort, ResponseLength } from "@/lib/settings";
 import type { SearchMode } from "@/lib/types";
 import { useEffect } from "react";
+import AccountSection from "@/components/AccountSection";
 
 interface SettingsPanelProps {
   open: boolean;
   onClose: () => void;
+  displayName: string;
   searchMode: SearchMode;
   onSearchModeChange: (mode: SearchMode) => void;
   searchAvailable: boolean;
@@ -39,6 +41,7 @@ const EFFORT_OPTIONS: Array<{ id: ReasoningEffort; label: string; description: s
 export default function SettingsPanel({
   open,
   onClose,
+  displayName,
   searchMode,
   onSearchModeChange,
   searchAvailable,
@@ -90,6 +93,8 @@ export default function SettingsPanel({
         </header>
 
         <div className="min-h-0 flex-1 space-y-7 overflow-y-auto px-5 py-5">
+          <AccountSection displayName={displayName} />
+
           <section>
             <div className="mb-2.5 flex items-center justify-between gap-3">
               <h3 className="flex items-center gap-1.5 text-[13px] font-semibold text-white">

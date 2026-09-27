@@ -13,6 +13,8 @@ import NamePrompt from "@/components/NamePrompt";
 import MaintenanceScreen from "@/components/MaintenanceScreen";
 import { loadDisplayName, saveDisplayName } from "@/lib/visitorName";
 import { syncVisitorProfile } from "@/lib/firebaseHistory";
+import { bindGoogleAccount, loadAccountName } from "@/lib/account";
+import { describeLinkError, greetingName, isDismissed, normalizeName } from "@/lib/accountState";
 import {
   db,
   createChat,
@@ -47,7 +49,7 @@ import {
   type ReasoningEffort,
   type ResponseLength,
 } from "@/lib/settings";
-import { authHeader, firebaseConfigured, syncFirebaseHistory } from "@/lib/firebaseHistory";
+import { authHeader, firebaseConfigured, getServices, syncFirebaseHistory } from "@/lib/firebaseHistory";
 import { subscribeAppConfig, type AppConfig } from "@/lib/appConfig";
 import { useMaintenance } from "@/lib/useMaintenance";
 
@@ -73,6 +75,9 @@ export default function HomePage() {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [displayName, setDisplayName] = useState("");
   const [hydrated, setHydrated] = useState(false);
+  const [resolvingAccount, setResolvingAccount] = useState(true);
+  const [googleBusy, setGoogleBusy] = useState(false);
+  const [googleError, setGoogleError] = useState<string | null>(null);
   const [modelNotice, setModelNotice] = useState<string | null>(null);
   const [searchMode, setSearchMode] = useState<SearchMode>("auto");
   const [searchAvailable, setSearchAvailable] = useState(false);
@@ -120,6 +125,49 @@ export default function HomePage() {
     }
   }, []);
 
+  // A name typed on this device is the authority. This adopts one only when the
+  // browser has none, so someone who signs in on a new device is greeted by the
+  // name they already chose instead of being asked again.
+  //
+  // The check is deliberately cheap. `authStateReady` answers from local storage,
+  // so the two cases that need no further work — a browser with a name, and a
+  // browser signed in anonymously — are settled without a network round trip. A
+  // guest is the common case, and a first-time visitor is not made to wait for a
+  // database read to be told a name that does not exist.
+  useEffect(() => {
+    if (!hydrated) return;
+    let cancelled = false;
+    const settle = () => {
+      if (!cancelled) setResolvingAccount(false);
+    };
+
+    if (!firebaseConfigured || loadDisplayName()) {
+      settle();
+      return;
+    }
+
+    void (async () => {
+      try {
+        const services = await getServices();
+        // Nobody, or an anonymous visitor: there is no account to ask.
+        if (cancelled || !services?.user || services.user.isAnonymous) {
+          settle();
+          return;
+        }
+        const accountName = await loadAccountName();
+        if (!cancelled && accountName) setDisplayName(saveDisplayName(accountName));
+      } catch {
+        // No account, no rule for one, or offline. The local name stands.
+      } finally {
+        settle();
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [hydrated]);
+
   useEffect(() => {
     if (!hydrated || !firebaseConfigured) return;
     if (historyTimerRef.current) clearTimeout(historyTimerRef.current);
@@ -164,6 +212,41 @@ export default function HomePage() {
       console.error("[Mino] Could not log the visitor name", error);
     });
   }, []);
+
+  /**
+   * The optional Google door on the name screen.
+   *
+   * It resolves a name the same way every other entry point does — the account's
+   * own name first, Google's second — and hands it to `handleSaveName`, so the
+   * gate is never entered by a different route than the text field. A successful
+   * sign-in that produced no usable name is reported rather than waved through:
+   * letting someone in with no name would break the one thing the name is for.
+   */
+  const handleGoogleEntry = useCallback(async () => {
+    setGoogleBusy(true);
+    setGoogleError(null);
+    try {
+      const result = await bindGoogleAccount();
+      if (result.outcome === "dismissed") return;
+      const accountName = await loadAccountName();
+      const resolved = normalizeName(
+        greetingName(loadDisplayName(), accountName, result.view.name)
+      );
+      if (!resolved) {
+        setGoogleError(
+          "You are signed in, but no name came with it. Type a name above to continue."
+        );
+        return;
+      }
+      handleSaveName(resolved);
+    } catch (cause: unknown) {
+      if (isDismissed(cause)) return;
+      console.error("[Mino] Google entry failed", cause);
+      setGoogleError(describeLinkError(cause));
+    } finally {
+      setGoogleBusy(false);
+    }
+  }, [handleSaveName]);
 
   // Probe which modes have keys configured server-side (may be empty).
   useEffect(() => {
@@ -472,12 +555,32 @@ export default function HomePage() {
   if (!maintenance.resolved) return null;
   if (maintenance.active) return <MaintenanceScreen message={maintenance.message} />;
 
+  // A signed-in person arriving on a new browser has a name Mino already knows
+  // and this one has not read yet. Holding the gate for that single read is the
+  // difference between being greeted by name and being asked to type it again.
+  // It settles on the first failure too, so a deployment with no account
+  // service, or one offline, is never stuck here.
+  if (hydrated && resolvingAccount) {
+    return (
+      <div className="flex h-[100dvh] items-center justify-center bg-[#030304] text-text-body">
+        <MinoMark className="h-8 w-8 animate-pulse" />
+      </div>
+    );
+  }
+
   // Entry gate: the name is what the admin console lists visitors by, so Mino
   // is not usable until one is given. There is no skip out of this screen.
   if (!displayName) {
     return (
       <div className="flex h-[100dvh] overflow-hidden bg-[#030304] text-text-body">
-        <NamePrompt open onSave={handleSaveName} />
+        <NamePrompt
+          open
+          onSave={handleSaveName}
+          onGoogle={handleGoogleEntry}
+          googleAvailable={firebaseConfigured}
+          googleBusy={googleBusy}
+          googleError={googleError}
+        />
       </div>
     );
   }
@@ -586,6 +689,7 @@ export default function HomePage() {
       <SettingsPanel
         open={settingsOpen}
         onClose={() => setSettingsOpen(false)}
+        displayName={displayName}
         searchMode={searchMode}
         onSearchModeChange={setSearchMode}
         searchAvailable={searchAvailable}

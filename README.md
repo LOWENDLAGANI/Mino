@@ -7,6 +7,7 @@ Built with **Next.js 15 (App Router)**, **React 19**, **TypeScript**, **Tailwind
 ## Features
 
 - **Zero-login persistence** — chats and messages load only from the current browser’s IndexedDB via Dexie; Firebase Realtime Database is used only to log chat text under the anonymous user identity
+- **Optional Google account** — Mino works with just a name. Binding a Google account from the welcome screen or Settings is a migration that keeps the same UID, so the chats and the name carry to another browser. It grants no administrator access and shares no code path with the console
 - **Two modes** — **Mino Auto** routes every message to the best available model; **Mino Code** uses Mino V3, tuned for code and technical work. Each mode is powered by its own server-side API key, with automatic fallback if one is missing. Picking Code always opens a **separate session**, so a code conversation is never continued under a different model's answers.
 - **Mino's own model names** — the product never shows a vendor or a vendor's version numbers. Users see **Mino V1**, **Mino V2**, and **Mino V3** (the oldest, middle, and newest model), and **Mino Auto** for the router. The wire-level provider names stay server-side.
 - **Code you can copy** — in Code mode every file arrives as a code block labelled with its path (`` ```ts src/lib/thing.ts ``) and a **Copy** button, so it pastes straight into a local editor. The model is asked for complete files rather than fragments, because a partial file gives the reader no way to tell what was left out.
@@ -51,7 +52,7 @@ When Firebase is configured, Mino automatically signs in with a hidden anonymous
 
 To enable automatic logging:
 
-1. Create a Firebase project, create a **Realtime Database**, and enable **Anonymous** under Authentication → Sign-in method.
+1. Create a Firebase project, create a **Realtime Database**, and enable **Anonymous** under Authentication → Sign-in method. Enable **Google** there too if you want the optional account binding in **Settings → Account** to work; without it, Mino still works with a name alone and simply hides the option.
 2. Add a Web app in Firebase and provide these variables in the Freebuff Keys/API keys UI or your deployment environment:
 
 `NEXT_PUBLIC_FIREBASE_API_KEY`, `NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN`, `NEXT_PUBLIC_FIREBASE_DATABASE_URL`, `NEXT_PUBLIC_FIREBASE_PROJECT_ID`, `NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET`, `NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID`, `NEXT_PUBLIC_FIREBASE_APP_ID`
@@ -104,6 +105,24 @@ On first visit Mino asks what to call you. The name is stored in that browser's 
 That registry is names and timestamps **only**. Logged chat text under `users/{uid}/chats` is read exclusively by the server-side admin API, never by the browser, so opening the console does not expose anyone's conversations to a visitor.
 
 Note that `admin/registry` is readable by the administrator through the console; ordinary visitors can write their own entry but cannot read the node.
+
+## Accounts (optional)
+
+**Using Mino requires no account, and that has not changed.** A name and a chat history in your own browser is a complete Mino. Google sign-in is a second door, never a condition of entry.
+
+**Where to use it.** The welcome screen offers “Continue with Google” under the name field, and **Settings → Account** has the same action at any time. A deployment with no `NEXT_PUBLIC_FIREBASE_*` values hides both — a button that cannot work is worse than an absence nobody misses.
+
+**Binding is a migration, not a copy.** Mino signs every first-time visitor in anonymously, which creates a real Firebase account with a UID. Binding calls `linkWithPopup`, which attaches the Google credential to *that* account rather than creating a new one, so **the UID does not change**. Everything already logged under it — the chats, the registry entry — stays exactly where it is. No chat is moved, re-uploaded, or duplicated, and the migration cannot half-finish, because there is no transfer to interrupt.
+
+**If the account already exists elsewhere**, `linkWithPopup` is refused with `auth/credential-already-in-use`. That is not a dead end: Mino signs into the existing account instead, then re-syncs this device's local chats onto it. It deliberately does **not** merge two histories. Merging is the one operation here that could lose someone's words, and the existing history is the real one — so the local copy is what moves, and only the local copy.
+
+**Detaching** signs out and back in anonymously, rather than unlinking the Google provider. Firebase deletes an account that has had no sign-in provider for a while, so unlinking the only one would quietly discard the history. Detaching leaves the account intact for the next browser that signs into it.
+
+**The name follows you; the chats do not, yet.** The name is written to `users/{uid}/profile`, a node the owner alone can read, so signing in on a new browser greets you by the name you already chose instead of asking again. Chats still load only from the local Dexie cache — Mino does not read chat history back from the database for anyone, signed in or not. Precedence is fixed and deliberate: **a name typed on this device always wins**, then the account's saved name, and only then the name Google holds. That last one is the only name Mino never asked you for, so it is the one least entitled to represent you.
+
+That profile node needs **one extra rule published** — a read on `users/$uid/profile` for its owner — before cross-browser names work. Until then, and on any failure, Mino falls back to the local name and says nothing. Binding itself does not depend on it.
+
+**This is not the administrator's account.** The console is reached by tapping the logo ten times, and the two share nothing but the Firebase project. Binding grants a token and nothing else: elevation is decided entirely by `database.rules.json` naming one address, so there is no client-side copy of who the administrator is and no sign-in path from this feature to the console — including for the person who owns it. `lib/account.ts` never imports `lib/firebaseAdmin.ts` and never touches `admin/`, which a test enforces.
 
 The browser creates a hidden anonymous Firebase session and logs chat titles, text, model metadata, and sources. Images and document contents stay in the local Dexie cache because base64 image payloads can make database writes unnecessarily large. Clearing local data does not load or restore chats from the database; use the Firebase console if you need to remove logged data.
 
