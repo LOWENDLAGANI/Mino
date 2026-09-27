@@ -1,6 +1,6 @@
 "use client";
 
-import { getModelDisplayName, MINO_MODES, type ModeId } from "@/lib/models";
+import { MINO_MODES, type ModeId } from "@/lib/models";
 import { useEffect, useRef, useState } from "react";
 
 interface ModeSelectorProps {
@@ -39,9 +39,7 @@ export default function ModeSelector({ selected, onChange, available }: ModeSele
   return (
     <details ref={detailsRef} className="group relative" data-tutorial="model-selector">
       <summary className="flex h-10 cursor-pointer list-none items-center gap-2 rounded-full px-2.5 text-[14px] font-medium text-white/85 transition-colors hover:bg-white/[0.06] [&::-webkit-details-marker]:hidden">
-        <span className="max-w-[120px] truncate sm:max-w-none">
-          {activeMode.id === "code" ? activeMode.name : getModelDisplayName(activeMode.engine)}
-        </span>
+        <span className="max-w-[120px] truncate sm:max-w-none">{activeMode.display}</span>
         <svg
           width="15"
           height="15"
@@ -85,11 +83,11 @@ export default function ModeSelector({ selected, onChange, available }: ModeSele
               </span>
               <span className="flex min-w-0 flex-1 flex-col items-start gap-0.5">
                 <span className="flex items-center gap-1.5 text-[14px] font-medium text-white/90">
-                  {mode.id === "code" ? mode.name : getModelDisplayName(mode.engine)}
+                  {mode.display}
                   {probeDone && !usable && (
                     <span
                       className="h-1.5 w-1.5 rounded-full bg-amber-300/80"
-                      title={mode.id === "code" ? "No Gemini key is configured" : "This mode will use the other configured provider"}
+                      title={mode.id === "code" ? "This mode has no model configured yet" : "This mode will use the other configured provider"}
                     />
                   )}
                 </span>

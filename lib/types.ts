@@ -64,7 +64,7 @@ export interface Chat {
   pinned?: boolean;
 }
 
-/** Shape sent to OpenRouter (OpenAI-compatible multimodal content). */
+/** Multimodal content shape sent to a provider's OpenAI-compatible endpoint. */
 export type ApiContentPart =
   | { type: "text"; text: string }
   | { type: "image_url"; image_url: { url: string } };

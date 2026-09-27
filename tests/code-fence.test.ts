@@ -9,7 +9,11 @@
 //   bun run test
 
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { parseFenceInfo } from "../lib/codeFence";
+import { getModelDisplayName } from "../lib/models";
+import { toMinoName } from "../lib/modelEngines";
 
 let failures = 0;
 let passes = 0;
@@ -81,6 +85,71 @@ test("whitespace-only is safe", () => {
 
 test("c# and other punctuated languages survive", () => {
   assert.deepEqual(parseFenceInfo("c#"), { language: "c#", path: null });
+});
+
+console.log("\nmodel names");
+
+test("each wire model maps to a Mino name", () => {
+  assert.equal(toMinoName("gemini-3.6-flash"), "Mino V1");
+  assert.equal(toMinoName("gemini-3.7-flash"), "Mino V2");
+  assert.equal(toMinoName("gemini-3.8-flash"), "Mino V3");
+});
+
+test("the router and image engine keep their own names", () => {
+  assert.equal(toMinoName("openrouter/auto"), "Mino Auto");
+  assert.equal(toMinoName("mino-canvas"), "Mino Canvas");
+});
+
+test("a wire id never becomes the wire id", () => {
+  const inputs = [
+    undefined,
+    "",
+    "gemini-3.9-flash",
+    "gemini-exp-1206",
+    "gpt-4",
+    "claude-3-5-sonnet",
+    "llama-3.3-70b-versatile",
+    "some-unknown-model",
+  ];
+  for (const input of inputs) {
+    const name = toMinoName(input);
+    assert.ok(
+      name === "Mino" || name.startsWith("Mino "),
+      `"${input}" became "${name}", which is not a Mino name`
+    );
+  }
+});
+
+test("a stored Mino name survives display unchanged", () => {
+  for (const name of ["Mino V1", "Mino V2", "Mino V3", "Mino Auto", "Mino Canvas"]) {
+    assert.equal(getModelDisplayName(name), name);
+  }
+});
+
+test("a stored provider id from an old backup is not shown", () => {
+  // A backup written before the rename carries raw ids. Restoring one must not
+  // put a vendor name back on screen.
+  assert.equal(getModelDisplayName("gemini-3.8-flash"), "Mino");
+  assert.equal(getModelDisplayName(undefined), "Mino");
+});
+
+const VENDOR_WORDS = ["gemini", "openrouter", "groq", "gpt-4", "claude", "llama", "deepseek"];
+
+test("no provider name reaches a client module", () => {
+  // The reason the catalog, the system prompt, and the wire ids are split into
+  // server-only modules. Any of these files is compiled into the page bundle, so
+  // a provider name written here is a provider name a user can read in the page
+  // source — and, for anything stored on a message, in the backup they download.
+  const clientModules = ["lib/models.ts", "lib/db.ts", "lib/types.ts"];
+  for (const file of clientModules) {
+    const source = readFileSync(join(process.cwd(), file), "utf8").toLowerCase();
+    for (const word of VENDOR_WORDS) {
+      assert.ok(
+        !source.includes(word),
+        `${file} mentions "${word}", which would reach the client`
+      );
+    }
+  }
 });
 
 console.log(

@@ -1,8 +1,9 @@
 import { NextRequest } from "next/server";
-import { MINO_SYSTEM_PROMPT } from "@/lib/db";
+import { MINO_SYSTEM_PROMPT } from "@/lib/systemPrompt";
 import type { ReasoningEffort } from "@/lib/settings";
 import type { ApiMessage, SearchMode, SearchSource } from "@/lib/types";
-import { getMode, getModelDisplayName, type ModeId } from "@/lib/models";
+import { getModelDisplayName, type ModeId } from "@/lib/models";
+import { AUTO_ENGINE, CODE_ENGINE, CODE_FALLBACKS, toMinoName } from "@/lib/modelEngines";
 import { CODE_SYSTEM_PROMPT } from "@/lib/codePrompt";
 import { formatSearchContext, searchWeb, shouldUseWebSearch } from "@/lib/webSearch";
 import { checkRateLimit, consumeUsage, identityGate, isAdmin, readConfig, verifyCaller } from "@/lib/serverControl";
@@ -81,7 +82,7 @@ function getProviders(requested: ModeId): ProviderConfig[] {
         label: "Mino Auto",
         url: "https://openrouter.ai/api/v1/chat/completions",
         key: openrouterKey,
-        model: getMode("auto").engine,
+        model: AUTO_ENGINE,
         supportsReasoning: true,
         headers: {
           "HTTP-Referer": "https://mino-ai.vercel.app",
@@ -94,15 +95,16 @@ function getProviders(requested: ModeId): ProviderConfig[] {
       }
     : null;
 
-  // Gemini 3.8 is the preferred stable model, but Google can return a temporary
-  // 503 while a model has no serving capacity. 3.7 and 3.6 are also stable and
-  // remain available as immediate fallbacks without leaving the Code mode family.
-  const geminiModels = [getMode("code").engine, "gemini-3.7-flash", "gemini-3.6-flash"];
+  // Mino V3 is the preferred stable model, but the provider can return a
+  // temporary 503 while a model has no serving capacity. V2 and V1 are also
+  // stable and remain available as immediate fallbacks without leaving the Code
+  // mode family. The wire names are provider detail and never reach the user.
+  const geminiModels = [CODE_ENGINE, ...CODE_FALLBACKS];
   const gemini: ProviderConfig[] = geminiKey
     ? geminiModels.map((model) => ({
         id: "code" as const,
         family: "gemini" as const,
-        label: getModelDisplayName(model),
+        label: toMinoName(model),
         url: "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions",
         key: geminiKey,
         model,
@@ -138,7 +140,7 @@ function getProviders(requested: ModeId): ProviderConfig[] {
       }))
     : [];
 
-  // Code mode never leaves the Gemini family. OpenRouter and Groq are excluded
+  // Code mode never leaves the Mino family. OpenRouter and Groq are excluded
   // from its fallback chain entirely, so an outage produces a clear error
   // instead of code written by a model the user did not ask for.
   if (requested === "code") return [...gemini];
@@ -307,6 +309,14 @@ function sanitizeIdentity(text: string): string {
 function sanitizeProviderDetail(detail: string): string {
   return detail
     .replace(new RegExp(String.raw`\b${VENDOR}\b`, "gi"), "Mino model service")
+    // A model id often has a tail the vendor pattern cannot consume — "gpt-oss-120b"
+    // matches only "gpt", "claude-3-5-sonnet" only "claude-3" — which would leave a
+    // half-redacted name reading "Mino model service-oss-120b".
+    //
+    // The tail must be attached with NO space. Allowing a space here would eat the
+    // next English word, and "is not found" quietly becoming "found" turns a clear
+    // error into a false one, which is worse than a clumsy name.
+    .replace(/\bMino model service[-\/]\S+/gi, "Mino model service")
     .replace(/\b(?:made|created|developed|built|designed|trained)\s+by\s+[\w\s.]{2,30}/gi, "created by Minetallest");
 }
 
@@ -365,7 +375,12 @@ function extractUpstreamError(detail: string): string {
     };
     const nested = typeof parsed.error === "string" ? parsed.error : parsed.error?.message;
     const message = nested || parsed.message;
-    if (message) return message.replace(/\s+/g, " ").trim().slice(0, 500);
+    // Scrubbed on this path too, not only on the plain-text one below. A
+    // structured error very often names the model that failed — "models/
+    // gemini-3.8-flash: not found" is the ordinary case — and returning it raw
+    // put a vendor name in front of the user through the back door, which is
+    // exactly what the rest of this file works to prevent.
+    if (message) return sanitizeProviderDetail(message).replace(/\s+/g, " ").trim().slice(0, 500);
   } catch {
     // Some gateways return HTML or plain text. Keep only a short, safe excerpt.
   }
@@ -513,10 +528,13 @@ export async function POST(req: NextRequest): Promise<Response> {
   const providers = getProviders(requested);
 
   if (providers.length === 0) {
+    // No vendor and no environment variable name here. Both are things only the
+    // person deploying Mino needs, and this text is rendered in the chat as an
+    // assistant message — a visitor has no business reading a provider's name.
     return textStream(
       requested === "code"
-        ? "**Mino Code isn't connected to a model yet.** Add `GEMINI_API_KEY` to the deployment environment — Code mode answers only with Mino 3.8, 3.7, and 3.6, and never substitutes another provider. Your conversations are already saved safely on this device."
-        : "**Mino isn't connected to a model yet.** Add `OPENROUTER_API_KEY` for Auto in the Vercel deployment environment. Your conversations are already saved safely on this device."
+        ? "**Mino Code isn't connected to a model yet.** The person who runs this deployment needs to add a model key before Code mode can answer — it uses Mino V3, V2, and V1 only, and never substitutes another model. Your conversations are already saved safely on this device."
+        : "**Mino isn't connected to a model yet.** The person who runs this deployment needs to add a model key before Auto can answer. Your conversations are already saved safely on this device."
     );
   }
 
@@ -647,7 +665,11 @@ export async function POST(req: NextRequest): Promise<Response> {
         encodeEvent({
           mode: activeProvider!.id,
           provider: activeProvider!.label,
-          model: activeProvider!.model,
+          // The Mino name, never the wire id. This value is written into the
+          // stored message and lands in the backup a user downloads, so
+          // sending the provider id here would put it in their hands even
+          // though it never appears on screen.
+          model: getModelDisplayName(toMinoName(activeProvider!.model)),
         })
       );
       const reader = providerBody.getReader();
@@ -737,7 +759,7 @@ export async function POST(req: NextRequest): Promise<Response> {
 export async function GET(): Promise<Response> {
   const available: ModeId[] = [];
   if (process.env.OPENROUTER_API_KEY?.trim()) available.push("auto");
-  // Code mode is Gemini-only, so Groq cannot make it available — reporting it
+  // Code mode is single-family, so Groq cannot make it available — reporting it
   // as usable would promise a fallback the route will not actually take.
   if (process.env.GEMINI_API_KEY?.trim()) available.push("code");
   // Groq is a separate vendor with its own quota, so it keeps Auto usable on its

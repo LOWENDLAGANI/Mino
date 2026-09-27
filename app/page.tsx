@@ -180,10 +180,10 @@ export default function HomePage() {
   }, []);
 
   // Switching modes is not a mid-conversation toggle. Code mode is pinned to the
-  // Gemini 3.8/3.7/3.6 family for code-generation accuracy, and continuing a
-  // chat written by another model under a third one would blend two different
-  // answers into one thread. So picking a mode that declares `separateSession`
-  // starts a fresh session instead of reinterpreting the current one.
+  // Mino V3/V2/V1 family for code-generation accuracy, and continuing a chat
+  // written by one model under another would blend two different answers into
+  // one thread. So picking a mode that declares `separateSession` starts a fresh
+  // session instead of reinterpreting the current one.
   const handleModeChange = (mode: ModeId) => {
     setSelectedMode(mode);
     setModelNotice(null);
@@ -292,7 +292,9 @@ export default function HomePage() {
       // appended after the transcript is built and never persisted into a
       // previous user message.
       setModelNotice(null);
-      const assistantMsg = await addMessage({ chatId, role: "assistant", content: "", model: getMode(selectedMode).engine });
+      // The Mino name is stored rather than a provider id, so nothing vendor-
+      // specific ends up in the local database or in an exported backup.
+      const assistantMsg = await addMessage({ chatId, role: "assistant", content: "", model: getMode(selectedMode).display });
       setStreamingId(assistantMsg.id);
 
       const controller = new AbortController();
@@ -329,7 +331,7 @@ export default function HomePage() {
             const evt = JSON.parse(data) as { content?: string; error?: string; model?: string; usage?: SessionUsage; search?: { used: boolean; query?: string; sources?: SearchSource[] } };
             if (evt.model) {
               await db.messages.update(assistantMsg.id, { model: evt.model });
-              if (evt.model !== getMode(selectedMode).engine) setModelNotice("The model was changed automatically because the current model is experiencing a problem.");
+              if (evt.model !== getMode(selectedMode).display) setModelNotice("The model was changed automatically because the current model is experiencing a problem.");
             }
             if (evt.error) {
               sawError = true;

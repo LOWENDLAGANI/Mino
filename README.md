@@ -7,7 +7,8 @@ Built with **Next.js 15 (App Router)**, **React 19**, **TypeScript**, **Tailwind
 ## Features
 
 - **Zero-login persistence** — chats and messages load only from the current browser’s IndexedDB via Dexie; Firebase Realtime Database is used only to log chat text under the anonymous user identity
-- **Two modes** — **Mino Auto** routes every message to the best available model; **Mino Code** uses Mino 3.8, tuned for code and technical work. Each mode is powered by its own server-side API key, with automatic fallback if one is missing. Picking Code always opens a **separate session**, so a code conversation is never continued under a different model's answers.
+- **Two modes** — **Mino Auto** routes every message to the best available model; **Mino Code** uses Mino V3, tuned for code and technical work. Each mode is powered by its own server-side API key, with automatic fallback if one is missing. Picking Code always opens a **separate session**, so a code conversation is never continued under a different model's answers.
+- **Mino's own model names** — the product never shows a vendor or a vendor's version numbers. Users see **Mino V1**, **Mino V2**, and **Mino V3** (the oldest, middle, and newest model), and **Mino Auto** for the router. The wire-level provider names stay server-side.
 - **Code you can copy** — in Code mode every file arrives as a code block labelled with its path (`` ```ts src/lib/thing.ts ``) and a **Copy** button, so it pastes straight into a local editor. The model is asked for complete files rather than fragments, because a partial file gives the reader no way to tell what was left out.
 - **Secure API keys** — provider keys are only ever read server-side in the `/api/chat` Route Handler; the admin console holds no service-account credential at all
 - **Strict persona** — the Mino system prompt is prepended server-side to *every* completion request and the client cannot bypass it. Because a prompt is an instruction rather than a guarantee, every streamed token is additionally passed through a server-side identity guard that rewrites *self-referential* vendor claims ("I am Gemini", "I was created by Google", "I'm powered by GPT-4") into Mino. The guard is deliberately scoped: vendor names in ordinary answers ("Gemini changed its pricing", "compare Gemini with Claude") are left untouched, so Mino never misattributes or confuses legitimate content
@@ -36,8 +37,8 @@ Set either (or both) via `process.env` — locally in `.env.local`, or in Vercel
 | Variable | Mode | Provider |
 |---|---|---|
 | `OPENROUTER_API_KEY` | **Mino Auto** | Universal routing that picks the best available model per message |
-| `GEMINI_API_KEY` | **Mino Code** | Mino 3.8 / 3.7 / 3.6 access via the compatible endpoint |
-| `GROQ_API_KEY` | **Fallback** | Last-resort provider used by Auto when every Gemini model is unavailable |
+| `GEMINI_API_KEY` | **Mino Code** | Serves Mino V3 / V2 / V1 (Gemini 3.8 / 3.7 / 3.6) via the compatible endpoint |
+| `GROQ_API_KEY` | **Fallback** | Last-resort provider used by Auto when no Mino model is available |
 | `TAVILY_API_KEY` | **Web search** | Enables explicit web research and source links |
 | `CLOUDFLARE_ACCOUNT_ID` | **Image generation** | Cloudflare account that hosts the Workers AI model |
 | `CLOUDFLARE_API_TOKEN` | **Image generation** | API token with the *Workers AI: Read* permission |
@@ -106,13 +107,13 @@ Note that `admin/registry` is readable by the administrator through the console;
 
 The browser creates a hidden anonymous Firebase session and logs chat titles, text, model metadata, and sources. Images and document contents stay in the local Dexie cache because base64 image payloads can make database writes unnecessarily large. Clearing local data does not load or restore chats from the database; use the Firebase console if you need to remove logged data.
 
-Get keys from the providers linked in your deployment environment. The product UI always identifies models as Mino Auto or Mino 3.8.
+Get keys from the providers linked in your deployment environment. The product UI only ever shows Mino names — Mino Auto, Mino V1, Mino V2, Mino V3 — and never a provider or a provider's version number.
 
 Resilience behavior:
-- **Mino Code is Gemini-only.** Every automatic fallback stays inside the Mino 3.8 → 3.7 → 3.6 family. OpenRouter and Groq are excluded from its chain entirely: a code answer produced by a different model family is a different answer, so a clear error is better than silently changing families mid-task. The `GROQ_API_KEY` fallback therefore applies to Auto only, and `GET /api/chat` no longer reports Code as available on the strength of a Groq key.
+- **Mino Code is single-family.** Every automatic fallback stays inside the Mino V3 → V2 → V1 chain. OpenRouter and Groq are excluded from its chain entirely: a code answer produced by a different model family is a different answer, so a clear error is better than silently changing families mid-task. The `GROQ_API_KEY` fallback therefore applies to Auto only, and `GET /api/chat` no longer reports Code as available on the strength of a Groq key.
 - Auto mode's requested key missing → Mino uses the other configured key; the chat keeps working.
-- Provider outage or rate limit before streaming starts → Mino retries stable Mino 3.7 and Mino 3.6 fallbacks, then the other configured route as needed, with a small automatic model-change notice in the chat header.
-- Auto mode, every Gemini model exhausted → Mino falls back to the Groq provider (`GROQ_API_KEY`) with its own quota, so a Google capacity outage does not break the chat. Its fallback models are all comparable-tier (GPT-OSS 120B, Llama 3.3 70B, GPT-OSS 20B) rather than progressively weaker, because a last line of defence should still be worth reading.
+- Provider outage or rate limit before streaming starts → Mino retries the stable Mino V2 and Mino V1 fallbacks, then the other configured route as needed, with a small automatic model-change notice in the chat header.
+- Auto mode, every Mino model exhausted → Mino falls back to the Groq provider (`GROQ_API_KEY`) with its own quota, so a capacity outage on the primary route does not break the chat. Its fallback models are all comparable-tier rather than progressively weaker, because a last line of defence should still be worth reading.
 - Model rejects the chosen reasoning effort → the same request is retried once without `reasoning_effort` before that provider is given up on, so an unsupported value can never take a conversation down.
 - All providers unavailable → the conversation shows the provider name, HTTP status, and a safe diagnostic instead of the generic “Mino hit an error” message.
 - No keys at all → chat UI still works and displays a setup notice in the conversation instead of an error page.
