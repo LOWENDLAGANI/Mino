@@ -8,7 +8,7 @@ const DATE_CREATED = "24/9/2026";
 
 /** Milestones reached, oldest first. Titles only — the point is the trail. */
 const PROGRESS: Array<{ label: string; state: "done" | "active" | "next" }> = [
-  { label: "Local-first chat", state: "done" },
+  { label: "Instant chat", state: "done" },
   { label: "Streaming responses", state: "done" },
   { label: "Auto and Dev modes", state: "done" },
   { label: "Resilient provider fallback", state: "done" },
@@ -47,7 +47,7 @@ const STATE_STYLES = {
 
 export const metadata = {
   title: "About — Mino",
-  description: "Mino is a private, local-first AI assistant created and developed by Minetallest.",
+  description: "Mino is a private AI assistant created and developed by Minetallest.",
 };
 
 export default function AboutPage() {

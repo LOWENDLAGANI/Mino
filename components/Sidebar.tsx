@@ -291,7 +291,6 @@ export default function Sidebar({ activeChatId, onSelectChat, onNewChat, open, o
           <div className="mt-4 flex items-center gap-2.5 border-t border-white/[0.06] pt-4">
             <div className="flex h-8 w-8 items-center justify-center rounded-full bg-gradient-to-br from-[#b7f4ff] via-[#8c84ff] to-[#4640b6] text-[11px] font-bold text-black">{nameInitial(displayName)}</div>
             <span className="min-w-0 flex-1 truncate text-[12px] text-white/55">{displayName || "Guest"}</span>
-            <span className="text-[11px] text-white/25">local only</span>
           </div>
         </div>
       </aside>

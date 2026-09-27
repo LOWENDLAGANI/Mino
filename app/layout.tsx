@@ -4,7 +4,7 @@ import "./globals.css";
 export const metadata: Metadata = {
   title: "Mino — AI Assistant by Minetallest",
   description:
-    "Mino is a private, local-first AI assistant by Minetallest. Multi-model chat, vision, and image understanding — all stored in your browser.",
+    "Mino is a private AI assistant by Minetallest. Multi-model chat, vision, image understanding, and image generation.",
   icons: {
     icon: [
       // Uploaded brand logo (public/mino-logo.png) takes over once present.

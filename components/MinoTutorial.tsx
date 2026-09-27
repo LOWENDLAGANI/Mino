@@ -80,7 +80,7 @@ const STEPS: TutorialStep[] = [
   {
     target: "sidebar-data",
     eyebrow: "09 · Yours, on this device",
-    title: "Local-first by default",
+    title: "Stored on your device",
     body: "Mino stores chats and messages locally in your browser, so your workspace stays available without an account. The account footer and data controls are here whenever you want to manage that local copy.",
     mobileSidebar: true,
   },
