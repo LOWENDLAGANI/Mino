@@ -3,12 +3,9 @@
 import type { ChatMessage, GeneratedImage } from "@/lib/types";
 import { getModelDisplayName } from "@/lib/models";
 import { imageDownloadName } from "@/lib/imageGeneration";
-import { FileReviewCard } from "./FileReview";
-import { StepTimeline, VerificationPanel } from "./CodeSessionBits";
 import Markdown from "./Markdown";
 import MinoMark from "./MinoMark";
 import { useEffect, useRef, useState } from "react";
-import type { PendingFile } from "@/lib/workspace";
 
 interface ChatThreadProps {
   messages: ChatMessage[];
@@ -19,15 +16,6 @@ interface ChatThreadProps {
   onRegenerate: (assistantId: string) => void;
   onEditMessage: (messageId: string, content: string) => void;
   onCopyConversation: () => void;
-  /** True in a Code session, where files and steps are rendered. */
-  codeMode: boolean;
-  /** Reviewable proposals for each assistant message that wrote files. */
-  pendingByMessage: Record<string, PendingFile[]>;
-  onDecisionChange: (messageId: string, path: string, hunkId: string, accepted: boolean) => void;
-  onToggleAttach: (path: string) => void;
-  onCopyFile: (path: string, content: string) => void;
-  attached: string[];
-  onDismissVerification: (messageId: string) => void;
 }
 
 const STREAMING_MESSAGES = [
@@ -112,19 +100,12 @@ function MessageActions({ onRegenerate }: { onRegenerate: () => void }) {
   );
 }
 
-function MessageRow({ msg, streaming, drawing, onRegenerate, onEditMessage, codeMode, pending, onDecisionChange, onToggleAttach, onCopyFile, attached, onDismissVerification }: {
+function MessageRow({ msg, streaming, drawing, onRegenerate, onEditMessage }: {
   msg: ChatMessage;
   streaming: boolean;
   drawing: boolean;
   onRegenerate: () => void;
   onEditMessage: (content: string) => void;
-  codeMode: boolean;
-  pending: PendingFile[];
-  onDecisionChange: (path: string, hunkId: string, accepted: boolean) => void;
-  onToggleAttach: (path: string) => void;
-  onCopyFile: (path: string, content: string) => void;
-  attached: string[];
-  onDismissVerification: () => void;
 }) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(msg.content);
@@ -187,10 +168,7 @@ function MessageRow({ msg, streaming, drawing, onRegenerate, onEditMessage, code
         {msg.content && !streaming && (
           <span className="flex items-center gap-1 opacity-100 transition-opacity md:opacity-0 md:group-hover:opacity-100">
             <MessageActions onRegenerate={onRegenerate} />
-            {/* Copies the same text the thread shows, so a Code message copies
-                the reasoning without the file bodies the user gets from the
-                per-file Copy buttons instead. */}
-            <CopyMessageButton text={msg.prose ?? msg.content} />
+            <CopyMessageButton text={msg.content} />
           </span>
         )}
       </div>
@@ -220,41 +198,9 @@ function MessageRow({ msg, streaming, drawing, onRegenerate, onEditMessage, code
         </div>
       )}
 
-      {msg.verification && <VerificationPanel result={msg.verification} onDismiss={onDismissVerification} />}
-
-      {codeMode && msg.steps && msg.steps.length > 0 && (
-        <StepTimeline steps={msg.steps} streaming={streaming} />
-      )}
-
-      {/* In a Code session the file blocks are stripped into `prose`, so each
-          file renders once as a diff below instead of twice — once as a code
-          block and again as the diff. A message with no files keeps its content
-          verbatim, and a streaming message has no prose yet, so it shows the
-          raw text as it arrives. */}
-      {(msg.prose || msg.content) && (
+      {msg.content && (
         <div className={streaming ? "stream-cursor" : ""}>
-          <Markdown content={msg.prose ?? msg.content} />
-        </div>
-      )}
-
-      {codeMode && pending.length > 0 && (
-        <div className="mt-3">
-          <div className="mb-2 flex items-center gap-2 text-[10px] font-semibold uppercase tracking-[0.12em] text-white/40">
-            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-              <path d="M14 3v5h5" /><path d="M19 8v11a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h7Z" />
-            </svg>
-            {pending.length === 1 ? "1 file changed" : `${pending.length} files changed`}
-          </div>
-          {pending.map((file) => (
-            <FileReviewCard
-              key={`${msg.id}-${file.path}`}
-              file={file}
-              onDecisionChange={(path, hunkId, accepted) => onDecisionChange(path, hunkId, accepted)}
-              onCopy={onCopyFile}
-              attached={attached.includes(file.path)}
-              onToggleAttach={onToggleAttach}
-            />
-          ))}
+          <Markdown content={msg.content} />
         </div>
       )}
 
@@ -501,13 +447,6 @@ export default function ChatThread({  messages,
   onRegenerate,
   onEditMessage,
   onCopyConversation,
-  codeMode,
-  pendingByMessage,
-  onDecisionChange,
-  onToggleAttach,
-  onCopyFile,
-  attached,
-  onDismissVerification,
 }: ChatThreadProps) {
   const bottomRef = useRef<HTMLDivElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -580,13 +519,6 @@ export default function ChatThread({  messages,
               drawing={msg.id === drawingId}
               onRegenerate={() => onRegenerate(msg.id)}
               onEditMessage={(content) => onEditMessage(msg.id, content)}
-              codeMode={codeMode}
-              pending={pendingByMessage[msg.id] ?? []}
-              onDecisionChange={(path, hunkId, accepted) => onDecisionChange(msg.id, path, hunkId, accepted)}
-              onToggleAttach={onToggleAttach}
-              onCopyFile={onCopyFile}
-              attached={attached}
-              onDismissVerification={() => onDismissVerification(msg.id)}
             />
           ))}
           {streamingId && !messages.find((m) => m.id === streamingId)?.content && (

@@ -8,17 +8,7 @@ Built with **Next.js 15 (App Router)**, **React 19**, **TypeScript**, **Tailwind
 
 - **Zero-login persistence** — chats and messages load only from the current browser’s IndexedDB via Dexie; Firebase Realtime Database is used only to log chat text under the anonymous user identity
 - **Two modes** — **Mino Auto** routes every message to the best available model; **Mino Code** uses Mino 3.8, tuned for code and technical work. Each mode is powered by its own server-side API key, with automatic fallback if one is missing. Picking Code always opens a **separate session**, so a code conversation is never continued under a different model's answers.
-- **Code sessions, not code chat** — a Code session keeps the *files* as its state, not just the transcript:
-  - **Reviewable diffs** — a proposed file is diffed against the version already in the session and split into hunks, each with its own **Accepted / Rejected** toggle. A rejected hunk contributes its original lines and drops its new ones, so the file you end up with is a real file, not a record that a change was declined. Each file renders **once**, as the diff: the file block is stripped from the prose (`prose` on the message) rather than being shown again as a code block above it
-  - **Copy out** — every file card has a **Copy** button that yields the *resolved* contents, rejections already applied, so it pastes cleanly into a local editor. The Files panel copies per file too
-  - **Derivation, not a second store** — hunk decisions are written onto the message, and the current contents of every file are derived from them. A rejection therefore survives a reload instead of quietly reverting on the next turn
-  - **Working files panel** — the session's accepted files, openable inline, each with a copy and a per-file *attach* toggle
-  - **Project notes** — stack, conventions, paths, and things to avoid, written once and sent with every request in the session, so Mino stops re-asking
-  - **Step timeline** — the plan Mino declares up front, shown as a checklist rather than more prose to read
-  - **Real verification** — `/api/verify` runs the repository's own `typecheck` / `lint` / `test` / `build` scripts and returns their unmodified output. The result is recorded as a message in the thread, so the output is visible where the conversation can refer to it and survives a reload, and it is fed back on the next turn. Mino reacts to an actual compiler, not to its own confidence
-  - **Command palette** — ⌘K for modes, new sessions, panels, and running a check
-
-**On a phone**, Code mode is built for the small screen rather than shrunk to fit it: the Files panel becomes a bottom sheet (a 340px column would leave the thread too narrow to read a diff), the diff drops one of its two line-number gutters and keeps a 30–32px thumb target on every toggle, the header collapses to a single 40px overflow button, and both textareas use a 16px font so iOS Safari does not zoom the page on focus. The palette's keyboard hints are desktop-only — a touch user taps the row.
+- **Code you can copy** — in Code mode every file arrives as a code block labelled with its path (`` ```ts src/lib/thing.ts ``) and a **Copy** button, so it pastes straight into a local editor. The model is asked for complete files rather than fragments, because a partial file gives the reader no way to tell what was left out.
 - **Secure API keys** — provider keys are only ever read server-side in the `/api/chat` Route Handler; the admin console holds no service-account credential at all
 - **Strict persona** — the Mino system prompt is prepended server-side to *every* completion request and the client cannot bypass it. Because a prompt is an instruction rather than a guarantee, every streamed token is additionally passed through a server-side identity guard that rewrites *self-referential* vendor claims ("I am Gemini", "I was created by Google", "I'm powered by GPT-4") into Mino. The guard is deliberately scoped: vendor names in ordinary answers ("Gemini changed its pricing", "compare Gemini with Claude") are left untouched, so Mino never misattributes or confuses legitimate content
 - **Multimodal** — attach images via the phone camera, file picker, drag-and-drop, or clipboard paste; compressed client-side on `<canvas>` (max 1024px, JPEG q0.8) before upload
@@ -35,7 +25,7 @@ bun install
 bun run dev
 ```
 
-Open http://localhost:3000. `bun run test` runs the code-session tests.
+Open http://localhost:3000. `bun run test` runs the unit tests.
 
 ### API keys
 
@@ -53,7 +43,6 @@ Set either (or both) via `process.env` — locally in `.env.local`, or in Vercel
 | `CLOUDFLARE_API_TOKEN` | **Image generation** | API token with the *Workers AI: Read* permission |
 | `MINO_ADMIN_EMAIL` | **Admin controls** | The administrator's address, matching the one in `database.rules.json` |
 
-`/api/verify` needs no key of its own — it runs the scripts this repository already defines, and `GET /api/verify` reports which of `typecheck`, `lint`, `test`, and `build` actually exist so the palette only ever offers real ones.
 
 ### Automatic Firebase logging
 
@@ -118,12 +107,6 @@ Note that `admin/registry` is readable by the administrator through the console;
 The browser creates a hidden anonymous Firebase session and logs chat titles, text, model metadata, and sources. Images and document contents stay in the local Dexie cache because base64 image payloads can make database writes unnecessarily large. Clearing local data does not load or restore chats from the database; use the Firebase console if you need to remove logged data.
 
 Get keys from the providers linked in your deployment environment. The product UI always identifies models as Mino Auto or Mino 3.8.
-
-### How Code mode reads a response
-
-The UI is a coding surface, so it needs more than prose to render. `lib/codeSession.ts` parses each Code response into two registers: the prose, and any fenced block whose info string names a path (```` ```ts src/lib/thing.ts ````), which becomes a first-class file. Bare-language blocks stay ordinary code blocks, so an illustrative snippet is never mistaken for a change.
-
-`lib/diff.ts` is a dependency-free LCS line diff producing standard +/- hunks with context, and `lib/workspace.ts` derives the session's accepted file state from the stored per-hunk decisions. Both are covered by `bun run test` (`tests/code-session.test.ts`), because these are the two places where a subtle mistake is invisible until it has already corrupted a user's file.
 
 Resilience behavior:
 - **Mino Code is Gemini-only.** Every automatic fallback stays inside the Mino 3.8 → 3.7 → 3.6 family. OpenRouter and Groq are excluded from its chain entirely: a code answer produced by a different model family is a different answer, so a clear error is better than silently changing families mid-task. The `GROQ_API_KEY` fallback therefore applies to Auto only, and `GET /api/chat` no longer reports Code as available on the strength of a Groq key.

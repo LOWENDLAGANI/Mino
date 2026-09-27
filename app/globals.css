@@ -205,6 +205,20 @@ button {
   font-size: 11px;
   letter-spacing: 0.04em;
   color: var(--text-low);
+  flex-shrink: 0;
+}
+/* The filename a code block belongs to. Truncated from the left so the
+   informative tail — the file name — stays visible on a narrow screen. */
+.code-block-file {
+  font-family: ui-monospace, monospace;
+  font-size: 11.5px;
+  color: var(--text-hi);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  direction: rtl;
+  text-align: left;
+  min-width: 0;
 }
 .copy-btn {
   padding: 0.25rem 0.5rem;

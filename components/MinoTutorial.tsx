@@ -41,7 +41,7 @@ const STEPS: TutorialStep[] = [
     target: "model-selector",
     eyebrow: "03 · Choose your helper",
     title: "Pick the right Mino mode",
-    body: "Use the model menu in the top bar. Mino Auto chooses the best available model for each prompt. Mino Code is tuned for code and technical work — it always answers with Mino 3.8, 3.7, or 3.6, and picking it starts a fresh session. Your choice is remembered on this device.",
+    body: "Use the model menu in the top bar. Mino Auto chooses the best available model for each prompt. Mino Code is tuned for code and technical work — every file comes back in a block you can copy, and picking it starts a fresh session. Your choice is remembered on this device.",
   },
   {
     target: "gallery-button",

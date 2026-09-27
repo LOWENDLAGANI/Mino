@@ -52,26 +52,6 @@ export async function touchChat(chatId: string): Promise<void> {
   await db.chats.update(chatId, { updatedAt: Date.now() });
 }
 
-// ── Session kind and notes ───────────────────────────────────────────────────
-
-/**
- * Marks a chat as a Code session.
- *
- * The chat is only written when it does not exist yet, because a session that
- * has already started cannot change what it is. Switching to Code mode opens a
- * new chat, so the kind is set at creation rather than retrofitted.
- */
-export async function createSessionChat(kind: "chat" | "code", title = "New chat"): Promise<Chat> {
-  const chat = await createChat(title);
-  await db.chats.update(chat.id, { kind });
-  return { ...chat, kind };
-}
-
-export async function setChatNotes(chatId: string, notes: string): Promise<void> {
-  const clean = notes.trim();
-  await db.chats.update(chatId, { notes: clean || undefined, updatedAt: Date.now() });
-}
-
 /** Derive a short chat title from the first user message. */
 export async function maybeAutoTitle(chatId: string, firstUserText: string): Promise<void> {
   const chat = await db.chats.get(chatId);
@@ -103,19 +83,6 @@ export async function addMessage(msg: Omit<ChatMessage, "id" | "createdAt">): Pr
   await db.messages.add(full);
   await touchChat(full.chatId);
   return full;
-}
-
-export async function setMessageFiles(
-  id: string,
-  files: ChatMessage["files"],
-  steps: ChatMessage["steps"],
-  prose?: string
-): Promise<void> {
-  await db.messages.update(id, { files, steps, prose, updatedAt: Date.now() });
-}
-
-export async function clearMessageVerification(id: string): Promise<void> {
-  await db.messages.update(id, { verification: undefined, updatedAt: Date.now() });
 }
 
 export async function updateMessageContent(id: string, content: string): Promise<void> {

@@ -33,7 +33,7 @@ export const MINO_MODES: ModeOption[] = [
     envVar: "OPENROUTER_API_KEY",
     engine: "openrouter/auto",
     separateSession: false,
-    blurb: "Best available model for every message",
+    blurb: "Best available model",
   },
   {
     id: "code",
@@ -41,7 +41,7 @@ export const MINO_MODES: ModeOption[] = [
     envVar: "GEMINI_API_KEY",
     engine: "gemini-3.8-flash",
     separateSession: true,
-    blurb: "Gemini 3.8 · 3.7 · 3.6 only — always a new session",
+    blurb: "Gemini 3.8 · 3.7 · 3.6 only",
   },
 ];
 
