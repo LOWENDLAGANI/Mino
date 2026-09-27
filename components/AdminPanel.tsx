@@ -36,7 +36,7 @@ interface AdminMessage {
 
 type View = { name: "users" } | { name: "chats"; uid: string; label: string } | { name: "chat"; uid: string; chatId: string; title: string };
 
-const PROVIDER_LABEL: Record<string, string> = { auto: "Mino Auto", dev: "Mino Dev" };
+const PROVIDER_LABEL: Record<string, string> = { auto: "Mino Auto", code: "Mino Code" };
 
 function when(ts?: number | null): string {
   if (!ts) return "—";

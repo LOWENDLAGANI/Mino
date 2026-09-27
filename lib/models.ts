@@ -1,10 +1,14 @@
 // ── Mino mode catalog ────────────────────────────────────────────────────────
 // Two modes, each backed by its own server-side API key:
-//   auto — universal OpenAI-compatible router (OpenRouter "openrouter/auto"),
-//          which picks the best model for every request automatically
-//   dev  — Mino 3.8, tuned for code & technical work
+//   auto  — universal OpenAI-compatible router (OpenRouter "openrouter/auto"),
+//           which picks the best model for every request automatically
+//   code  — Mino 3.8 (Gemini 3.8 Flash), tuned for code & technical work.
+//           Code mode is Gemini-only: every automatic fallback stays inside the
+//           3.8 → 3.7 → 3.6 family, so generated code never silently drops to a
+//           different model family. If no Gemini model is reachable the request
+//           fails loudly instead of being answered by a weaker model.
 
-export type ModeId = "auto" | "dev";
+export type ModeId = "auto" | "code";
 
 export interface ModeOption {
   id: ModeId;
@@ -13,6 +17,13 @@ export interface ModeOption {
   envVar: string;
   /** Underlying default model (informational, shown in UI) */
   engine: string;
+  /**
+   * When true, picking this mode always opens a fresh session rather than
+   * continuing the current conversation under a different model.
+   */
+  separateSession: boolean;
+  /** Short explanation shown in the mode menu */
+  blurb: string;
 }
 
 export const MINO_MODES: ModeOption[] = [
@@ -21,12 +32,16 @@ export const MINO_MODES: ModeOption[] = [
     name: "Auto",
     envVar: "OPENROUTER_API_KEY",
     engine: "openrouter/auto",
+    separateSession: false,
+    blurb: "Best available model for every message",
   },
   {
-    id: "dev",
-    name: "Dev",
+    id: "code",
+    name: "Code",
     envVar: "GEMINI_API_KEY",
     engine: "gemini-3.8-flash",
+    separateSession: true,
+    blurb: "Gemini 3.8 · 3.7 · 3.6 only — always a new session",
   },
 ];
 

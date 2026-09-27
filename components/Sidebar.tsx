@@ -18,6 +18,7 @@ interface SidebarProps {
   activeChatId: string | null;
   onSelectChat: (id: string) => void;
   onNewChat: () => void;
+  onNewCodeSession: () => void;
   open: boolean;
   onClose: () => void;
   onOpenSettings: () => void;
@@ -54,7 +55,7 @@ function UtilityIcon({ children }: { children: ReactNode }) {
   );
 }
 
-export default function Sidebar({ activeChatId, onSelectChat, onNewChat, open, onClose, onOpenSettings, displayName }: SidebarProps) {
+export default function Sidebar({ activeChatId, onSelectChat, onNewChat, onNewCodeSession, open, onClose, onOpenSettings, displayName }: SidebarProps) {
   const chats = useLiveQuery(
     () => db.chats.orderBy("updatedAt").reverse().toArray(),
     [],
@@ -146,7 +147,7 @@ export default function Sidebar({ activeChatId, onSelectChat, onNewChat, open, o
           </button>
         </div>
 
-        <div className="px-4">
+        <div className="space-y-2 px-4">
           <button
             onClick={onNewChat}
             data-tutorial="sidebar-new-chat"
@@ -157,6 +158,16 @@ export default function Sidebar({ activeChatId, onSelectChat, onNewChat, open, o
               <path d="M12 8v7M8.5 11.5h7" />
             </svg>
             New chat
+          </button>
+          <button
+            onClick={onNewCodeSession}
+            className="flex w-full items-center gap-3 rounded-2xl border border-[#6f5bea]/25 bg-[#6f5bea]/[0.09] px-4 py-3 text-[14px] font-medium text-[#c9c0ff] transition-colors hover:bg-[#6f5bea]/[0.15]"
+          >
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">
+              <path d="m8 6-6 6 6 6M16 6l6 6-6 6" />
+            </svg>
+            New code session
+            <span className="ml-auto text-[10px] font-normal text-[#8f83d6]">⌘K</span>
           </button>
         </div>
 
@@ -249,6 +260,15 @@ export default function Sidebar({ activeChatId, onSelectChat, onNewChat, open, o
                     ) : (
                       <>
                         {chat.pinned && <span className="shrink-0 text-[10px] text-[#9ee7ff]" title="Pinned">◆</span>}
+                        {chat.kind === "code" && (
+                          <span
+                            className="flex h-4 w-4 shrink-0 items-center justify-center rounded bg-[#6f5bea]/20 text-[8px] font-bold text-[#b3a6ff]"
+                            title="Code session"
+                            aria-label="Code session"
+                          >
+                            C
+                          </span>
+                        )}
                         <span className="min-w-0 flex-1 truncate text-[14px] text-white/75">{chat.title}</span>
                         <span className={`shrink-0 text-[10px] text-white/25 transition-opacity ${active ? "opacity-100" : "opacity-0 group-hover:opacity-100"}`}>
                           {timeAgo(chat.updatedAt)}

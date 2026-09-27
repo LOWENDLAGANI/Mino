@@ -10,7 +10,7 @@ const DATE_CREATED = "24/9/2026";
 const PROGRESS: Array<{ label: string; state: "done" | "active" | "next" }> = [
   { label: "Instant chat", state: "done" },
   { label: "Streaming responses", state: "done" },
-  { label: "Auto and Dev modes", state: "done" },
+  { label: "Auto and Code modes", state: "done" },
   { label: "Resilient provider fallback", state: "done" },
   { label: "Web search", state: "done" },
   { label: "Camera and file attachments", state: "done" },

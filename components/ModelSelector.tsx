@@ -39,7 +39,9 @@ export default function ModeSelector({ selected, onChange, available }: ModeSele
   return (
     <details ref={detailsRef} className="group relative" data-tutorial="model-selector">
       <summary className="flex h-10 cursor-pointer list-none items-center gap-2 rounded-full px-2.5 text-[14px] font-medium text-white/85 transition-colors hover:bg-white/[0.06] [&::-webkit-details-marker]:hidden">
-        <span className="max-w-[120px] truncate sm:max-w-none">{getModelDisplayName(activeMode.engine)}</span>
+        <span className="max-w-[120px] truncate sm:max-w-none">
+          {activeMode.id === "code" ? activeMode.name : getModelDisplayName(activeMode.engine)}
+        </span>
         <svg
           width="15"
           height="15"
@@ -58,7 +60,7 @@ export default function ModeSelector({ selected, onChange, available }: ModeSele
       <div
         role="radiogroup"
         aria-label="Mino model"
-        className="absolute right-0 top-full z-50 mt-2 w-56 origin-top-right overflow-hidden rounded-2xl border border-white/[0.08] bg-[#111113]/95 p-1.5 shadow-2xl shadow-black/60 backdrop-blur-xl animate-rise"
+        className="absolute right-0 top-full z-50 mt-2 w-72 origin-top-right overflow-hidden rounded-2xl border border-white/[0.08] bg-[#111113]/95 p-1.5 shadow-2xl shadow-black/60 backdrop-blur-xl animate-rise"
       >
         {MINO_MODES.map((mode) => {
           const active = selected === mode.id;
@@ -79,16 +81,19 @@ export default function ModeSelector({ selected, onChange, available }: ModeSele
                   active ? "bg-[#6f5bea] text-white" : "bg-white/[0.06] text-white/55"
                 }`}
               >
-                {mode.id === "auto" ? "A" : "D"}
+                {mode.id === "auto" ? "A" : "C"}
               </span>
-              <span className="flex min-w-0 flex-1 items-center gap-1.5 text-[14px] font-medium text-white/90">
-                {getModelDisplayName(mode.engine)}
-                {probeDone && !usable && (
-                  <span
-                    className="h-1.5 w-1.5 rounded-full bg-amber-300/80"
-                    title="This mode will use the other configured provider"
-                  />
-                )}
+              <span className="flex min-w-0 flex-1 flex-col items-start gap-0.5">
+                <span className="flex items-center gap-1.5 text-[14px] font-medium text-white/90">
+                  {mode.id === "code" ? mode.name : getModelDisplayName(mode.engine)}
+                  {probeDone && !usable && (
+                    <span
+                      className="h-1.5 w-1.5 rounded-full bg-amber-300/80"
+                      title={mode.id === "code" ? "No Gemini key is configured" : "This mode will use the other configured provider"}
+                    />
+                  )}
+                </span>
+                <span className="text-[11px] leading-tight text-white/40">{mode.blurb}</span>
               </span>
               {active && (
                 <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-[#9ee7ff]">
