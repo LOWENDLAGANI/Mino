@@ -18,13 +18,49 @@ const SYSTEM_INSTRUCTION = `You are a prompt optimizer for a text-to-image model
 Rewrite the user's request as ONE descriptive paragraph for an image generator.
 
 Rules:
+- Keep the user's subject name in the paragraph, written exactly as they wrote it. The image model recognises well-known characters by name, so dropping the name is the one thing that must never happen.
+- If the request names an existing character, celebrity, or figure, describe their well-known appearance faithfully (hair colour, build, clothing, era). Never substitute a different character.
+- If you do not know who they are, keep the name and describe a generic figure of that broad type. A recognisable attempt at the right kind of subject beats an invented stranger.
 - Add concrete physical detail: age range, face, hair, skin, clothing, materials, expression, pose.
 - Add setting, lighting (e.g. soft window light, warm rim light, neon), and mood.
 - Name an art style and medium (e.g. cinematic digital painting, 35mm film photo, anime cel).
-- Keep the user's own subject, name, and intent. Do not replace or restate the name in quotes.
-- Expand a bare name or short phrase. If the user already gave a rich description, refine it without changing the subject.
-- No preamble, no explanation, no lists, no quotation marks, no markdown.
+- Expand a short phrase. If the user already gave a rich description, refine it without changing the subject.
+- No preamble, no explanation, no lists, no quotation marks around the name, no markdown.
 - Output ONLY the final paragraph as a single string.`;
+
+/**
+ * Filler words people wrap a request in ("generate me a picture of X",
+ * "draw X", "make an image of X"). Stripped before the subject is recovered.
+ */
+const REQUEST_NOISE = /^\s*(?:please\s+)?(?:can you\s+)?(?:generate|create|make|draw|paint|render|give|show)\s+(?:me\s+)?(?:an?\s+|the\s+)?(?:painting|drawing|artwork|portrait|picture|image|render|art)?\s*(?:of|with|showing)?\s*/i;
+
+/**
+ * The subject the user actually asked for, with the request wrapper removed.
+ * Returns the whole request when it is too short or too long to be worth
+ * isolating, since a mangled fragment is worse than the original text.
+ */
+function subjectOf(request: string): string {
+  const stripped = request.replace(REQUEST_NOISE, "").trim().replace(/[.!?]+$/, "");
+  if (stripped.length < 3 || stripped.length > 60) return "";
+  return stripped;
+}
+
+/**
+ * Guarantees the subject survives Stage 1.
+ *
+ * The instruction asks the model to keep the name, but instructions are not
+ * guarantees, and a rewrite that quietly drops it costs more than it gains:
+ * FLUX still recognises "Satoru Gojo" by name, so losing the name is what turns
+ * a request for a known character into a plausible stranger. When the optimized
+ * paragraph no longer contains the subject, it is prepended.
+ */
+function ensureSubject(original: string, optimized: string): string {
+  const subject = subjectOf(original);
+  if (!subject) return optimized;
+  if (optimized.toLowerCase().includes(subject.toLowerCase())) return optimized;
+  const merged = `${subject}, ${optimized}`;
+  return merged.length > MAX_PROMPT_LENGTH ? optimized.slice(0, MAX_PROMPT_LENGTH) : merged;
+}
 
 interface OptimizerProvider {
   label: string;
@@ -80,6 +116,13 @@ function optimizerProviders(): OptimizerProvider[] {
   return providers;
 }
 
+/**
+ * Phrases that mean the model declined rather than produced a prompt. A refusal
+ * is prose, so it clears the length check and would otherwise be sent to the
+ * image model as if it were a description.
+ */
+const REFUSAL = /^(?:i\s+(?:can(?:'|no)?t|am\s+unable|cannot|won't|do\s+not)\b|sorry[,!]|i'?m\s+not\s+able|as\s+an\s+ai\b)/i;
+
 /** Strips the wrappers models add despite instructions, and normalises whitespace. */
 function cleanOutput(text: string): string {
   let out = text.trim();
@@ -103,11 +146,19 @@ export async function optimizePrompt(input: string, signal?: AbortSignal): Promi
   for (const provider of optimizerProviders()) {
     try {
       const optimized = await callOptimizer(provider, original, signal);
-      if (optimized) return { prompt: optimized, optimized: true, provider: provider.label };
+      if (optimized) {
+        const prompt = ensureSubject(original, optimized);
+        // The final string is what FLUX actually receives, and nothing else in
+        // the system shows it. Without this, a wrong result is only diagnosable
+        // by looking at the picture and guessing what the model was told.
+        console.log(`[promptOptimizer] ${provider.label} in="${original}" out="${prompt}"`);
+        return { prompt, optimized: true, provider: provider.label };
+      }
     } catch {
       // Try the next provider; a missing text key must not fail the image.
     }
   }
+  console.log(`[promptOptimizer] passthrough (no text model) prompt="${original}"`);
   return { prompt: original.slice(0, MAX_PROMPT_LENGTH), optimized: false };
 }
 
@@ -156,6 +207,7 @@ async function callOptimizer(
     // A refusal, an empty rewrite, or a degenerate echo of the input is not an
     // improvement, so keep the caller's own words.
     if (cleaned.length < 20 || cleaned.toLowerCase() === prompt.toLowerCase()) return null;
+    if (REFUSAL.test(cleaned)) return null;
     return cleaned;
   } finally {
     clearTimeout(timeout);

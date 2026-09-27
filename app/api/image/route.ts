@@ -202,6 +202,11 @@ export async function POST(req: NextRequest): Promise<Response> {
     ? prompt.slice(0, MAX_PROMPT_LENGTH)
     : (await optimizePrompt(prompt, req.signal)).prompt;
 
+  // Logged here rather than only in the optimizer so the `raw` path is covered
+  // too. This is the string Workers AI receives, and it is the first thing to
+  // check when an image comes back wrong.
+  console.log(`[api/image] prompt: "${finalPrompt}"`);
+
   // ── Stage 2: image generation ────────────────────────────────────────────
   const payload: Record<string, unknown> = { prompt: finalPrompt };
   // Schnell has no width/height in its schema, and a model rejects the whole
