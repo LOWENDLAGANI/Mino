@@ -25,6 +25,8 @@ Rules:
 - Add setting, lighting (e.g. soft window light, warm rim light, neon), and mood.
 - Name an art style and medium (e.g. cinematic digital painting, 35mm film photo, anime cel).
 - Expand a short phrase. If the user already gave a rich description, refine it without changing the subject.
+- Write flowing prose. Never begin with a heading or a label such as "Faithful appearance:" or "Description:".
+- Finish the whole sentence. Never stop mid-thought.
 - No preamble, no explanation, no lists, no quotation marks around the name, no markdown.
 - Output ONLY the final paragraph as a single string.`;
 
@@ -123,6 +125,14 @@ function optimizerProviders(): OptimizerProvider[] {
  */
 const REFUSAL = /^(?:i\s+(?:can(?:'|no)?t|am\s+unable|cannot|won't|do\s+not)\b|sorry[,!]|i'?m\s+not\s+able|as\s+an\s+ai\b)/i;
 
+/**
+ * A description that stops on a comma or a dangling conjunction was cut off.
+ * Not every provider reports finish_reason, so this catches the same failure
+ * from the output's shape. Deliberately narrow: FLUX prompts legitimately end
+ * without a full stop, so only an unmistakable dangling fragment is rejected.
+ */
+const TRUNCATED_TAIL = /[,;]\s*$|\b(?:and|or|with|but|the|a|an|of|in|on|at|to)\s*$/i;
+
 /** Strips the wrappers models add despite instructions, and normalises whitespace. */
 function cleanOutput(text: string): string {
   let out = text.trim();
@@ -191,23 +201,35 @@ async function callOptimizer(
         // Non-streaming: Stage 1 needs the finished string, not tokens.
         stream: false,
         temperature: 0.7,
-        max_tokens: 220,
+        // Large on purpose. Reasoning models (Gemini Flash) draw their thinking
+        // tokens from this same budget, so a limit sized for the paragraph
+        // alone leaves the model deliberating when it should be writing. That
+        // produced fragments like "White hair, dark" — a truncated prompt
+        // reaches FLUX missing everything the model meant to say.
+        max_tokens: 1024,
       }),
       signal: controller.signal,
     });
 
     if (!response.ok) return null;
     const data = (await response.json()) as {
-      choices?: Array<{ message?: { content?: string } }>;
+      choices?: Array<{ message?: { content?: string }; finish_reason?: string }>;
     };
-    const text = data.choices?.[0]?.message?.content;
+    const choice = data.choices?.[0];
+    const text = choice?.message?.content;
     if (typeof text !== "string") return null;
+    // Cut off mid-sentence, whatever the reason. A fragment is worse than the
+    // caller's own prompt: it reads as a complete description to the image
+    // model, so the missing half becomes invented detail. Better to try the
+    // next provider, or fall through to the unoptimized prompt.
+    if (choice?.finish_reason === "length") return null;
 
     const cleaned = cleanOutput(text).slice(0, MAX_PROMPT_LENGTH);
     // A refusal, an empty rewrite, or a degenerate echo of the input is not an
     // improvement, so keep the caller's own words.
     if (cleaned.length < 20 || cleaned.toLowerCase() === prompt.toLowerCase()) return null;
     if (REFUSAL.test(cleaned)) return null;
+    if (TRUNCATED_TAIL.test(cleaned)) return null;
     return cleaned;
   } finally {
     clearTimeout(timeout);
