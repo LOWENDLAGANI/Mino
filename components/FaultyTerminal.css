@@ -1,0 +1,9 @@
+/* FaultyTerminal — the canvas fills whatever box it is given and clips its own
+   glow, so the caller only has to size the container. */
+
+.faulty-terminal-container {
+  width: 100%;
+  height: 100%;
+  position: relative;
+  overflow: hidden;
+}
