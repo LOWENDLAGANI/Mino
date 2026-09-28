@@ -10,11 +10,13 @@ import MinoMark from "@/components/MinoMark";
 import MinoTutorial from "@/components/MinoTutorial";
 import SettingsPanel from "@/components/SettingsPanel";
 import NamePrompt from "@/components/NamePrompt";
+import MinoBackdrop from "@/components/MinoBackdrop";
 import MaintenanceScreen from "@/components/MaintenanceScreen";
 import { loadDisplayName, saveDisplayName } from "@/lib/visitorName";
 import { syncVisitorProfile } from "@/lib/firebaseHistory";
 import { bindGoogleAccount, loadAccountName } from "@/lib/account";
 import { describeLinkError, greetingName, isDismissed, normalizeName } from "@/lib/accountState";
+import { hold } from "@/lib/cpuBudget";
 import {
   db,
   createChat,
@@ -536,6 +538,14 @@ export default function HomePage() {
   }, [messages]);
 
   const isStreaming = streamingId !== null;
+  // A response streaming in means the machine is already working, and it means
+  // the user is reading. The backdrop stands down for the duration rather than
+  // competing with the one thing they came here for.
+  useEffect(() => {
+    if (!isStreaming) return;
+    return hold();
+  }, [isStreaming]);
+
   // The message being drawn has no content yet, so it is kept explicitly to
   // show the drawing placeholder.
   // A check result is a message with no content at all — the output lives on
@@ -601,6 +611,12 @@ export default function HomePage() {
       />
 
       <main className="app-surface relative flex min-w-0 flex-1 flex-col overflow-hidden">
+        {/* Inside `main`, not beside it. `app-surface` is an opaque gradient, and
+            a `z-0` sibling would be painted underneath it and never seen at all.
+            As a child it sits above the surface's own background and below the
+            thread, which is exactly where a backdrop belongs. */}
+        <MinoBackdrop />
+
         <div className="surface-glow pointer-events-none absolute inset-0" aria-hidden />
 
         <header className="safe-top relative z-20 flex h-16 shrink-0 items-center gap-3 px-4 md:px-6">

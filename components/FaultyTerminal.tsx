@@ -23,6 +23,7 @@
 
 import { Renderer, Program, Mesh, Color, Triangle } from "ogl";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { isBusy, subscribe } from "@/lib/cpuBudget";
 import "./FaultyTerminal.css";
 
 const vertexShader = `
@@ -273,6 +274,23 @@ export interface FaultyTerminalProps {
   pageLoadAnimation?: boolean;
   brightness?: number;
   lightMode?: boolean;
+  /**
+   * Backing-store resolution — the biggest single lever on cost, because the
+   * shader runs per pixel and halving the store quarters the work. The default
+   * sits below the device's own ratio on purpose: at full screen a retina
+   * display would otherwise ask for four times the pixels, and this effect is a
+   * background that nobody is inspecting for aliasing.
+   */
+  dpr?: number;
+  /**
+   * Ceiling on frames per second.
+   *
+   * A CRT that never quite settles is not made more convincing by being smooth,
+   * so 30 is both the cheaper choice and the more faithful one. A `timeScale`
+   * below 1 already slows the pattern itself; this caps the refresh underneath
+   * it so a fast device is not paying for frames nobody can tell apart.
+   */
+  fps?: number;
   /** Rendered as-is when the browser cannot give us WebGL. */
   fallback?: React.ReactNode;
   className?: string;
@@ -298,6 +316,8 @@ export default function FaultyTerminal({
   pageLoadAnimation = true,
   brightness = 1,
   lightMode = false,
+  dpr,
+  fps = 30,
   fallback = null,
   className = "",
   style,
@@ -314,6 +334,9 @@ export default function FaultyTerminal({
   const loadAnimationStartRef = useRef(0);
   const timeOffsetRef = useRef(0);
   const reduceMotionRef = useRef(false);
+  const visibleRef = useRef(true);
+  const busyRef = useRef(false);
+  const lastFrameRef = useRef(0);
 
   const tintVec = useMemo(() => hexToRgb(tint), [tint]);
   const ditherValue = useMemo(
@@ -331,6 +354,28 @@ export default function FaultyTerminal({
       y: 1 - (event.clientY - rect.top) / rect.height,
     };
   }, []);
+
+  // A backdrop scrolled out of view is paying for nothing, and anything in the
+  // app that needs the machine holds the budget while it needs it. Both are
+  // refs, because pausing must not re-render and restart the effect.
+  useEffect(() => {
+    const container = containerRef.current;
+    if (!container || typeof IntersectionObserver === "undefined") return;
+    const observer = new IntersectionObserver(
+      (entries) => {
+        for (const entry of entries) visibleRef.current = entry.isIntersecting;
+      },
+      { threshold: 0 }
+    );
+    observer.observe(container);
+    return () => observer.disconnect();
+  }, []);
+
+  // While a response is streaming the user is reading, and a full-screen shader
+  // is the last thing that should be competing. See lib/cpuBudget.
+  useEffect(() => subscribe(() => {
+    busyRef.current = isBusy();
+  }), []);
 
   // A ref, not state: flipping this must not rebuild the WebGL context, and the
   // render loop reads it every frame.
@@ -360,7 +405,7 @@ export default function FaultyTerminal({
         return;
       }
       renderer = new Renderer({
-        dpr: Math.min(window.devicePixelRatio || 1, 2),
+        dpr: dpr ?? Math.min(window.devicePixelRatio || 1, 1.5),
       });
     } catch {
       setSupported(false);
@@ -419,11 +464,20 @@ export default function FaultyTerminal({
     const update = (t: number) => {
       rafRef.current = requestAnimationFrame(update);
 
-      // A hidden tab and a reduced-motion preference are the same instruction:
-      // stop spending the battery. Browsers already throttle rAF in a background
-      // tab, so this skips the work rather than the frame.
+      // A hidden tab, an off-screen backdrop and a reduced-motion preference are
+      // all the same instruction: stop spending the battery. Browsers already
+      // throttle rAF in a background tab, so this skips the work rather than
+      // the frame.
       if (typeof document !== "undefined" && document.hidden) return;
+      if (!visibleRef.current) return;
       if (reduceMotionRef.current) return;
+      if (busyRef.current) return;
+
+      // The frame cap. The loop still runs, so the clock never jumps on resume,
+      // but nothing is rasterised for a frame that would be thrown away.
+      const interval = fps > 0 ? 1000 / fps : 0;
+      if (interval > 0 && t - lastFrameRef.current < interval) return;
+      lastFrameRef.current = t;
 
       if (pageLoadAnimation && loadAnimationStartRef.current === 0) {
         loadAnimationStartRef.current = t;
@@ -470,6 +524,7 @@ export default function FaultyTerminal({
       gl.getExtension("WEBGL_lose_context")?.loseContext();
       loadAnimationStartRef.current = 0;
       timeOffsetRef.current = 0;
+      lastFrameRef.current = 0;
     };
   }, [
     pause,
@@ -490,6 +545,8 @@ export default function FaultyTerminal({
     pageLoadAnimation,
     brightness,
     lightMode,
+    dpr,
+    fps,
   ]);
 
   if (!supported) return <>{fallback}</>;
