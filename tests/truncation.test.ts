@@ -96,6 +96,82 @@ test("the message type can carry the flag", () => {
   assert.match(types, /truncated\?:\s*boolean/, "ChatMessage has nowhere to record it");
 });
 
+console.log("\nfinishing a cut-off answer on another model");
+
+test("a length cutoff no longer ends the answer", () => {
+  // The flag is collected, not reported: reporting it the moment the model stops
+  // would tell the user the answer is cut off while Mino is still completing it
+  // on the next model.
+  const route = read("app/api/chat/route.ts");
+  assert.match(
+    route,
+    /finish_reason\s*===\s*["']length["']\s*\)\s*\{\s*\n\s*truncated\s*=\s*true/,
+    "the cutoff is not captured for the continuation decision"
+  );
+  assert.ok(
+    !/finish_reason\s*===\s*["']length["']\s*\)\s*\{[\s\S]{0,120}encodeEvent\(\{\s*truncated/.test(route),
+    "the cutoff is still reported to the client before Mino tries another model"
+  );
+});
+
+test("another model is asked to carry on from the partial text", () => {
+  const route = read("app/api/chat/route.ts");
+  assert.match(
+    route,
+    /continuationMessages\(\s*messages,\s*answer\s*\)/,
+    "the follow-up model is not given what has already been written"
+  );
+  assert.match(
+    route,
+    /\.\.\.messages,[\s\S]{0,120}role:\s*["']assistant["'],\s*content:\s*partial/,
+    "the conversation sent to the next model carries no partial answer"
+  );
+  assert.match(
+    route,
+    /Continue that same answer from exactly where it stopped/,
+    "the next model is not told to continue rather than restart"
+  );
+});
+
+test("the model that finishes the answer is the one that is named", () => {
+  // A message that began on one model and ended on another must not be labelled
+  // with the model that produced the part the user never saw.
+  const route = read("app/api/chat/route.ts");
+  assert.match(
+    route,
+    /attemptProvider\s*=\s*next;[\s\S]{0,400}getModelDisplayName\(toMinoName\(next\.model\)\)/,
+    "the label is never updated when the answer moves to another model"
+  );
+});
+
+test("each model is tried once, and the search is bounded", () => {
+  const route = read("app/api/chat/route.ts");
+  assert.match(
+    route,
+    /const\s+MAX_CONTINUATION_ATTEMPTS\s*=\s*2/,
+    "the number of continuation attempts is not pinned"
+  );
+  assert.match(
+    route,
+    /attempted\.add\(next\)/,
+    "a model can be asked to continue the same answer twice"
+  );
+  assert.match(
+    route,
+    /attempt\s*>=\s*MAX_CONTINUATION_ATTEMPTS\s*\|\|\s*!next/,
+    "the continuation loop is not bounded by the attempt ceiling"
+  );
+});
+
+test("the cutoff is only announced once no model could finish the answer", () => {
+  const route = read("app/api/chat/route.ts");
+  assert.match(
+    route,
+    /if \(truncated\) controller\.enqueue\(encodeEvent\(\{ truncated: true \}\)\);/,
+    "the cut-off notice is not sent after the last attempt"
+  );
+});
+
 console.log("\nMino is not the thing shortening the answer");
 
 test("no output cap is sent to the provider", () => {

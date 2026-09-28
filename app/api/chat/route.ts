@@ -3,9 +3,11 @@ import { MINO_SYSTEM_PROMPT } from "@/lib/systemPrompt";
 import type { ReasoningEffort } from "@/lib/settings";
 import type { ApiMessage, SearchMode, SearchSource } from "@/lib/types";
 import { getModelDisplayName, type ModeId } from "@/lib/models";
-import { AUTO_ENGINE, CODE_ENGINE, CODE_FALLBACKS, toMinoName } from "@/lib/modelEngines";
+import { toMinoName } from "@/lib/modelEngines";
+import { FAMILY_MODE, getProviders, type ProviderConfig } from "@/lib/providers";
 import { CODE_SYSTEM_PROMPT } from "@/lib/codePrompt";
 import { formatSearchContext, searchWeb, shouldUseWebSearch } from "@/lib/webSearch";
+import { IdentityFilter, sanitizeIdentity, sanitizeProviderDetail } from "@/lib/identity";
 import { checkRateLimit, consumeUsage, identityGate, isAdmin, readConfig, verifyCaller } from "@/lib/serverControl";
 
 // ── Mino — resilient SSE proxy for Auto and Code ─────────────────────────────
@@ -23,26 +25,16 @@ import { checkRateLimit, consumeUsage, identityGate, isAdmin, readConfig, verify
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
-export const maxDuration = 60;
+// An answer that runs into a model's output limit can be finished by a second
+// and, in the worst case, a third model. Each of those is a full round trip on
+// top of the first, so the ceiling has to cover the continuation, not just the
+// reply. The host still caps this at whatever the deployment plan allows.
+export const maxDuration = 120;
 
-type ProviderFamily = "openrouter" | "gemini" | "groq";
+// Provider configuration — endpoints, keys, and the ordered fallback chain for
+// each mode — lives in lib/providers.ts so the admin model-health probe checks
+// the very same models this route uses.
 
-interface ProviderConfig {
-  id: ModeId;
-  family: ProviderFamily;
-  label: string;
-  url: string;
-  key: string;
-  model: string;
-  headers?: Record<string, string>;
-  extraBody?: Record<string, unknown>;
-  /**
-   * Whether this exact model honours `reasoning_effort`. It is not a property
-   * of the vendor — Groq serves both a reasoning model (GPT-OSS) and a plain
-   * one (Llama) behind the same API — so it is tracked per configuration.
-   */
-  supportsReasoning: boolean;
-}
 
 interface ChatRequestBody {
   messages: ApiMessage[];
@@ -63,89 +55,6 @@ class ProviderError extends Error {
   }
 }
 
-/** Which Mino mode a provider family belongs to, for user-facing error copy. */
-const FAMILY_MODE: Record<ProviderFamily, string> = {
-  openrouter: "Mino Auto",
-  gemini: "Mino Code",
-  groq: "the Mino fallback",
-};
-
-function getProviders(requested: ModeId): ProviderConfig[] {
-  const openrouterKey = process.env.OPENROUTER_API_KEY?.trim();
-  const geminiKey = process.env.GEMINI_API_KEY?.trim();
-  const groqKey = process.env.GROQ_API_KEY?.trim();
-
-  const openrouter: ProviderConfig | null = openrouterKey
-    ? {
-        id: "auto",
-        family: "openrouter",
-        label: "Mino Auto",
-        url: "https://openrouter.ai/api/v1/chat/completions",
-        key: openrouterKey,
-        model: AUTO_ENGINE,
-        supportsReasoning: true,
-        headers: {
-          "HTTP-Referer": "https://mino-ai.vercel.app",
-          "X-Title": "Mino",
-        },
-        extraBody: {
-          provider: { allow_fallbacks: true },
-          stream_options: { include_usage: true },
-        },
-      }
-    : null;
-
-  // Mino V3 is the preferred stable model, but the provider can return a
-  // temporary 503 while a model has no serving capacity. V2 and V1 are also
-  // stable and remain available as immediate fallbacks without leaving the Code
-  // mode family. The wire names are provider detail and never reach the user.
-  const geminiModels = [CODE_ENGINE, ...CODE_FALLBACKS];
-  const gemini: ProviderConfig[] = geminiKey
-    ? geminiModels.map((model) => ({
-        id: "code" as const,
-        family: "gemini" as const,
-        label: toMinoName(model),
-        url: "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions",
-        key: geminiKey,
-        model,
-        supportsReasoning: true,
-      }))
-    : [];
-
-  // Last resort. Groq is a separate vendor with its own quota, so when every
-  // other model is down, rate-limited, or out of capacity the chat still
-  // answers instead of erroring out.
-  //
-  // Every entry is a comparable-tier model rather than a progressively weaker
-  // one: the point of a last line of defence is that the answer is still worth
-  // reading. GPT-OSS 120B and Llama 3.3 70B are Groq's strongest production
-  // text models, and GPT-OSS 20B is a cheaper third rather than a 8B model
-  // that would visibly downgrade the conversation. Only GPT-OSS honours
-  // reasoning_effort.
-  const groqModels: Array<{ model: string; supportsReasoning: boolean }> = [
-    { model: "openai/gpt-oss-120b", supportsReasoning: true },
-    { model: "llama-3.3-70b-versatile", supportsReasoning: false },
-    { model: "openai/gpt-oss-20b", supportsReasoning: true },
-  ];
-  const groq: ProviderConfig[] = groqKey
-    ? groqModels.map(({ model, supportsReasoning }) => ({
-        id: requested,
-        family: "groq" as const,
-        label: "Mino",
-        url: "https://api.groq.com/openai/v1/chat/completions",
-        key: groqKey,
-        model,
-        supportsReasoning,
-        extraBody: { stream_options: { include_usage: true } },
-      }))
-    : [];
-
-  // Code mode never leaves the Mino family. OpenRouter and Groq are excluded
-  // from its fallback chain entirely, so an outage produces a clear error
-  // instead of code written by a model the user did not ask for.
-  if (requested === "code") return [...gemini];
-  return [...(openrouter ? [openrouter] : []), ...gemini, ...groq];
-}
 
 function sseHeaders(): HeadersInit {
   return {
@@ -158,6 +67,45 @@ function sseHeaders(): HeadersInit {
 
 function encodeEvent(event: Record<string, unknown>): Uint8Array {
   return new TextEncoder().encode(`data: ${JSON.stringify(event)}\n\n`);
+}
+
+// ── Continuing a cut-off answer ───────────────────────────────────────────────
+//
+// When a model stops because it hit its own output limit, the answer is not
+// short — it is unfinished, and the missing part is not something a shorter
+// answer would fix. Retrying the same request on the same model reproduces the
+// same ceiling, so the recovery is a different model continuing the same text
+// from the exact point it stopped.
+//
+// Two attempts is the ceiling on purpose. Past that the request is not
+// "truncated", it is one that no configured model can hold in a single reply,
+// and looping would spend a user's latency to learn nothing new.
+
+/** How many other models Mino will try before settling for a cut-off answer. */
+const MAX_CONTINUATION_ATTEMPTS = 2;
+
+const CONTINUE_INSTRUCTION = [
+  "Your previous answer was cut off mid-sentence because it reached the output limit.",
+  "Continue that same answer from exactly where it stopped.",
+  "Do not repeat, restate, summarise, or apologise for any text you already wrote, and do not restart a numbered list, a heading, or a code fence.",
+  "Resume the unfinished sentence or the next item, then carry on until the answer is genuinely complete.",
+  "Output only the continuation, with no preamble.",
+].join(" ");
+
+/**
+ * The conversation to send a follow-up model: what came before, the partial
+ * answer, and an instruction to resume rather than restart.
+ *
+ * Without the partial text the new model has no idea what it is continuing and
+ * answers the original question from scratch, which reads as a duplicated
+ * answer rather than a completed one.
+ */
+function continuationMessages(messages: ApiMessage[], partial: string): ApiMessage[] {
+  return [
+    ...messages,
+    { role: "assistant", content: partial },
+    { role: "user", content: CONTINUE_INSTRUCTION },
+  ];
 }
 
 /** Stream a normal assistant message, used for setup notices. */
@@ -184,186 +132,10 @@ function errorStream(message: string): Response {
   return new Response(stream, { headers: sseHeaders() });
 }
 
-// ── Identity guard ─────────────────────────────────────────────────────────────
-// A system prompt is a strong instruction, not a guarantee: models can still
-// name their underlying provider when a user asks directly. Every streamed token
-// therefore passes through this rewrite before it reaches the client.
-//
-// It is deliberately scoped to SELF-REFERENCE only. A blanket vendor-name filter
-// would corrupt legitimate answers ("Gemini changed its pricing", "compare Gemini
-// with Claude") and make Mino look wrong, so a vendor name is only rewritten when
-// the sentence is Mino claiming to be, or having been built by, that vendor.
-
-/**
- * A vendor/model name, optionally carrying a version and tier.
- *
- * This covers the model makers *and* the inference hosts. The Groq fallback
- * serves Llama and GPT-OSS, and a model can just as easily name the thing it is
- * being served by ("I'm Groq", "running on Ollama"), so the hosts are listed
- * alongside the labs. Because every rewrite below is anchored to a
- * self-referential frame, naming them here cannot corrupt an ordinary answer
- * about a vendor.
- */
-const VENDOR = String.raw`(?:google\s+deepmind|google\s+ai(?:\s+studio)?|open\s?ai|vertex\s+ai|openrouter|anthropic|deepmind|copilot|google|gemini|claude|chat\s?gpt|gpt|llama|lama|mistral|deepseek|grok|command\s?r|groq|ollama|together(?:\s*ai)?|fireworks|replicate|hugging\s?face|deepinfra|cerebras|sambanova|nscale|novita|perplexity|sonar|qwen|kimi|moonshot|nvidia|cohere)(?:[-\s]*\d+(?:\.\d+)*[a-z]*)?(?:[-\s]+(?:flash|pro|ultra|mini|max|turbo|sonnet|opus|haiku))?`;
-
-const CREATOR_NAMES = String.raw`(?:google(?:\s+deepmind)?|open\s?ai|anthropic|meta|mistral|deepmind|xai|minetallest)`;
-
-type Rewrite = { pattern: RegExp; replace: (...args: string[]) => string };
-
-/** Strips any trailing auxiliary so a rewritten subject reads naturally. */
-function bareSubject(subject: string): string {
-  return subject.replace(/\s*(?:'m|’m|'s|is|are|am|was|were|been)\s*$/i, "").trim();
-}
-
-function asMino(subject: string): string {
-  const base = bareSubject(subject);
-  if (/^mino$/i.test(base)) return "Mino";
-  if (/^i$/i.test(base)) return "I am Mino";
-  if (/^it$/i.test(base)) return "It is Mino";
-  return `${base} is Mino`;
-}
-
-function withTense(subject: string, aux: string, verb: string, tail: string): string {
-  const was = /was|were|been/i.test(aux);
-  const link = was ? "was" : verb === "is" ? "" : "is";
-  return `${subject} ${link} ${verb} ${tail}`.replace(/\s{2,}/g, " ").trim();
-}
-
-const IDENTITY_REWRITES: Rewrite[] = [
-  // "I am Gemini", "I'm not ChatGPT", "My answer: I'm Gemini 3.8 Flash".
-  {
-    pattern: new RegExp(
-      String.raw`\b(I\s*(?:'m|’m|am|was|are|'s\s+been|have\s+been|have\s+always\s+been|identify\s+as|answer\s+as|introduce\s+myself\s+as|go\s+by|operate\s+as|run\s+as))\s+((?:not\s+|never\s+|just\s+|really\s+|actually\s+|still\s+|simply\s+|always\s+|only\s+)*)(?:an?\s+|the\s+)?${VENDOR}'?s?(?=\W|$)`,
-      "gi"
-    ),
-    // A negated claim ("I'm not Gemini") is dropped rather than flipped, so it
-    // never turns into a false "I'm not Mino".
-    replace: (_m, subject, filler) => {
-      const kept = filler.replace(/^(?:(?:not|never)\s+)+/i, "");
-      return `${subject} ${kept}Mino`.replace(/\s{2,}/g, " ");
-    },
-  },
-  // "I was created by Google", "I'm built by OpenAI" → Mino's real creator.
-  {
-    pattern: new RegExp(
-      String.raw`\b(I\s*(?:'m|am|was|have\s+been))\s+(created|developed|made|built|designed|trained)\s+by\s+(?:an?\s+|the\s+)?${CREATOR_NAMES}\b`,
-      "gi"
-    ),
-    replace: (_m, subject, verb) => `${subject} ${verb} by Minetallest`,
-  },
-  // "I'm Gemini 3.8 Flash, made by Google DeepMind" — the attribution trails a
-  // first-person clause, so it only counts when an "I" leads the same sentence.
-  {
-    pattern: new RegExp(
-      String.raw`(\bI\b[^.!?\n]{0,160}?)[,;]\s*(?:and\s+|then\s+|also\s+)?(?:was\s+|were\s+|been\s+|has\s+been\s+)?(?:created|developed|made|built|designed|trained|powered)\s+(?:by|on)\s+(?:an?\s+|the\s+)?${CREATOR_NAMES}\b`,
-      "gi"
-    ),
-    replace: (_m, clause) => `${clause}, created by Minetallest`,
-  },
-  // "I'm powered by OpenRouter", "I run on GPT-4", "Mino is hosted on Vertex".
-  {
-    pattern: new RegExp(
-      String.raw`\b(I(?:\s*'(?:m|ve)?|\s+is|\s+are|\s+am|\s+was|\s+were)?|Mino|this\s+assistant|the\s+assistant)\s+(?:is\s+|are\s+)?(?:powered|run|running|hosted|operated|served|built|backed)\s+(?:by|on|with|using|through|via)\s+(?:an?\s+|the\s+)?${VENDOR}\b`,
-      "gi"
-    ),
-    replace: (_m, subject) => asMino(subject),
-  },
-  // "Mino was created by OpenAI", "this assistant is powered by Gemini".
-  // A bare "it" is deliberately excluded: in "I think it was created by Google"
-  // the pronoun refers to something else entirely.
-  {
-    pattern: new RegExp(
-      String.raw`\b(Mino|this\s+assistant|the\s+assistant)(\s+(?:was\s+|were\s+|is\s+|are\s+|has\s+been\s+|been\s+)?)(created|developed|made|built|designed|trained|powered|hosted|operated)\s+(?:by|on|with|using|through|via)\s+(?:an?\s+|the\s+)?${VENDOR}\b`,
-      "gi"
-    ),
-    replace: (_m, subject, aux, verb) =>
-      /powered|hosted|operated/i.test(verb)
-        ? asMino(subject)
-        : withTense(bareSubject(subject), aux, verb, "by Minetallest"),
-  },
-  // "my creator is Google", "my developer is OpenAI".
-  {
-    pattern: new RegExp(
-      String.raw`\b(my\s+(?:creator|owner|developer|author|maker|founder|team|company|employer))\s+(?:is|are)\s+(?:an?\s+|the\s+)?(?:not\s+)?${CREATOR_NAMES}\b`,
-      "gi"
-    ),
-    replace: (_m, role) => `${role} is Minetallest`,
-  },
-  // "my name is Gemini", "my model is GPT-4".
-  {
-    pattern: new RegExp(
-      String.raw`\b(my\s+(?:name|model|identity|system)\s+is)\s+(?:an?\s+|the\s+)?${VENDOR}'?s?(?=\W|$)`,
-      "gi"
-    ),
-    replace: (_m, role) => `${role} Mino`,
-  },
-  // "I'm not Gemini, I'm Mino" — after the negation is dropped both halves
-  // read "Mino", so collapse the duplicate.
-  { pattern: /\bMino\b[,.]\s*(?:but\s+|and\s+)?(?:I\s*'?m|I\s+am)\s+Mino\b/gi, replace: () => "Mino" },
-];
-
-function sanitizeIdentity(text: string): string {
-  return IDENTITY_REWRITES.reduce((acc, { pattern, replace }) => acc.replace(pattern, replace), text);
-}
-
-function sanitizeProviderDetail(detail: string): string {
-  return detail
-    .replace(new RegExp(String.raw`\b${VENDOR}\b`, "gi"), "Mino model service")
-    // A model id often has a tail the vendor pattern cannot consume — "gpt-oss-120b"
-    // matches only "gpt", "claude-3-5-sonnet" only "claude-3" — which would leave a
-    // half-redacted name reading "Mino model service-oss-120b".
-    //
-    // The tail must be attached with NO space. Allowing a space here would eat the
-    // next English word, and "is not found" quietly becoming "found" turns a clear
-    // error into a false one, which is worse than a clumsy name.
-    .replace(/\bMino model service[-\/]\S+/gi, "Mino model service")
-    .replace(/\b(?:made|created|developed|built|designed|trained)\s+by\s+[\w\s.]{2,30}/gi, "created by Minetallest");
-}
-
-/**
- * Streaming-safe identity filter.
- *
- * Provider deltas can split a phrase across chunks ("I was cre" + "ated by Goo…"),
- * so the filter holds back a short tail, never cuts a word in half, and only then
- * emits the sanitized prefix. `flush()` releases whatever is still buffered.
- *
- * The hold is larger than the longest self-reference phrase the rewrites match,
- * so a phrase is never only half-visible when the rewrite runs.
- */
-class IdentityFilter {
-  private carry = "";
-  private readonly hold: number;
-
-  constructor(hold = 64) {
-    this.hold = hold;
-  }
-
-  push(delta: string): string {
-    this.carry += delta;
-    if (this.carry.length <= this.hold) return "";
-
-    let cut = this.carry.length - this.hold;
-    const breakAt = Math.max(this.carry.lastIndexOf(" ", cut), this.carry.lastIndexOf("\n", cut));
-    if (breakAt >= 0) {
-      cut = breakAt + 1;
-    } else if (this.carry.length > this.hold * 3) {
-      // Unbroken token with no whitespace anywhere — never stall the stream.
-      cut = this.carry.length;
-    } else {
-      return "";
-    }
-
-    const safe = this.carry.slice(0, cut);
-    this.carry = this.carry.slice(cut);
-    return sanitizeIdentity(safe);
-  }
-
-  flush(): string {
-    const rest = this.carry;
-    this.carry = "";
-    return rest ? sanitizeIdentity(rest) : "";
-  }
-}
+// The identity guard — every vendor name Mino rewrites, plus the streaming filter
+// that applies them — lives in lib/identity.ts so the admin model-health probe
+// scrubs provider replies and error text with the very same rules instead of
+// keeping a second copy that could drift.
 
 function extractUpstreamError(detail: string): string {
   if (!detail) return "The provider did not return an error message.";
@@ -672,11 +444,37 @@ export async function POST(req: NextRequest): Promise<Response> {
           model: getModelDisplayName(toMinoName(activeProvider!.model)),
         })
       );
-      const reader = providerBody.getReader();
-      const identityFilter = new IdentityFilter();
-      let buffer = "";
+      // Streams one model attempt into the client's single response, and
+      // reports what it produced and whether the model stopped because it hit
+      // its output limit. The first attempt reuses the response already opened
+      // during provider selection; a continuation opens its own.
+      const pump = async (
+        provider: ProviderConfig,
+        attemptMessages: ApiMessage[],
+        openBody: ReadableStream<Uint8Array> | null
+      ): Promise<{ text: string; truncated: boolean }> => {
+        let source = openBody;
+        if (!source) {
+          const continuation = await callProvider(
+            provider,
+            attemptMessages,
+            req.signal,
+            searchContext,
+            userPreferences,
+            provider.supportsReasoning ? reasoningEffort : null,
+            isCodeMode
+          );
+          if (!continuation.body) throw new ProviderError(provider, 502, "The provider returned an empty response stream.");
+          source = continuation.body;
+        }
 
-      const processLine = (line: string) => {
+        const reader = source.getReader();
+        const identityFilter = new IdentityFilter();
+        let buffer = "";
+        let text = "";
+        let truncated = false;
+
+        const processLine = (line: string) => {
         const trimmed = line.trim();
         if (!trimmed.startsWith("data:")) return;
         const data = trimmed.slice(5).trim();
@@ -697,7 +495,7 @@ export async function POST(req: NextRequest): Promise<Response> {
           const upstreamError =
             typeof chunk.error === "string" ? chunk.error : chunk.error?.message;
           if (upstreamError) {
-            controller.enqueue(encodeEvent({ error: `${activeProvider!.label}: ${sanitizeProviderDetail(upstreamError)}` }));
+            controller.enqueue(encodeEvent({ error: `${provider.label}: ${sanitizeProviderDetail(upstreamError)}` }));
             return;
           }
 
@@ -711,13 +509,16 @@ export async function POST(req: NextRequest): Promise<Response> {
           // the stream simply ends normally — so this line is the only place it
           // can be caught.
           if (chunk.choices?.[0]?.finish_reason === "length") {
-            controller.enqueue(encodeEvent({ truncated: true }));
+            truncated = true;
           }
 
           const delta = chunk.choices?.[0]?.delta?.content;
           if (delta) {
             const safeDelta = identityFilter.push(delta);
-            if (safeDelta) controller.enqueue(encodeEvent({ content: safeDelta }));
+            if (safeDelta) {
+              text += safeDelta;
+              controller.enqueue(encodeEvent({ content: safeDelta }));
+            }
           }
 
           if (chunk.usage) {
@@ -748,17 +549,79 @@ export async function POST(req: NextRequest): Promise<Response> {
         buffer += decoder.decode();
         if (buffer.trim()) processLine(buffer);
       } catch (error) {
-        const message = error instanceof Error ? error.message : "The connection was interrupted.";
+          const message = error instanceof Error ? error.message : "The connection was interrupted.";
+          controller.enqueue(
+            encodeEvent({ error: `${provider.label} stream interrupted: ${sanitizeProviderDetail(message)}` })
+          );
+        }
+        const tail = identityFilter.flush();
+        if (tail) {
+          text += tail;
+          controller.enqueue(encodeEvent({ content: tail }));
+        }
+
+        reader.releaseLock();
+        return { text, truncated };
+      };
+
+      // One answer, however many models it takes. The user sees a single
+      // continuous message; the model label is re-sent when the answer moves to
+      // another model, so the chat still says honestly which model finished it.
+      const attempted = new Set<ProviderConfig>([activeProvider!]);
+      let attemptProvider = activeProvider!;
+      let attemptMessages = messages;
+      let firstBody: ReadableStream<Uint8Array> | null = providerBody;
+      let answer = "";
+      let truncated = false;
+
+      for (let attempt = 0; ; attempt += 1) {
+        let result: { text: string; truncated: boolean };
+        try {
+          result = await pump(attemptProvider, attemptMessages, firstBody);
+        } catch (error) {
+          if (req.signal.aborted) throw error;
+          // A continuation that cannot even be started is not a reason to
+          // discard an answer the user can already read, and it is not a
+          // failure worth an error block: what is on screen is real output.
+          if (attempt === 0) {
+            const message = error instanceof Error ? error.message : "The connection was interrupted.";
+            controller.enqueue(
+              encodeEvent({ error: `${attemptProvider.label} stream interrupted: ${sanitizeProviderDetail(message)}` })
+            );
+          } else {
+            truncated = true;
+          }
+          break;
+        }
+        firstBody = null;
+        answer += result.text;
+        if (!result.truncated) {
+          truncated = false;
+          break;
+        }
+
+        const next = providers.find((candidate) => !attempted.has(candidate));
+        if (attempt >= MAX_CONTINUATION_ATTEMPTS || !next) {
+          truncated = true;
+          break;
+        }
+        attempted.add(next);
+        attemptProvider = next;
+        attemptMessages = continuationMessages(messages, answer);
         controller.enqueue(
-          encodeEvent({ error: `${activeProvider!.label} stream interrupted: ${sanitizeProviderDetail(message)}` })
+          encodeEvent({
+            provider: next.label,
+            model: getModelDisplayName(toMinoName(next.model)),
+          })
         );
       }
 
-      const tail = identityFilter.flush();
-      if (tail) controller.enqueue(encodeEvent({ content: tail }));
+      // Only now, after every model has had its turn, is the answer known to be
+      // incomplete. Emitting this earlier would tell the user the answer is cut
+      // off while Mino is still completing it.
+      if (truncated) controller.enqueue(encodeEvent({ truncated: true }));
 
       controller.enqueue(encoder.encode("data: [DONE]\n\n"));
-      reader.releaseLock();
       controller.close();
     },
     cancel() {
