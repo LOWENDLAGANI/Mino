@@ -1,7 +1,6 @@
 import Link from "next/link";
 import AboutLogo from "@/components/AboutLogo";
 import MaintenanceGate from "@/components/MaintenanceGate";
-import FaultyTerminal from "@/components/FaultyTerminal";
 
 // ── Fill these in ────────────────────────────────────────────────────────────
 /** When the first Mino build was created. */
@@ -63,31 +62,7 @@ export default function AboutPage() {
 function AboutContent() {
   return (
     <div className="app-surface flex min-h-[100dvh] flex-col overflow-y-auto">
-      {/* A glyph field behind the page, sitting under the content rather than
-          behind it. Fixed so it holds still while the page scrolls, and
-          pointer-events-none so it can never swallow a tap meant for the text.
-          The tint is the app's own accent; brightness is kept low because this is
-          a background for reading, not a thing to watch. */}
-      <div className="pointer-events-none fixed inset-0 z-0 opacity-[0.22]" aria-hidden>
-        <FaultyTerminal
-          scale={1.6}
-          gridMul={[3, 2]}
-          digitSize={1.15}
-          timeScale={0.22}
-          scanlineIntensity={0.45}
-          glitchAmount={0.55}
-          flickerAmount={0.4}
-          noiseAmp={0.8}
-          chromaticAberration={0}
-          curvature={0.12}
-          tint="#7c7cf4"
-          mouseReact={false}
-          pageLoadAnimation
-          brightness={0.85}
-        />
-      </div>
-
-      <div className="relative z-10 mx-auto w-full max-w-2xl px-5 py-8 sm:px-7 sm:py-12">
+      <div className="mx-auto w-full max-w-2xl px-5 py-8 sm:px-7 sm:py-12">
         <Link
           href="/"
           className="inline-flex items-center gap-2 text-[12px] text-white/45 transition-colors hover:text-white/80"
