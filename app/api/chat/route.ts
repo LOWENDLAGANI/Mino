@@ -689,6 +689,7 @@ export async function POST(req: NextRequest): Promise<Response> {
                 content?: string | null;
                 reasoning_content?: string | null;
               };
+              finish_reason?: string | null;
             }[];
             usage?: { prompt_tokens?: number; completion_tokens?: number; total_tokens?: number };
             error?: { message?: string } | string;
@@ -698,6 +699,19 @@ export async function POST(req: NextRequest): Promise<Response> {
           if (upstreamError) {
             controller.enqueue(encodeEvent({ error: `${activeProvider!.label}: ${sanitizeProviderDetail(upstreamError)}` }));
             return;
+          }
+
+          // Why the model stopped.
+          //
+          // "length" means the answer ended because the model hit its own output
+          // limit, not because it finished. That is a different thing from a
+          // short answer, and reading it as a finished one is the worst outcome
+          // available: the user gets half a file, a clean-looking message, and no
+          // idea anything is missing. Nothing else in this handler detects it —
+          // the stream simply ends normally — so this line is the only place it
+          // can be caught.
+          if (chunk.choices?.[0]?.finish_reason === "length") {
+            controller.enqueue(encodeEvent({ truncated: true }));
           }
 
           const delta = chunk.choices?.[0]?.delta?.content;

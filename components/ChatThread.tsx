@@ -206,6 +206,20 @@ function MessageRow({ msg, streaming, drawing, onRegenerate, onEditMessage }: {
 
       {msg.sources && <SearchSources sources={msg.sources} />}
 
+      {/* A cut-off answer, said out loud. A truncated file is the one failure
+          mode here that is completely invisible: it renders as a clean code
+          block, copies as a clean code block, and reads as finished. Saying so
+          is the whole point — the user can then ask for the rest. */}
+      {msg.truncated && (
+        <div
+          role="status"
+          className="mt-2 rounded-xl border border-amber-300/15 bg-amber-400/[0.06] px-3 py-2 text-[12px] leading-relaxed text-amber-100/80"
+        >
+          Mino reached this model’s length limit, so this answer stops partway.
+          Ask it to continue and it will pick up from where it left off.
+        </div>
+      )}
+
       {msg.error && (
         <div className="mt-2 rounded-xl border border-red-400/15 bg-red-500/[0.06] px-3 py-2 text-[12px] leading-relaxed text-red-200/80">
           {msg.error}

@@ -411,7 +411,7 @@ export default function HomePage() {
           const data = trimmed.slice(5).trim();
           if (!data || data === "[DONE]") return;
           try {
-            const evt = JSON.parse(data) as { content?: string; error?: string; model?: string; usage?: SessionUsage; search?: { used: boolean; query?: string; sources?: SearchSource[] } };
+            const evt = JSON.parse(data) as { content?: string; error?: string; model?: string; truncated?: boolean; usage?: SessionUsage; search?: { used: boolean; query?: string; sources?: SearchSource[] } };
             if (evt.model) {
               await db.messages.update(assistantMsg.id, { model: evt.model });
               if (evt.model !== getMode(selectedMode).display) setModelNotice("The model was changed automatically because the current model is experiencing a problem.");
@@ -420,6 +420,12 @@ export default function HomePage() {
               sawError = true;
               await setMessageError(assistantMsg.id, evt.error);
               return;
+            }
+            if (evt.truncated) {
+              // Recorded on the message so it survives a reload. Without it the
+              // only trace that an answer was cut short is gone once the tab is
+              // closed, and the half-file still looks finished.
+              await db.messages.update(assistantMsg.id, { truncated: true });
             }
             if (evt.content) {
               full += evt.content;

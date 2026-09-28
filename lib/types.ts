@@ -51,6 +51,12 @@ export interface ChatMessage {
   sources?: SearchSource[];
   /** tokens billed for this completion, when reported by the API */
   usage?: { prompt: number; completion: number; total: number };
+  /**
+   * The model stopped because it reached its output limit, so the answer is
+   * incomplete. This is not the same as a short answer and must not be shown as
+   * one — a truncated file looks exactly like a finished one until you say so.
+   */
+  truncated?: boolean;
   error?: string;
   createdAt: number;
   updatedAt?: number;
