@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { onAuthStateChanged } from "firebase/auth";
 import AdminControls from "./AdminControls";
+import ModelHealthSection from "./ModelHealth";
 import { firebaseConfigured, fetchVisitorRegistry, getServices, type VisitorProfile } from "@/lib/firebaseHistory";
 import { getChat, listChats, listUsers, wipeAll, wipeUser } from "@/lib/firebaseAdmin";
 
@@ -255,6 +256,8 @@ export default function AdminPanel({
                   </p>
                 </section>
               )}
+
+              <ModelHealthSection />
 
               <AdminControls users={users} onError={setError} />
 

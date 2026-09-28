@@ -128,6 +128,48 @@ export function isAdmin(identity: CallerIdentity | null): boolean {
   return Boolean(identity && adminEmail && identity.email === adminEmail);
 }
 
+export type AdminCheck = { allowed: true } | { allowed: false; status: number; error: string };
+
+/**
+ * The one administrator gate, shared by every admin-only route.
+ *
+ * Each failure is answered with its own status and its own words, because the
+ * console acts on them: a 401 means "sign in again", a 403 means "wrong
+ * account", and a 503 means "this deployment has no administrator configured at
+ * all" — three problems with three different fixes, which a single generic
+ * refusal would flatten into one.
+ */
+export async function requireAdmin(headers: Headers): Promise<AdminCheck> {
+  if (!adminEmail) {
+    return {
+      allowed: false,
+      status: 503,
+      error: "Set `MINO_ADMIN_EMAIL` in the deployment environment to match the address in the database rules.",
+    };
+  }
+
+  const identity = await verifyCaller(headers.get("authorization"));
+  if (!identity) {
+    return {
+      allowed: false,
+      status: 401,
+      error: "Your session could not be verified. Close the console, sign in with Google again, and retry.",
+    };
+  }
+  if (!isAdmin(identity)) {
+    return {
+      allowed: false,
+      status: 403,
+      // Reached when the token is valid but carries no administrator address,
+      // which is what an anonymous session looks like even after signing in.
+      error: identity.email
+        ? "This account is not the Mino administrator."
+        : "This session is still anonymous. Sign in with Google inside the console before using the controls.",
+    };
+  }
+  return { allowed: true };
+}
+
 /**
  * A small in-process rate limiter, keyed by client address.
  *

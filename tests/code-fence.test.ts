@@ -140,7 +140,7 @@ test("no provider name reaches a client module", () => {
   // server-only modules. Any of these files is compiled into the page bundle, so
   // a provider name written here is a provider name a user can read in the page
   // source — and, for anything stored on a message, in the backup they download.
-  const clientModules = ["lib/models.ts", "lib/db.ts", "lib/types.ts"];
+  const clientModules = ["lib/models.ts", "lib/db.ts", "lib/types.ts", "components/ModelHealth.tsx"];
   for (const file of clientModules) {
     const source = readFileSync(join(process.cwd(), file), "utf8").toLowerCase();
     for (const word of VENDOR_WORDS) {

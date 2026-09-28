@@ -1,6 +1,6 @@
 import { NextRequest } from "next/server";
 import { normalizeConfig, type AppConfig } from "@/lib/appConfig";
-import { invalidateConfig, isAdmin, serverControlsConfigured, verifyCaller, writeAsCaller } from "@/lib/serverControl";
+import { invalidateConfig, isAdmin, requireAdmin, serverControlsConfigured, verifyCaller, writeAsCaller } from "@/lib/serverControl";
 
 // ── Administrator-only control surface ──────────────────────────────────────
 // Read by anyone, because the public rules allow it and the server needs it to
@@ -45,33 +45,14 @@ export async function PUT(req: NextRequest): Promise<Response> {
   if (!serverControlsConfigured) {
     return Response.json({ error: "Controls are not configured in this deployment." }, { status: 503 });
   }
-  if (!configuredAdminEmail()) {
-    return Response.json(
-      { error: "Set `MINO_ADMIN_EMAIL` in the deployment environment to match the address in the database rules." },
-      { status: 503 }
-    );
-  }
 
+  // The same gate every admin-only route uses, so the console behaves the same
+  // way whichever control it reaches for.
+  const admin = await requireAdmin(req.headers);
+  if (!admin.allowed) {
+    return Response.json({ error: admin.error }, { status: admin.status });
+  }
   const authorization = req.headers.get("authorization");
-  const identity = await verifyCaller(authorization);
-  if (!identity) {
-    return Response.json(
-      { error: "Your session could not be verified. Close the console, sign in with Google again, and retry." },
-      { status: 401 }
-    );
-  }
-  if (!isAdmin(identity)) {
-    // Reached when the token is valid but carries no administrator address,
-    // which is what an anonymous session looks like even after signing in.
-    return Response.json(
-      {
-        error: identity.email
-          ? "This account is not the Mino administrator."
-          : "This session is still anonymous. Sign in with Google inside the console before changing controls.",
-      },
-      { status: 403 }
-    );
-  }
 
   let body: Partial<AppConfig>;
   try {
