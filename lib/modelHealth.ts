@@ -19,7 +19,7 @@ import { createHash } from "node:crypto";
 import { getModelDisplayName } from "./models";
 import { toMinoName } from "./modelEngines";
 import { getProviders, type ProviderConfig } from "./providers";
-import { sanitizeIdentity, sanitizeProviderDetail } from "./identity";
+import { mentionsProvider, sanitizeIdentity } from "./identity";
 
 export type ModelRole = "auto" | "version" | "backup";
 
@@ -39,8 +39,6 @@ export interface ProbeResult extends ModelTarget {
   reply: string;
   /** Why the check failed, in Mino's language. Empty when it succeeded. */
   error: string;
-  /** Set when the model answered but stopped at its own output limit. */
-  truncated: boolean;
 }
 
 /** The exact words a model is asked to return, so replies are comparable. */
@@ -48,6 +46,79 @@ export const PROBE_PROMPT = "Reply with exactly this and nothing else: Mino onli
 
 /** How long a single model may take before it is treated as unreachable. */
 const PROBE_TIMEOUT_MS = 20_000;
+
+/**
+ * Enough room for the test message and a model's reasoning.
+ *
+ * A tight cap is actively harmful here: a reasoning model spends part of the
+ * budget thinking before it writes anything, so a 64-token cap made healthy
+ * models return an empty answer and look broken. It must still be a cap — the
+ * check is a fixed question with a fixed answer, and nothing should be able to
+ * turn it into a long generation.
+ */
+const PROBE_MAX_TOKENS = 512;
+
+/** What each status actually means, in the words an administrator acts on. */
+const STATUS_REASON: Record<number, string> = {
+  400: "The request was rejected as invalid.",
+  401: "The key was refused.",
+  402: "The account is out of credit.",
+  403: "The key is not allowed to use this model.",
+  404: "The provider no longer offers this model.",
+  408: "The provider took too long.",
+  429: "Rate limited or out of quota.",
+  500: "The provider reported an internal error.",
+  502: "The provider could not be reached.",
+  503: "The model has no capacity right now.",
+  504: "The provider timed out.",
+};
+
+/**
+ * The provider's own error sentence, if it is worth showing.
+ *
+ * A raw provider body is machine output: JSON, escaped quotes, stack-trace
+ * tails, and documentation URLs. Pasting that into a status panel makes the
+ * panel unreadable and buries the one fact that matters. A short plain sentence
+ * that names no provider is kept, because "check your plan and billing" is
+ * exactly the kind of thing that saves a trip to the provider's dashboard.
+ */
+export function providerDetail(body: string): string {
+  let message = "";
+  try {
+    const parsed = JSON.parse(body) as { error?: { message?: string } | string; message?: string };
+    const nested = typeof parsed.error === "string" ? parsed.error : parsed.error?.message;
+    message = nested || parsed.message || "";
+  } catch {
+    message = body;
+  }
+
+  const cleaned = message
+    // A documentation URL adds nothing here and survives scrubbing as a broken
+    // half-URL, so it is removed rather than rewritten.
+    .replace(/https?:\/\/\S+/g, "")
+    .replace(/[`"'{}[\]]/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (!cleaned || mentionsProvider(cleaned)) return "";
+  // Only the first sentence. A provider error trails a paragraph of advice
+  // about where to read more, and a status line is not a place for it.
+  const first = cleaned.split(/(?<=[.!?])\s/)[0] ?? cleaned;
+  const trimmed = first.replace(/[.\s]+$/, "");
+  return trimmed.length > 160 ? "" : trimmed;
+}
+
+/**
+ * One sentence saying why a check failed.
+ *
+ * The status leads, because the status is what the administrator's next step
+ * hangs off, and the provider's own wording is appended only when it adds
+ * something the status does not already say.
+ */
+export function describeFailure(status: number, body: string): string {
+  const reason = STATUS_REASON[status] ?? "The request failed.";
+  const detail = providerDetail(body);
+  return detail ? `${reason} ${detail}.` : `${reason} (HTTP ${status})`;
+}
 
 /**
  * A short, stable, non-reversible handle for one wire model.
@@ -125,7 +196,6 @@ export async function probeModel(id: string, signal?: AbortSignal): Promise<Prob
       ms: 0,
       reply: "",
       error: "That model is not configured on this deployment.",
-      truncated: false,
     };
   }
 
@@ -160,7 +230,7 @@ export async function probeModel(id: string, signal?: AbortSignal): Promise<Prob
           { role: "user", content: PROBE_PROMPT },
         ],
         stream: false,
-        max_tokens: 64,
+        max_tokens: PROBE_MAX_TOKENS,
         ...extraBody,
       }),
       signal: abort,
@@ -173,8 +243,7 @@ export async function probeModel(id: string, signal?: AbortSignal): Promise<Prob
         ok: false,
         ms: Date.now() - startedAt,
         reply: "",
-        error: `Rejected the request (HTTP ${response.status})${detail ? `: ${sanitizeProviderDetail(detail.slice(0, 200))}` : "."}`,
-        truncated: false,
+        error: describeFailure(response.status, detail),
       };
     }
 
@@ -185,13 +254,20 @@ export async function probeModel(id: string, signal?: AbortSignal): Promise<Prob
     const reply = sanitizeIdentity((choice?.message?.content ?? "").trim());
 
     if (!reply) {
+      // An empty answer has two very different causes, and they point at
+      // different places. One is a model that spent the whole budget thinking
+      // and never got to the answer; the other is a model that simply replied
+      // with nothing. Reporting them the same way sends the administrator
+      // looking in the wrong place entirely.
+      const ranOut = choice?.finish_reason === "length";
       return {
         ...target,
         ok: false,
         ms: Date.now() - startedAt,
         reply: "",
-        error: "Answered with no text.",
-        truncated: false,
+        error: ranOut
+          ? "It used the whole answer budget thinking, and returned nothing."
+          : "It answered with no text.",
       };
     }
 
@@ -201,7 +277,10 @@ export async function probeModel(id: string, signal?: AbortSignal): Promise<Prob
       ms: Date.now() - startedAt,
       reply,
       error: "",
-      truncated: choice?.finish_reason === "length",
+      // A reply to a fixed two-word question is either the answer or nothing,
+      // so there is nothing here to flag as cut short. Reporting a complete
+      // reply as "stopped at the length limit" trains an administrator to
+      // ignore the flag that matters in the chat.
     };
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unknown error";
@@ -215,8 +294,7 @@ export async function probeModel(id: string, signal?: AbortSignal): Promise<Prob
       reply: "",
       error: timedOut
         ? `No answer within ${Math.round(PROBE_TIMEOUT_MS / 1000)}s.`
-        : `Could not be reached: ${sanitizeProviderDetail(message)}`,
-      truncated: false,
+        : `Could not be reached: ${providerDetail(message) || "the connection failed."}`,
     };
   }
 }

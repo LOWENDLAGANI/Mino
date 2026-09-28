@@ -26,7 +26,6 @@ interface ProbeResult extends ModelTarget {
   ms: number;
   reply: string;
   error: string;
-  truncated: boolean;
 }
 
 interface CheckState {
@@ -180,7 +179,6 @@ function ModelRow({
             <>
               {" — "}
               {result.reply}
-              {result.truncated ? " (stopped at the model's length limit)" : ""}
             </>
           ) : (
             ` — ${result.error}`

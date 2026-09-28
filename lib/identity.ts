@@ -126,6 +126,20 @@ export function sanitizeIdentity(text: string): string {
   return IDENTITY_REWRITES.reduce((acc, { pattern, replace }) => acc.replace(pattern, replace), text);
 }
 
+/**
+ * Whether a piece of text names a provider, a model, or an inference host.
+ *
+ * Used to decide what may be *shown* rather than rewritten. The rewrites above
+ * exist to keep a name out of an answer a user reads; here the question is
+ * whether a short machine-written detail is worth putting in front of an
+ * administrator at all. "Rate limited" helps; a sentence carrying a model id
+ * does not, and rewriting it produces the mangled half-names the rewrites are
+ * built to avoid.
+ */
+export function mentionsProvider(text: string): boolean {
+  return new RegExp(String.raw`\b${VENDOR}\b`, "i").test(text);
+}
+
 export function sanitizeProviderDetail(detail: string): string {
   return detail
     .replace(new RegExp(String.raw`\b${VENDOR}\b`, "gi"), "Mino model service")
