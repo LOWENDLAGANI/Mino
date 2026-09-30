@@ -9,40 +9,50 @@
 // A feature list reads as an ad; the loss of the conversation being one swipe
 // away is something the visitor has already felt.
 //
-// Two browsers need different handling, and neither exposes a single API:
+// ── When it asks ────────────────────────────────────────────────────────────
+// Once per visit, after the first message. Waiting for a message is the point:
+// asking someone to keep an app they have never used is how a prompt gets
+// dismissed without being read. Once per visit — rather than once ever, or once
+// a week — because a return trip to a site you already use is exactly when the
+// offer is worth making, and because a permanent "no" cannot be revised.
 //
-//   - Chromium fires `beforeinstallprompt`, and honouring it with a real
-//     `prompt()` call is the only way to reach the native confirm sheet.
-//   - iOS Safari has no such event and no programmatic install at all. The
-//     only route is Share → Add to Home Screen, so the dialog teaches it with
-//     the actual iconography rather than showing a button that cannot work.
+// sessionStorage is what makes "once per visit" true. It dies with the tab, so
+// a reload or a fresh visit starts over, while surviving the client-side
+// navigations in between so it cannot reappear mid-conversation.
 //
-// The prompt waits for evidence that Mino is worth keeping — a message sent —
-// because asking someone to install an app they have not used yet is the
-// fastest way to be dismissed permanently. A "no" is honoured for a week
-// rather than forever, so a changed mind still gets the offer.
+// It never appears twice for the same reason that matters most: if Mino is
+// already installed, there is nothing to offer.
 //
-// One consequence is that the Install button cannot always work. Chrome only
-// fires `beforeinstallprompt` once a service worker is *controlling* the page,
-// and a worker registered on this visit does not control it until the next
-// navigation. On the first visit after a deploy that means no event, so this
-// dialog shows the menu instructions instead of a button that would silently
-// do nothing.
+// ── Two browsers, no shared API ─────────────────────────────────────────────
+//   - Chromium fires `beforeinstallprompt`, and only that event can reach the
+//     native confirm sheet.
+//   - iOS Safari has no install API at all. The only route is Share → Add to
+//     Home Screen, so the dialog teaches it with the real iconography rather
+//     than showing a button that cannot work.
+//
+// Chromium also withholds the event until a service worker *controls* the
+// page, and a worker registered during this visit does not control it until the
+// next navigation. Where there is no programmatic install to call, the menu
+// route is shown instead — a button that fails silently is worse than no
+// button, because it teaches people that the whole interface fails silently.
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import MinoMark from "@/components/MinoMark";
 
-const DISMISSED_KEY = "mino:install-dismissed";
-const SEEN_KEY = "mino:install-answered";
+/**
+ * Marks this tab as already asked. Per-visit by design — see the note above.
+ * sessionStorage rather than localStorage is the entire mechanism.
+ */
+const ASKED_KEY = "mino:install-asked";
 
 /**
- * `?installPrompt=1` clears the answer flags and shows the dialog again.
+ * `?installPrompt=1` shows the dialog regardless of width, install state, or
+ * whether this tab has already been asked.
  *
- * Once the flags are set the prompt is permanently silent, which is right for
- * a visitor and useless to the person who has to verify it works. Without a
- * URL affordance there is no way back short of digging through DevTools, and
- * a prompt that cannot be re-triggered can only be tested once — by the one
- * person unlucky enough to try it first.
+ * A prompt that can only be triggered once can only ever be tested once, by
+ * whoever happens to try it first. This strips itself from the URL after firing
+ * so it cannot turn every reload and shared link into a popup, and does not
+ * record an answer, so a rehearsal never becomes a real opt-out.
  */
 const FORCE_PARAM = "installPrompt";
 
@@ -51,17 +61,6 @@ const MOBILE_MAX_WIDTH = 820;
 
 /** How long the dialog takes to rise after the trigger fires. */
 const APPEAR_MS = 900;
-
-/**
- * How long a "no" is honoured.
- *
- * Forever is the wrong answer in both directions. Someone who swipes this away
- * on a train is not refusing permanently, and a permanent latch means the one
- * person trying to verify the prompt can never see it again. A week is long
- * enough that nobody is nagged and short enough that a changed mind still gets
- * the offer.
- */
-const REASK_AFTER_MS = 7 * 24 * 60 * 60 * 1000;
 
 interface BeforeInstallPromptEvent extends Event {
   prompt: () => Promise<void>;
@@ -77,12 +76,19 @@ function isIos(): boolean {
   );
 }
 
-/** Whether the site is already running as an installed app. */
-function isStandalone(): boolean {
+/**
+ * Whether Mino is already running as an installed app.
+ *
+ * `display-mode: standalone` alone is not enough. A browser tab can match it,
+ * and some Android browsers report it for a normal tab, so `installed` is
+ * checked too — that one is only ever true for a real install. iOS Safari
+ * predates both and still reports `navigator.standalone`.
+ */
+function isInstalled(): boolean {
   if (typeof window === "undefined") return true;
   return (
+    window.matchMedia("(display-mode: installed)").matches ||
     window.matchMedia("(display-mode: standalone)").matches ||
-    // iOS Safari still reports this rather than `display-mode`.
     (navigator as Navigator & { standalone?: boolean }).standalone === true
   );
 }
@@ -91,21 +97,12 @@ export default function InstallPrompt() {
   const [open, setOpen] = useState(false);
   const deferred = useRef<BeforeInstallPromptEvent | null>(null);
   // Whether the browser has actually offered a programmatic install. The
-  // dialog is shown on engagement alone, which is deliberately not the same
+  // dialog opens on engagement alone, which is deliberately not the same
   // thing — so this decides whether the button is real or a fallback.
   const [canPrompt, setCanPrompt] = useState(false);
 
   const close = useCallback(() => {
     setOpen(false);
-    // A forced preview is a rehearsal, not an answer. Recording a dismissal
-    // here would silently turn a debug visit into a permanent opt-out.
-    if (new URLSearchParams(window.location.search).get(FORCE_PARAM) === "1") return;
-    try {
-      localStorage.setItem(DISMISSED_KEY, String(Date.now()));
-    } catch {
-      // Storage blocked. The prompt would return next visit, which is a far
-      // better outcome than a dialog stuck open forever.
-    }
   }, []);
 
   const install = useCallback(async () => {
@@ -118,20 +115,11 @@ export default function InstallPrompt() {
       // The browser only allows one prompt() per user gesture, and the native
       // sheet it opens is the only real install path on this browser.
       await event.prompt();
-      const choice = await event.userChoice;
-      if (choice.outcome === "accepted") {
-        setOpen(false);
-        try {
-          localStorage.setItem(SEEN_KEY, "1");
-        } catch {
-          // Nothing to do — they have the app on their home screen regardless.
-        }
-      } else {
-        // The sheet was dismissed. Reopening this dialog would be nagging, so
-        // the menu route is all that is left; showing the instructions is the
-        // honest response rather than a button that has just failed once.
-        setCanPrompt(false);
-      }
+      await event.userChoice;
+      // Accepted or not, the dialog has done its job either way. The tab is
+      // already marked as asked, and an install is detected by `isInstalled`
+      // on the next visit regardless of what was chosen here.
+      setOpen(false);
     } catch {
       // A refused prompt is not an error worth surfacing; the visitor can
       // still install from the browser menu.
@@ -144,39 +132,42 @@ export default function InstallPrompt() {
   useEffect(() => {
     const forced = new URLSearchParams(window.location.search).get(FORCE_PARAM) === "1";
 
-    const answered = () => {
+    // Never ask someone who already has the app. This is checked before
+    // anything else, including width, because it is the one condition with no
+    // acceptable exception.
+    if (!forced && isInstalled()) return;
+    if (!forced && window.innerWidth > MOBILE_MAX_WIDTH) return;
+
+    const alreadyAsked = () => {
       if (forced) return false;
       try {
-        // An accepted install is final — the app is on their home screen, so
-        // there is nothing left to ask. A dismissal only counts while it is
-        // fresh.
-        if (localStorage.getItem(SEEN_KEY) === "1") return true;
-        const dismissedAt = Number(localStorage.getItem(DISMISSED_KEY));
-        if (!Number.isFinite(dismissedAt) || dismissedAt <= 0) return false;
-        if (Date.now() - dismissedAt < REASK_AFTER_MS) return true;
-        localStorage.removeItem(DISMISSED_KEY);
-        return false;
+        return sessionStorage.getItem(ASKED_KEY) === "1";
       } catch {
-        return true; // Unknowable state: do not pester.
+        // sessionStorage blocked. Returning false risks asking twice in one
+        // visit, which is far less bad than never asking at all.
+        return false;
       }
     };
 
-    const tooSmall = !forced && window.innerWidth > MOBILE_MAX_WIDTH;
-    if (tooSmall || answered() || (!forced && isStandalone())) return;
+    if (alreadyAsked()) return;
 
-    // Held until the visitor has actually used Mino. Nothing is installed by
-    // asking someone to keep an app they have not tried.
+    // Held until the visitor has actually used Mino.
     let timer: ReturnType<typeof setTimeout> | null = null;
     let asked = false;
 
     const ask = () => {
-      // `mino:engage` fires on every message sent. Arming the timers more than
-      // once would leave a second copy pending, so the dialog could reappear
-      // after being swiped away.
-      if (asked || answered()) return;
+      // `mino:engage` fires on every message sent. Arming this more than once
+      // would leave a second copy pending, so the dialog could reappear after
+      // being dismissed.
+      if (asked || alreadyAsked()) return;
       asked = true;
+      try {
+        sessionStorage.setItem(ASKED_KEY, "1");
+      } catch {
+        // Nothing to do — it simply asks again next visit.
+      }
       // The param was only ever a request to see it; leaving it in the address
-      // bar would mean every reload and every shared link re-opens the dialog.
+      // bar would re-open the dialog on every reload.
       if (forced) {
         window.history.replaceState(null, "", window.location.pathname);
       }
@@ -191,10 +182,12 @@ export default function InstallPrompt() {
       setCanPrompt(true);
     };
 
+    // Once the app is installed there is nothing left to ask, so any dialog
+    // currently open goes away without being dismissed.
     const onInstalled = () => {
       setOpen(false);
       try {
-        localStorage.setItem(SEEN_KEY, "1");
+        sessionStorage.removeItem(ASKED_KEY);
       } catch {
         // Nothing to do.
       }
@@ -229,8 +222,8 @@ export default function InstallPrompt() {
   // iOS gets instructions instead of a button, because the button cannot work.
   // The same is true on Chromium before a service worker controls the page:
   // there is no programmatic install to call yet, so the menu route is all
-  // there is. Either way, showing a button that would do nothing is the one
-  // outcome worth avoiding — it teaches the visitor that Mino's buttons lie.
+  // there is. Either way, a button that would do nothing is the one outcome
+  // worth avoiding.
   const ios = isIos();
   const showButton = !ios && canPrompt;
 
@@ -306,10 +299,9 @@ export default function InstallPrompt() {
           )}
 
           {!ios && !canPrompt && (
-            // The service worker has not taken control of this page yet, so
-            // there is no programmatic install available. The browser menu
-            // still is not, which is why this is a real route and not a
-            // consolation prize.
+            // No service worker in control yet, so no programmatic install is
+            // available. The browser menu still is not, which is why this is a
+            // real route and not a consolation prize.
             <ol className="mt-4 space-y-2.5 rounded-2xl border border-white/[0.08] bg-white/[0.03] p-3.5">
               <li className="flex items-center gap-3 text-[13px] text-white/75">
                 <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-white/[0.07] text-[15px] leading-none">
@@ -321,10 +313,7 @@ export default function InstallPrompt() {
                 <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-white/[0.07] text-[15px] leading-none">
                   <DownloadIcon />
                 </span>
-                Choose{" "}
-                <span className="font-medium text-white">
-                  Install app
-                </span>
+                Choose <span className="font-medium text-white">Install app</span>
               </li>
             </ol>
           )}
