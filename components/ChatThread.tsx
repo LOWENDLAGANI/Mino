@@ -5,6 +5,7 @@ import { getModelDisplayName } from "@/lib/models";
 import { imageDownloadName } from "@/lib/imageGeneration";
 import Markdown from "./Markdown";
 import MinoMark from "./MinoMark";
+import { useSmoothText } from "@/lib/useSmoothText";
 import { useEffect, useRef, useState } from "react";
 
 interface ChatThreadProps {
@@ -128,6 +129,11 @@ function MessageRow({ msg, streaming, drawing, onRegenerate, onEditMessage }: {
 }) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(msg.content);
+  // While the answer is arriving, the text on screen trails the text already
+  // received, revealed at a steady pace instead of landing in whatever size
+  // chunks the provider happened to send. Finished answers are never held
+  // back — only the streaming one is animated.
+  const shownContent = useSmoothText(msg.content, streaming);
   if (msg.role === "user") {
     return (
       <div className="group flex flex-col items-end animate-rise">
@@ -211,9 +217,9 @@ function MessageRow({ msg, streaming, drawing, onRegenerate, onEditMessage }: {
         </div>
       )}
 
-      {msg.content && (
+      {shownContent && (
         <div className={streaming ? "stream-cursor" : ""}>
-          <Markdown content={msg.content} />
+          <Markdown content={shownContent} />
         </div>
       )}
 
