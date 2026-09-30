@@ -19,7 +19,8 @@
 //
 // The prompt waits for evidence that Mino is worth keeping — a message sent —
 // because asking someone to install an app they have not used yet is the
-// fastest way to be dismissed permanently. It asks once, then never again.
+// fastest way to be dismissed permanently. A "no" is honoured for a week
+// rather than forever, so a changed mind still gets the offer.
 //
 // One consequence is that the Install button cannot always work. Chrome only
 // fires `beforeinstallprompt` once a service worker is *controlling* the page,
@@ -34,14 +35,33 @@ import MinoMark from "@/components/MinoMark";
 const DISMISSED_KEY = "mino:install-dismissed";
 const SEEN_KEY = "mino:install-answered";
 
+/**
+ * `?installPrompt=1` clears the answer flags and shows the dialog again.
+ *
+ * Once the flags are set the prompt is permanently silent, which is right for
+ * a visitor and useless to the person who has to verify it works. Without a
+ * URL affordance there is no way back short of digging through DevTools, and
+ * a prompt that cannot be re-triggered can only be tested once — by the one
+ * person unlucky enough to try it first.
+ */
+const FORCE_PARAM = "installPrompt";
+
 /** Shown below this width. An install prompt on a desktop is noise. */
 const MOBILE_MAX_WIDTH = 820;
 
 /** How long the dialog takes to rise after the trigger fires. */
 const APPEAR_MS = 900;
 
-/** Dismissing it is permanent, so one reminder is generous but not endless. */
-const NUDGE_AFTER_MS = 4 * 60 * 1000;
+/**
+ * How long a "no" is honoured.
+ *
+ * Forever is the wrong answer in both directions. Someone who swipes this away
+ * on a train is not refusing permanently, and a permanent latch means the one
+ * person trying to verify the prompt can never see it again. A week is long
+ * enough that nobody is nagged and short enough that a changed mind still gets
+ * the offer.
+ */
+const REASK_AFTER_MS = 7 * 24 * 60 * 60 * 1000;
 
 interface BeforeInstallPromptEvent extends Event {
   prompt: () => Promise<void>;
@@ -69,7 +89,6 @@ function isStandalone(): boolean {
 
 export default function InstallPrompt() {
   const [open, setOpen] = useState(false);
-  const [nudge, setNudge] = useState(false);
   const deferred = useRef<BeforeInstallPromptEvent | null>(null);
   // Whether the browser has actually offered a programmatic install. The
   // dialog is shown on engagement alone, which is deliberately not the same
@@ -78,8 +97,11 @@ export default function InstallPrompt() {
 
   const close = useCallback(() => {
     setOpen(false);
+    // A forced preview is a rehearsal, not an answer. Recording a dismissal
+    // here would silently turn a debug visit into a permanent opt-out.
+    if (new URLSearchParams(window.location.search).get(FORCE_PARAM) === "1") return;
     try {
-      localStorage.setItem(DISMISSED_KEY, "1");
+      localStorage.setItem(DISMISSED_KEY, String(Date.now()));
     } catch {
       // Storage blocked. The prompt would return next visit, which is a far
       // better outcome than a dialog stuck open forever.
@@ -109,37 +131,42 @@ export default function InstallPrompt() {
         // the menu route is all that is left; showing the instructions is the
         // honest response rather than a button that has just failed once.
         setCanPrompt(false);
-        setNudge(true);
       }
     } catch {
       // A refused prompt is not an error worth surfacing; the visitor can
       // still install from the browser menu.
       setCanPrompt(false);
-      setNudge(true);
     } finally {
       deferred.current = null;
     }
   }, []);
 
   useEffect(() => {
+    const forced = new URLSearchParams(window.location.search).get(FORCE_PARAM) === "1";
+
     const answered = () => {
+      if (forced) return false;
       try {
-        return (
-          localStorage.getItem(DISMISSED_KEY) === "1" ||
-          localStorage.getItem(SEEN_KEY) === "1"
-        );
+        // An accepted install is final — the app is on their home screen, so
+        // there is nothing left to ask. A dismissal only counts while it is
+        // fresh.
+        if (localStorage.getItem(SEEN_KEY) === "1") return true;
+        const dismissedAt = Number(localStorage.getItem(DISMISSED_KEY));
+        if (!Number.isFinite(dismissedAt) || dismissedAt <= 0) return false;
+        if (Date.now() - dismissedAt < REASK_AFTER_MS) return true;
+        localStorage.removeItem(DISMISSED_KEY);
+        return false;
       } catch {
         return true; // Unknowable state: do not pester.
       }
     };
 
-    const tooSmall = window.innerWidth > MOBILE_MAX_WIDTH;
-    if (tooSmall || answered() || isStandalone()) return;
+    const tooSmall = !forced && window.innerWidth > MOBILE_MAX_WIDTH;
+    if (tooSmall || answered() || (!forced && isStandalone())) return;
 
     // Held until the visitor has actually used Mino. Nothing is installed by
     // asking someone to keep an app they have not tried.
     let timer: ReturnType<typeof setTimeout> | null = null;
-    let nudgeTimer: ReturnType<typeof setTimeout> | null = null;
     let asked = false;
 
     const ask = () => {
@@ -148,11 +175,12 @@ export default function InstallPrompt() {
       // after being swiped away.
       if (asked || answered()) return;
       asked = true;
+      // The param was only ever a request to see it; leaving it in the address
+      // bar would mean every reload and every shared link re-opens the dialog.
+      if (forced) {
+        window.history.replaceState(null, "", window.location.pathname);
+      }
       timer = setTimeout(() => setOpen(true), APPEAR_MS);
-      // If the first ask was ignored, there is one more chance later.
-      nudgeTimer = setTimeout(() => {
-        if (!answered()) setNudge(true);
-      }, NUDGE_AFTER_MS);
     };
 
     const onBeforeInstall = (event: Event) => {
@@ -193,7 +221,6 @@ export default function InstallPrompt() {
       window.removeEventListener("mino:engage", ask);
       window.removeEventListener("mino:sw-ready", onSwReady);
       if (timer) clearTimeout(timer);
-      if (nudgeTimer) clearTimeout(nudgeTimer);
     };
   }, []);
 
@@ -296,17 +323,10 @@ export default function InstallPrompt() {
                 </span>
                 Choose{" "}
                 <span className="font-medium text-white">
-                  {nudge ? "Install app" : "Add to Home screen"}
+                  Install app
                 </span>
               </li>
             </ol>
-          )}
-
-          {nudge && canPrompt && (
-            <p className="mt-4 rounded-2xl border border-[#9ee7ff]/15 bg-[#9ee7ff]/[0.06] px-3.5 py-2.5 text-[12.5px] leading-relaxed text-white/65">
-              Changed your mind? The Chrome menu has{" "}
-              <span className="font-medium text-white">Install app</span> too.
-            </p>
           )}
 
           <div className="mt-5 flex items-center gap-2.5">
