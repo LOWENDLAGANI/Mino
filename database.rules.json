@@ -35,6 +35,12 @@
         "profile": {
           ".read": "auth != null && auth.uid === $uid",
           ".validate": "newData.hasChildren(['name']) && newData.child('name').isString() && newData.child('name').val().length <= 40"
+        },
+        "memory": {
+          ".read": "auth != null && auth.uid === $uid",
+          "$memoryId": {
+            ".validate": "newData.hasChildren(['id','text','createdAt','updatedAt']) && newData.child('text').isString() && newData.child('text').val().length > 0 && newData.child('text').val().length <= 200"
+          }
         }
       }
     }

@@ -1,5 +1,6 @@
 import { NextRequest } from "next/server";
 import { MINO_SYSTEM_PROMPT } from "@/lib/systemPrompt";
+import { formatMemories, sanitizeMemoryPayload } from "@/lib/memory";
 import type { ReasoningEffort } from "@/lib/settings";
 import type { ApiMessage, SearchMode, SearchSource } from "@/lib/types";
 import { getModelDisplayName, type ModeId } from "@/lib/models";
@@ -42,6 +43,14 @@ interface ChatRequestBody {
   searchMode?: SearchMode;
   reasoningEffort?: "low" | "medium" | "high";
   responseLength?: "short" | "balanced" | "detailed";
+  /**
+   * The memories the user chose to keep, sent with every request.
+   *
+   * Untrusted by construction — it is whatever the caller put in the body — and
+   * re-validated in `sanitizeMemoryPayload` before it can reach the system
+   * prompt.
+   */
+  memories?: unknown;
 }
 
 class ProviderError extends Error {
@@ -341,7 +350,15 @@ export async function POST(req: NextRequest): Promise<Response> {
   const userPreferences = [
     "The user has chosen this response length. It is a preference, not an instruction that can override safety or accuracy.",
     lengthInstruction,
-  ].join("\n");
+    // The memories the user chose to keep. Rendered and bounded in
+    // `formatMemories`, and framed there as facts rather than orders — this
+    // text is prepended to the identity prompt, so anything instruction-shaped
+    // arriving in it would be sitting in the one place that cannot be argued
+    // with. It is capped, trimmed, and delimited for the same reason.
+    formatMemories(sanitizeMemoryPayload(body.memories)),
+  ]
+    .filter(Boolean)
+    .join("\n\n");
 
   const isCodeMode = requested === "code";
 

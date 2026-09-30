@@ -2,8 +2,10 @@
 
 import type { Appearance, ReasoningEffort, ResponseLength } from "@/lib/settings";
 import type { SearchMode } from "@/lib/types";
+import { firebaseConfigured } from "@/lib/firebaseHistory";
 import { useEffect } from "react";
 import AccountSection from "@/components/AccountSection";
+import MemoryPanel from "@/components/MemoryPanel";
 
 interface SettingsPanelProps {
   open: boolean;
@@ -94,6 +96,11 @@ export default function SettingsPanel({
 
         <div className="min-h-0 flex-1 space-y-7 overflow-y-auto px-5 py-5">
           <AccountSection displayName={displayName} />
+
+          {/* Memory sits directly under the account because it follows the
+              account, and it is the first thing worth changing after a visitor
+              has named themselves. */}
+          <MemoryPanel syncAvailable={firebaseConfigured} />
 
           <section>
             <div className="mb-2.5 flex items-center justify-between gap-3">

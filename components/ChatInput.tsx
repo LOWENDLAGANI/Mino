@@ -2,6 +2,8 @@
 
 import type { DocumentAttachment, ImageAttachment } from "@/lib/types";
 import { compressFiles, formatBytes } from "@/lib/imageUtils";
+import { MEMORY_TEXT_LIMIT, addMemory } from "@/lib/memory";
+import { syncMemoryUp } from "@/lib/firebaseHistory";
 import { useEffect, useRef, useState, type ClipboardEvent, type DragEvent, type KeyboardEvent } from "react";
 
 // ── ChatInput: floating composer with attachments — minimal, mobile-first ───
@@ -14,6 +16,8 @@ interface ChatInputProps {
   imageMode: boolean;
   onImageModeChange: (enabled: boolean) => void;
   imageAvailable: boolean;
+  /** Whether memories can follow the account to another device. */
+  syncAvailable: boolean;
 }
 
 const MAX_IMAGES = 4;
@@ -36,7 +40,7 @@ type SpeechRecognition = {
 };
 type SpeechWindow = Window & { SpeechRecognition?: new () => SpeechRecognition; webkitSpeechRecognition?: new () => SpeechRecognition };
 
-export default function ChatInput({ onSend, disabled, onStop, imageMode, onImageModeChange, imageAvailable }: ChatInputProps) {
+export default function ChatInput({ onSend, disabled, onStop, imageMode, onImageModeChange, imageAvailable, syncAvailable }: ChatInputProps) {
   const [text, setText] = useState("");
   const [attachments, setAttachments] = useState<ImageAttachment[]>([]);
   const [documents, setDocuments] = useState<DocumentAttachment[]>([]);
@@ -45,6 +49,9 @@ export default function ChatInput({ onSend, disabled, onStop, imageMode, onImage
   const [dragOver, setDragOver] = useState(false);
   const [errors, setErrors] = useState<string[]>([]);
   const [showTools, setShowTools] = useState(false);
+  const [showRemember, setShowRemember] = useState(false);
+  const [rememberText, setRememberText] = useState("");
+  const [rememberNotice, setRememberNotice] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const cameraInputRef = useRef<HTMLInputElement>(null);
   const toolsRef = useRef<HTMLDivElement>(null);
@@ -374,6 +381,21 @@ export default function ChatInput({ onSend, disabled, onStop, imageMode, onImage
                   type="button"
                   onClick={() => {
                     setShowTools(false);
+                    setShowRemember(true);
+                  }}
+                  className="flex w-full items-center gap-3.5 rounded-[18px] px-2 py-2.5 text-left transition-colors hover:bg-white/[0.06] active:bg-white/[0.09]"
+                >
+                  <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-white/[0.09] text-white">
+                    <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                      <path d="M12 20.5s-7-4.4-7-9.4a4.1 4.1 0 0 1 7-2.9 4.1 4.1 0 0 1 7 2.9c0 5-7 9.4-7 9.4Z" />
+                    </svg>
+                  </span>
+                  <span className="min-w-0 flex-1 text-[15px] font-semibold leading-tight tracking-[-0.01em] text-white">Remember this</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowTools(false);
                     onImageModeChange(true);
                   }}
                   className="flex w-full items-center gap-3.5 rounded-[18px] px-2 py-2.5 text-left transition-colors hover:bg-white/[0.06] active:bg-white/[0.09]"
@@ -486,6 +508,86 @@ export default function ChatInput({ onSend, disabled, onStop, imageMode, onImage
         </p>
         <div className="safe-bottom md:hidden" />
       </div>
+
+      {/* "Remember this" — the composer route into memory.
+          Sits in the tools menu rather than Settings alone, because a fact
+          worth keeping is noticed while it is being said, and a panel nobody
+          opens is a feature nobody uses. Nothing is ever saved without this
+          explicit step. */}
+      {showRemember && (
+        <div
+          className="fixed inset-0 z-[120] flex items-end justify-center px-3 pb-3"
+          onPointerDown={(event) => {
+            if (event.target === event.currentTarget) setShowRemember(false);
+          }}
+        >
+          <section
+            role="dialog"
+            aria-modal="true"
+            aria-label="Remember something"
+            className="animate-pop w-full max-w-sm rounded-[26px] border border-white/[0.12] bg-[#111116]/[0.98] p-4 pb-3 shadow-2xl shadow-black/80 backdrop-blur-2xl"
+          >
+            <h3 className="text-[15px] font-semibold tracking-[-0.01em] text-white">
+              What should Mino remember?
+            </h3>
+            <p className="mt-1.5 text-[12.5px] leading-relaxed text-white/45">
+              One short sentence about you. Mino uses it in every conversation
+              until you remove it.
+            </p>
+
+            <textarea
+              value={rememberText}
+              onChange={(event) => setRememberText(event.target.value)}
+              maxLength={MEMORY_TEXT_LIMIT}
+              rows={2}
+              autoFocus
+              placeholder="I work mostly in TypeScript and React"
+              className="mt-3 w-full resize-none rounded-2xl border border-white/[0.09] bg-white/[0.03] p-3 text-[14px] leading-relaxed text-white outline-none transition-colors placeholder:text-white/25 focus:border-white/[0.18]"
+              aria-label="Memory to remember"
+            />
+
+            {rememberNotice && (
+              <p role="status" className="mt-2 text-[11.5px] leading-relaxed text-amber-100/75">
+                {rememberNotice}
+              </p>
+            )}
+
+            <div className="mt-3 flex items-center gap-2">
+              <button
+                type="button"
+                onClick={async () => {
+                  const result = await addMemory(rememberText);
+                  if (result.error) {
+                    setRememberNotice(result.error);
+                    return;
+                  }
+                  if (syncAvailable && result.memory) void syncMemoryUp(result.memory);
+                  setRememberText("");
+                  setShowRemember(false);
+                  setRememberNotice(null);
+                  // The panel reads Dexie live, so there is nothing to refresh.
+                }}
+                disabled={!rememberText.trim()}
+                className="flex-1 rounded-full px-4 py-2.5 text-[14px] font-semibold text-[#08080a] transition-opacity disabled:opacity-30"
+                style={{ background: "linear-gradient(180deg, #a9a4ff 0%, #7c7cf4 100%)" }}
+              >
+                Remember
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setShowRemember(false);
+                  setRememberText("");
+                  setRememberNotice(null);
+                }}
+                className="shrink-0 rounded-full border border-white/[0.12] px-4 py-2.5 text-[14px] font-medium text-white/70 transition-colors hover:bg-white/[0.06] hover:text-white"
+              >
+                Cancel
+              </button>
+            </div>
+          </section>
+        </div>
+      )}
     </div>
   );
 }

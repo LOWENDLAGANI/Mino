@@ -1,5 +1,5 @@
 import Dexie, { type Table } from "dexie";
-import type { Chat, ChatMessage } from "./types";
+import type { Chat, ChatMessage, Memory } from "./types";
 
 // ── Mino — zero-login client-side persistence (IndexedDB via Dexie) ─────────
 //
@@ -10,12 +10,21 @@ import type { Chat, ChatMessage } from "./types";
 export class MinoDB extends Dexie {
   chats!: Table<Chat, string>;
   messages!: Table<ChatMessage, string>;
+  memories!: Table<Memory, string>;
 
   constructor() {
     super("mino-db");
     this.version(1).stores({
       chats: "id, updatedAt, pinned",
       messages: "id, chatId, createdAt",
+    });
+    // Added in a later version rather than inside version 1. Dexie upgrades
+    // existing databases from whatever version they were left at, so editing
+    // the original declaration would not reach a browser that already has one.
+    this.version(2).stores({
+      chats: "id, updatedAt, pinned",
+      messages: "id, chatId, createdAt",
+      memories: "id, createdAt",
     });
   }
 }

@@ -11,12 +11,13 @@ import {
   getDatabase,
   get,
   ref,
+  remove,
   set,
   type Database,
 } from "firebase/database";
 import { db } from "./db";
 import { firstSeen } from "./visitorName";
-import type { Chat, ChatMessage } from "./types";
+import type { Chat, ChatMessage, Memory } from "./types";
 
 const config = {
   apiKey: process.env.NEXT_PUBLIC_FIREBASE_API_KEY,
@@ -151,6 +152,95 @@ export async function syncFirebaseHistory(): Promise<{ synced: boolean; reason?:
   }
   return { synced: true };
 }
+
+// ── Memory sync ─────────────────────────────────────────────────────────────
+// Memories are the one piece of stored state that is deliberately readable
+// back by its owner. Everything else under `users/$uid` is write-only, because
+// chat history is logging rather than something the product reloads — but a
+// memory that could not be read would be useless on a second device, which is
+// the whole point of remembering something.
+//
+// The payload is a handful of short sentences about the person who wrote them.
+// That is a meaningfully different privacy posture from chat text, and the
+// rules separate the two by granting this node its own owner-only read.
+//
+// Sync is last-write-wins per id, which is the honest model here. Memories are
+// written rarely and one at a time, so concurrent edits of the same id are not
+// a real case, and merging them would need more machinery than the situation
+// earns.
+
+function memoryRef(database: Database, uid: string) {
+  return ref(database, `users/${uid}/memory`);
+}
+
+function serializableMemory(memory: Memory) {
+  return {
+    id: memory.id,
+    text: memory.text,
+    createdAt: memory.createdAt,
+    updatedAt: memory.updatedAt,
+  };
+}
+
+function parseMemories(value: unknown): Memory[] {
+  if (!value || typeof value !== "object") return [];
+  return Object.values(value as Record<string, unknown>)
+    .map((entry) => {
+      const candidate = entry as Partial<Memory>;
+      if (typeof candidate?.text !== "string" || typeof candidate?.id !== "string") return null;
+      return {
+        id: candidate.id,
+        text: candidate.text,
+        createdAt: typeof candidate.createdAt === "number" ? candidate.createdAt : 0,
+        updatedAt: typeof candidate.updatedAt === "number" ? candidate.updatedAt : 0,
+      } satisfies Memory;
+    })
+    .filter((entry): entry is Memory => entry !== null);
+}
+
+/** Pushes one memory to the account, so it follows the user to another device. */
+export async function syncMemoryUp(memory: Memory): Promise<void> {
+  const current = await getServices();
+  if (!current) return;
+  try {
+    await set(ref(current.database, `users/${(await current.ensureUser()).uid}/memory/${memory.id}`), serializableMemory(memory));
+  } catch {
+    // Rules not republished, or offline. The local memory still stands — this
+    // is a convenience, never the source of truth.
+  }
+}
+
+export async function syncMemoryDelete(id: string): Promise<void> {
+  const current = await getServices();
+  if (!current) return;
+  try {
+    await remove(ref(current.database, `users/${(await current.ensureUser()).uid}/memory/${id}`));
+  } catch {
+    // Nothing to do — see syncMemoryUp.
+  }
+}
+
+/**
+ * Adopts memories written on another browser.
+ *
+ * Returns null on any failure, including a deployment whose rules have not been
+ * republished yet, so the caller keeps whatever this device already has rather
+ * than showing an empty memory list. Adding a memory is a union rather than a
+ * replace: memories this browser has that the other does not are kept, since
+ * nothing here says they were removed.
+ */
+export async function loadMemoriesFromAccount(): Promise<Memory[] | null> {
+  const current = await getServices();
+  if (!current) return null;
+  try {
+    const snapshot = await get(memoryRef(current.database, (await current.ensureUser()).uid));
+    return parseMemories(snapshot.val());
+  } catch {
+    return null;
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 
 /**
  * Reads the admin PIN verifier from Realtime Database.

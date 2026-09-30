@@ -107,6 +107,12 @@ export default function HomePage() {
 
   const chats = useLiveQuery(() => db.chats.orderBy("updatedAt").reverse().toArray(), [], []);
 
+  // Memories ride along with every request, so this is read live from Dexie
+  // rather than copied into state: a second browser writing to the same
+  // account must be able to change what the next answer is built on without
+  // this page knowing about it in advance.
+  const memorySnapshot = useLiveQuery(() => db.memories.toArray(), [], []);
+
   useEffect(() => {
     setSelectedMode(loadSelectedMode());
     setResponseLength(loadResponseLength());
@@ -391,6 +397,9 @@ export default function HomePage() {
           headers: { "Content-Type": "application/json", ...(await authHeader()) },
           body: JSON.stringify({
             messages: apiMessages,
+            // Sent with every request because memory applies to every answer.
+            // The server re-validates this rather than trusting the page.
+            memories: memorySnapshot,
             mode: selectedMode,
             searchMode,
             responseLength,
@@ -694,6 +703,7 @@ export default function HomePage() {
               imageMode={imageMode}
               onImageModeChange={setImageMode}
               imageAvailable={imageAvailable}
+              syncAvailable={firebaseConfigured}
             />
           </div>
 
