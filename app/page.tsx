@@ -54,6 +54,14 @@ import { subscribeAppConfig, type AppConfig } from "@/lib/appConfig";
 import { useMaintenance } from "@/lib/useMaintenance";
 import SplashScreen from "@/components/SplashScreen";
 import InstallPrompt from "@/components/InstallPrompt";
+import MemorySuggestions from "@/components/MemorySuggestions";
+import {
+  dismissSuggestions,
+  loadSuggestionEnabled,
+  requestMemorySuggestions,
+  shouldSuggest,
+  suggestionsDismissed,
+} from "@/lib/memorySuggestions";
 
 // ── Mino — main client orchestration: modes, streaming, chats ────────────────
 
@@ -95,6 +103,7 @@ export default function HomePage() {
   const maintenance = useMaintenance();
   const abortRef = useRef<AbortController | null>(null);
   const historyTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const memoryRunRef = useRef(0);
 
   const messages = useLiveQuery(
     async () => {
@@ -112,6 +121,11 @@ export default function HomePage() {
   // account must be able to change what the next answer is built on without
   // this page knowing about it in advance.
   const memorySnapshot = useLiveQuery(() => db.memories.toArray(), [], []);
+
+  // Facts Mino noticed by itself and is offering, kept apart from the list
+  // until the user accepts. Offered, never stored — see MemorySuggestions.
+  const [suggestions, setSuggestions] = useState<string[]>([]);
+  const [checkingMemory, setCheckingMemory] = useState(false);
 
   useEffect(() => {
     setSelectedMode(loadSelectedMode());
@@ -391,6 +405,40 @@ export default function HomePage() {
       const controller = new AbortController();
       abortRef.current = controller;
       let sawError = false;
+
+      // Asks the server which durable facts this exchange revealed.
+      //
+      // Run against a counter rather than a boolean because a slow extraction
+      // must not be able to overwrite a newer one: answering again while the
+      // first check is still in flight is ordinary, and the later answer's
+      // suggestions are the ones on screen.
+      const considerMemory = async (history: ApiMessage[], answer: string) => {
+        const run = ++memoryRunRef.current;
+        const source = [...history].reverse().find((message) => message.role === "user");
+        const userText = typeof source?.content === "string" ? source.content : "";
+        if (
+          !shouldSuggest({
+            userText,
+            memories: memorySnapshot,
+            enabled: loadSuggestionEnabled(),
+            dismissed: suggestionsDismissed(),
+          })
+        ) {
+          return;
+        }
+        setSuggestions([]);
+        setCheckingMemory(true);
+        const found = await requestMemorySuggestions({
+          userText,
+          answer,
+          memories: memorySnapshot,
+          authorization: await authHeader(),
+        });
+        if (run !== memoryRunRef.current) return;
+        setCheckingMemory(false);
+        setSuggestions(found);
+      };
+
       try {
         const res = await fetch("/api/chat", {
           method: "POST",
@@ -462,6 +510,11 @@ export default function HomePage() {
         if (buffer.trim()) await flushLine(buffer);
         if (!full.trim() && !sawError) await setMessageError(assistantMsg.id, "Mino returned an empty response. Try again.");
 
+        // Whether anything here is worth remembering is decided after the
+        // answer, on the user's machine, by a request they never wait for. It
+        // only ever produces an offer — nothing is stored until a tap.
+        if (full.trim() && !sawError) void considerMemory(apiMessages, full);
+
       } catch (err) {
         const aborted = err instanceof DOMException && err.name === "AbortError";
         if (!aborted) await setMessageError(assistantMsg.id, err instanceof Error ? err.message : "Something went wrong");
@@ -474,7 +527,7 @@ export default function HomePage() {
         abortRef.current = null;
       }
     },
-    [activeChatId, reasoningEffort, responseLength, searchMode, selectedMode, streamingId]
+    [activeChatId, memorySnapshot, reasoningEffort, responseLength, searchMode, selectedMode, streamingId]
   );
 
   // ── Image generation ───────────────────────────────────────────────────────
@@ -695,6 +748,16 @@ export default function HomePage() {
               onRegenerate={handleRegenerate}
               onEditMessage={handleEditMessage}
               onCopyConversation={handleCopyConversation}
+            />
+            <MemorySuggestions
+              suggestions={suggestions}
+              checking={checkingMemory}
+              syncAvailable={firebaseConfigured}
+              onStopSuggesting={() => {
+                dismissSuggestions();
+                setSuggestions([]);
+              }}
+              onHide={() => setSuggestions([])}
             />
             <ChatInput
               onSend={handleSend}

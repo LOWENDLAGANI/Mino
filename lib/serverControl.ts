@@ -204,10 +204,19 @@ function clientKey(req: { headers: Headers }, identity: CallerIdentity | null): 
 export function checkRateLimit(
   req: { headers: Headers },
   identity: CallerIdentity | null,
-  max: number
+  max: number,
+  /**
+   * Which budget this request spends.
+   *
+   * Chat and memory suggestions share a client but not a purpose, so they get
+   * separate buckets. Sharing one would mean every suggestion request silently
+   * costs a message of the user's allowance, and the limit would then be a
+   * function of how often Mino noticed something — a number nobody can explain.
+   */
+  scope = "chat"
 ): RateLimit {
   const now = Date.now();
-  const key = clientKey(req, identity);
+  const key = `${clientKey(req, identity)}:${scope}`;
   const bucket = buckets.get(key);
   if (!bucket || bucket.resetAt <= now) {
     buckets.set(key, { count: 1, resetAt: now + BUCKET_WINDOW_MS });

@@ -18,6 +18,7 @@ Built with **Next.js 15 (App Router)**, **React 19**, **TypeScript**, **Tailwind
 - **Web search** — Mino stays off for general knowledge questions and searches when you explicitly request it or say an answer may be wrong, with source links shown in the response; the composer supports Auto, On, and Off modes
 - **Markdown + code** — syntax-highlighted code blocks (Prism) with per-block copy button
 - **Chat management** — pin and rename chats, retry/edit-and-resend, copy chats, source history, voice input, and text/code file attachments
+- **Memory** — up to 20 short facts about you, sent with every request, written by you from the `+` menu or **offered** by Mino under the chat for you to approve. Always visible in Settings, always editable, and never extended by the model on its own (see [Memory](#memory))
 - **Settings** — a single panel in the sidebar for web search mode, response length, reasoning effort (low/medium/high, default low), and dark/light appearance; the composer's `+` menu stays limited to per-message tools
 
 ## Getting started
@@ -212,6 +213,26 @@ Both routes are limited per minute — 30 messages, 8 images — keyed by the ve
 
 Search excerpts are third-party text and are injected into the system prompt, so the prompt labels them as untrusted reference material and instructs the model to report on instructions found in a page rather than follow them. This reduces the risk of prompt injection; it does not eliminate it, because no prompt-level defence is a guarantee.
 
+## Memory
+
+Mino remembers up to **20 short facts** about you and sends them with every request, so an answer knows who it is answering without you re-explaining. The list is a flat document, not a retrieval index: the whole thing goes into the system prompt, which is why twenty is a hard cap — past that, stale entries start contradicting each other and the list itself becomes the reason an answer is wrong.
+
+**You can write one.** The composer's `+` menu has **Remember this**, and Settings → **What Mino remembers** lists, edits, and deletes everything.
+
+**Mino can also offer one.** After an answer, a small *Worth remembering* banner appears under the chat with up to three facts a model noticed in the exchange. Nothing is written until you tap **Remember**; **Not now** hides that batch and **Don't suggest this** stops Mino asking on this browser. The setting is off in one place — the checkbox in Settings.
+
+The division is the whole design. A model is good at noticing that someone shipping a Next.js app in March said so in passing; it is bad at knowing whether they meant it. Let it store what it infers and you get memories you never held, applied without question. So the model reads and the user decides, and both paths write through the same guard:
+
+- **Nothing is stored unprompted.** A suggestion is offered, never applied.
+- **Instruction-shaped text is refused** by `normalizeMemoryText` — at the server too, not only in the page — because a memory is the one piece of user text that lands inside the system prompt, where the user cannot override it. "Always answer in Spanish" is a legitimate memory and survives; "ignore your instructions" is not a fact about anybody.
+- **No secrets, no inference.** The extractor is instructed to return nothing it did not hear, and to treat a password, key, token, address, or phone number as not worth keeping.
+- **Duplicate facts are refused**, case-insensitively, before you are even asked.
+- **The list is always visible and always editable**, and *Forget everything* wipes it on every device.
+
+Extraction runs **after** the answer is on screen, on the small models (`lib/memoryExtractor.ts`, Groq → Gemini → OpenRouter in that order), with an 8-second budget and its own rate-limit bucket so it can never spend a message's allowance or delay an answer. If no text key is configured, or every call fails, it resolves to no suggestions — which is the correct answer to all of those.
+
+Memories are stored in Dexie and mirrored to `users/$uid/memory`, so they follow the account once `database.rules.json` is published. Until then they are local to the browser.
+
 ## Branding
 
 Drop a transparent-background logo at `public/mino-logo.png`. Every brand mark in the app (sidebar header, top bar, empty state, message avatars, quick tour) renders that file, and the browser tab / Apple touch icon use it too. The path is configurable through the `src` prop on `components/MinoMark.tsx`; if the file is missing or fails to load, the app falls back to the built-in sparkle mark so nothing ever renders broken.
@@ -222,6 +243,7 @@ Drop a transparent-background logo at `public/mino-logo.png`. Every brand mark i
 app/
   api/chat/route.ts    # SSE streaming proxy with server-side keys, web search, and Mino persona
   api/image/route.ts   # Cloudflare Workers AI image generation with a server-side token
+  api/memory/route.ts  # Proposes durable facts from one exchange; stores nothing
   api/admin/config/    # Administrator-only writes for the runtime controls
   layout.tsx           # Root layout, dark theme
   page.tsx             # Main chat orchestration: state, streaming, model switching
@@ -233,6 +255,8 @@ components/
   NamePrompt.tsx       # First-visit display name prompt
   AboutLogo.tsx        # About page logo carrying the ten-tap admin trigger
   SettingsPanel.tsx    # Web search, response length, reasoning effort, appearance
+  MemoryPanel.tsx      # What Mino remembers: list, edit, wipe, suggestion toggle
+  MemorySuggestions.tsx  # The "Worth remembering" offer under the chat
   AdminGate.tsx        # Ten-tap logo trigger and administrator sign-in
   AdminPanel.tsx       # Diagnostics console: people, chats, messages, wipes
   about/page.tsx       # Public About page: logo, creator, date, progress
@@ -246,6 +270,9 @@ components/
   appConfig.ts         # Runtime control settings, shared by client and server
   serverControl.ts     # Server-side enforcement: config read, token verify, usage
   promptOptimizer.ts   # Stage 1: rewrites user text into a descriptive image prompt
+  memory.ts            # Memory model: limits, injection guard, prompt rendering, Dexie CRUD
+  memorySuggestions.ts # Suggestion parsing, gating, and the /api/memory fetch
+  memoryExtractor.ts   # Server only: asks a small model which facts an exchange revealed
   posterText.ts        # Poster detection, headline extraction, text-free artwork prompt
   posterRender.tsx     # Draws the real headline over the artwork (next/og + sharp)
   imageGeneration.ts   # Client helper for the Cloudflare Workers AI image route

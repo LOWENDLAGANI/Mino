@@ -7,7 +7,9 @@
 // feature that hid its contents behind a summary would be the same thing that
 // makes this class of bug so hard to troubleshoot.
 //
-// Capture is manual throughout — nothing here is written by a model.
+// Capture has two doors: this panel, and the suggestion banner under the chat.
+// Both end up in the same table, so everything shown here was written either by
+// the user or by the user pressing Remember.
 
 import { useEffect, useState } from "react";
 import {
@@ -20,6 +22,7 @@ import {
   updateMemory,
 } from "@/lib/memory";
 import { syncMemoryDelete, syncMemoryUp, loadMemoriesFromAccount } from "@/lib/firebaseHistory";
+import { loadSuggestionEnabled, saveSuggestionEnabled } from "@/lib/memorySuggestions";
 import type { Memory } from "@/lib/types";
 
 interface MemoryPanelProps {
@@ -34,12 +37,14 @@ export default function MemoryPanel({ syncAvailable }: MemoryPanelProps) {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editDraft, setEditDraft] = useState("");
   const [synced, setSynced] = useState(false);
+  const [suggestEnabled, setSuggestEnabled] = useState(true);
 
   const refresh = () => {
     void listMemories().then(setMemories);
   };
 
   useEffect(refresh, []);
+  useEffect(() => setSuggestEnabled(loadSuggestionEnabled()), []);
 
   // Adopt anything written on another browser. The local list wins on
   // conflicts — this only ever adds facts this device did not have, so an
@@ -126,8 +131,9 @@ export default function MemoryPanel({ syncAvailable }: MemoryPanelProps) {
       </div>
 
       <p className="mb-3 text-[12px] leading-relaxed text-white/45">
-        Short facts Mino keeps about you and uses in every conversation. Nothing
-        is remembered without you asking.
+        Short facts Mino keeps about you and uses in every conversation. Mino
+        notices some of them itself and offers them below the chat — you choose
+        what it keeps.
         {syncAvailable && synced && " These follow your account across devices."}
       </p>
 
@@ -223,6 +229,19 @@ export default function MemoryPanel({ syncAvailable }: MemoryPanelProps) {
           {notice}
         </p>
       )}
+
+      <label className="mt-3 flex cursor-pointer items-center gap-2.5 text-[12px] leading-relaxed text-white/50">
+        <input
+          type="checkbox"
+          checked={suggestEnabled}
+          onChange={(event) => {
+            setSuggestEnabled(event.target.checked);
+            saveSuggestionEnabled(event.target.checked);
+          }}
+          className="h-3.5 w-3.5 shrink-0 accent-[#9ee7ff]"
+        />
+        <span>Let Mino suggest things to remember</span>
+      </label>
 
       {memories.length > 0 && (
         <button

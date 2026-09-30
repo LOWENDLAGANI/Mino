@@ -8,12 +8,18 @@ import type { Memory } from "./types";
 // request, which is only affordable — and only debuggable — while it stays
 // small enough to read in one glance.
 //
-// Capture is entirely manual. Every other product in this category lets a
-// model decide what is worth keeping, and that produces confident nonsense —
-// remembering that someone was tired on a Tuesday, or that a project name
-// mentioned once is the one they work on. A remembered falsehood is worse than
-// no memory, because it is applied without question and without a timestamp
+// Capture has two doors, and both are the user's. They can type one here or in
+// Settings; they can also let a model read the conversation and offer one, which
+// it does in `lib/memorySuggestions.ts`. The offer is never applied without a
+// tap, because a model asked to decide what is worth keeping produces confident
+// nonsense — remembering that someone was tired on a Tuesday, or that a project
+// name mentioned once is the one they work on. A remembered falsehood is worse
+// than no memory, because it is applied without question and without a timestamp
 // anyone thinks to doubt.
+//
+// The limits below are what makes this list usable at all, and they apply to
+// suggestions exactly as they apply to typed memories: nothing reaches the
+// prompt without passing `normalizeMemoryText`.
 
 // Long enough for a real sentence, short enough that nobody types an essay
 // they will not read back.
