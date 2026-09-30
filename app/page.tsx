@@ -53,6 +53,7 @@ import { authHeader, firebaseConfigured, getServices, syncFirebaseHistory } from
 import { subscribeAppConfig, type AppConfig } from "@/lib/appConfig";
 import { useMaintenance } from "@/lib/useMaintenance";
 import SplashScreen from "@/components/SplashScreen";
+import InstallPrompt from "@/components/InstallPrompt";
 
 // ── Mino — main client orchestration: modes, streaming, chats ────────────────
 
@@ -515,6 +516,11 @@ export default function HomePage() {
 
   const handleSend = useCallback(
     (text: string, images: ImageAttachment[], documents?: DocumentAttachment[]) => {
+      // Someone who has sent a message has decided Mino is worth a second
+      // look, which is the earliest the install prompt can be justified. It
+      // arrives as a custom event because the prompt decides for itself
+      // whether to ask — this page only reports what happened.
+      window.dispatchEvent(new Event("mino:engage"));
       if (imageMode) {
         void drawImage(text);
         return;
@@ -720,6 +726,9 @@ export default function HomePage() {
       {/* Branding splash — a fresh visit to the home page only, once per
           session. It sits above the app while this page finishes loading. */}
       <SplashScreen />
+
+      {/* Install prompt — mobile only, and only once Mino has been used. */}
+      <InstallPrompt />
     </div>
   );
 }

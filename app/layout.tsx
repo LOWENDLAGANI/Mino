@@ -1,10 +1,22 @@
 import type { Metadata, Viewport } from "next";
+import ServiceWorker from "@/components/ServiceWorker";
 import "./globals.css";
 
 export const metadata: Metadata = {
   title: "Mino — AI Assistant by Minetallest",
   description:
     "Mino is a private AI assistant by Minetallest. Multi-model chat, vision, image understanding, and image generation.",
+  // Without a manifest and a service worker the site is not installable, and
+  // without `standalone` the installed copy opens in a browser chrome frame
+  // that looks like a website rather than an app.
+  manifest: "/manifest.webmanifest",
+  applicationName: "Mino",
+  appleWebApp: {
+    capable: true,
+    title: "Mino",
+    statusBarStyle: "black-translucent",
+  },
+  formatDetection: { telephone: false },
   icons: {
     icon: [
       // Uploaded brand logo (public/mino-logo.png) takes over once present.
@@ -19,7 +31,11 @@ export const metadata: Metadata = {
         type: "image/svg+xml",
       },
     ],
-    apple: [{ url: "/mino-logo.png", type: "image/png" }],
+    apple: [
+      // A square icon with no transparency: iOS composites transparency as
+      // black, which would put a black box behind the logo on the home screen.
+      { url: "/apple-touch-icon.png", type: "image/png", sizes: "180x180" },
+    ],
   },
 };
 
@@ -34,7 +50,10 @@ export const viewport: Viewport = {
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="en" className="dark">
-      <body className="h-[100dvh]">{children}</body>
+      <body className="h-[100dvh]">
+        {children}
+        <ServiceWorker />
+      </body>
     </html>
   );
 }
