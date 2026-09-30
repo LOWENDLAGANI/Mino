@@ -39,11 +39,21 @@ function CopyMessageButton({ text }: { text: string }) {
           // Clipboard access can be unavailable in some browsers.
         }
       }}
-      className="flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[11px] text-text-low transition-colors hover:bg-hover hover:text-text-mid"
-      aria-label="Copy message"
+      className="flex h-7 w-7 items-center justify-center rounded-lg text-white/30 transition-colors hover:bg-white/[0.07] hover:text-white/80"
+      aria-label={copied ? "Copied" : "Copy message"}
+      title={copied ? "Copied" : "Copy"}
       type="button"
     >
-      {copied ? "Copied" : "Copy"}
+      {copied ? (
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" className="text-[#9ee7ff]" aria-hidden="true">
+          <path d="m4.5 12.5 5 5 10-11" />
+        </svg>
+      ) : (
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+          <rect x="9" y="9" width="11" height="11" rx="2.5" />
+          <path d="M5.5 15H5a1.5 1.5 0 0 1-1.5-1.5V5A1.5 1.5 0 0 1 5 3.5h8.5A1.5 1.5 0 0 1 15 5v.5" />
+        </svg>
+      )}
     </button>
   );
 }
@@ -94,8 +104,17 @@ function SearchSources({ sources }: { sources: NonNullable<ChatMessage["sources"
 
 function MessageActions({ onRegenerate }: { onRegenerate: () => void }) {
   return (
-    <button onClick={onRegenerate} className="rounded-md px-1.5 py-0.5 text-[11px] text-text-low transition-colors hover:bg-hover hover:text-text-mid" type="button">
-      Retry
+    <button
+      onClick={onRegenerate}
+      className="flex h-7 w-7 items-center justify-center rounded-lg text-white/30 transition-colors hover:bg-white/[0.07] hover:text-white/80"
+      aria-label="Retry this answer"
+      title="Retry"
+      type="button"
+    >
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+        <path d="M20 11a8 8 0 1 0-2.1 6.3" />
+        <path d="M20 5v6h-6" />
+      </svg>
     </button>
   );
 }
@@ -165,12 +184,6 @@ function MessageRow({ msg, streaming, drawing, onRegenerate, onEditMessage }: {
         {msg.usage && (
           <span className="text-[10px] text-text-low">{msg.usage.total.toLocaleString()} tok</span>
         )}
-        {msg.content && !streaming && (
-          <span className="flex items-center gap-1 opacity-100 transition-opacity md:opacity-0 md:group-hover:opacity-100">
-            <MessageActions onRegenerate={onRegenerate} />
-            <CopyMessageButton text={msg.content} />
-          </span>
-        )}
       </div>
 
       {drawing && <DrawingPlaceholder />}
@@ -205,6 +218,21 @@ function MessageRow({ msg, streaming, drawing, onRegenerate, onEditMessage }: {
       )}
 
       {msg.sources && <SearchSources sources={msg.sources} />}
+
+      {/* The actions sit below the answer rather than in its header, and they
+          appear only once the answer is genuinely finished. That placement is
+          the point: a truncated response is the one failure here that is
+          otherwise invisible, rendering and copying as a clean block and
+          reading as complete. With the controls underneath, their absence is
+          the signal — nothing to press means nothing finished, and the
+          explanation below says why. A header button could not carry that
+          meaning, because it would be missing for unrelated reasons. */}
+      {msg.content && !streaming && !msg.truncated && !msg.error && (
+        <div className="mt-2 flex items-center gap-1">
+          <MessageActions onRegenerate={onRegenerate} />
+          <CopyMessageButton text={msg.content} />
+        </div>
+      )}
 
       {/* A cut-off answer, said out loud. A truncated file is the one failure
           mode here that is completely invisible: it renders as a clean code
