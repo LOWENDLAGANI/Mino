@@ -52,6 +52,7 @@ import {
 import { authHeader, firebaseConfigured, getServices, syncFirebaseHistory } from "@/lib/firebaseHistory";
 import { subscribeAppConfig, type AppConfig } from "@/lib/appConfig";
 import { useMaintenance } from "@/lib/useMaintenance";
+import SplashScreen from "@/components/SplashScreen";
 
 // ── Mino — main client orchestration: modes, streaming, chats ────────────────
 
@@ -559,7 +560,14 @@ export default function HomePage() {
   // Maintenance replaces the page outright rather than covering it, so
   // nothing behind the notice is mounted and there is nothing to navigate to.
   if (!maintenance.resolved) return null;
-  if (maintenance.active) return <MaintenanceScreen message={maintenance.message} />;
+  if (maintenance.active) {
+    return (
+      <>
+        <MaintenanceScreen message={maintenance.message} />
+        <SplashScreen />
+      </>
+    );
+  }
 
   // A signed-in person arriving on a new browser has a name Mino already knows
   // and this one has not read yet. Holding the gate for that single read is the
@@ -570,6 +578,7 @@ export default function HomePage() {
     return (
       <div className="flex h-[100dvh] items-center justify-center bg-[#030304] text-text-body">
         <MinoMark className="h-8 w-8 animate-pulse" />
+        <SplashScreen />
       </div>
     );
   }
@@ -587,6 +596,7 @@ export default function HomePage() {
           googleBusy={googleBusy}
           googleError={googleError}
         />
+        <SplashScreen />
       </div>
     );
   }
@@ -706,6 +716,10 @@ export default function HomePage() {
         appearance={appearance}
         onAppearanceChange={handleAppearanceChange}
       />
+
+      {/* Branding splash — a fresh visit to the home page only, once per
+          session. It sits above the app while this page finishes loading. */}
+      <SplashScreen />
     </div>
   );
 }
