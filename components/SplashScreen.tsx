@@ -9,14 +9,33 @@
 // to the page, reloading, or opening `/about` skips it — sessionStorage is the
 // marker, so closing the tab gives the next visit its splash back.
 //
-// Drop your image in `public/` and point SPLASH_IMAGE at it. If the file is
-// missing the browser fires `onError` and we fall back to the brand logo, so a
-// wrong filename degrades instead of showing a broken image.
+// ── Two images, because a phone is not a small laptop ───────────────────────
+// The splash fills the screen edge to edge, so the crop is driven entirely by
+// the screen's shape. A 16:9 desktop image shown on a tall phone has to be
+// cropped to roughly the middle third to cover it, and whatever is at the
+// sides is simply gone — the branding is the first thing a visitor sees, so
+// losing most of it is not acceptable. `object-position` can shift the crop
+// but cannot invent the missing pixels.
+//
+// So the artwork is supplied twice: a portrait composition for narrow screens
+// and the landscape one for everything wider. The swap is a `<source>` inside a
+// `<picture>`, which the browser resolves from the media query before any of
+// this paints — no measuring, no resize listener, no second render. Both files
+// are asked for independently, so neither is downloaded unless it is chosen.
 
 import { useEffect, useState } from "react";
 
-const SPLASH_IMAGE = "/mino-splash.jpg";
+/** Landscape artwork, used from 768px up. */
+const DESKTOP_IMAGE = "/mino-splash.jpg";
+
+/** Portrait artwork, used below 768px. Falls back to the desktop one. */
+const MOBILE_IMAGE = "/mino-splash-mobile.jpg";
+
+/** Shown if neither artwork is found, so a wrong filename never shows a gap. */
 const FALLBACK_IMAGE = "/mino-logo.png";
+
+/** Where the `<picture>` element stops offering the portrait source. */
+const WIDE_QUERY = "(min-width: 768px)";
 
 const SESSION_KEY = "mino:splash-seen";
 const HOLD_MS = 1600; // image sits crisp while the app loads behind it
@@ -24,8 +43,21 @@ const FADE_MS = 1100; // blur + fade out
 
 type Phase = "pending" | "hold" | "fade" | "gone";
 
+/**
+ * Which artwork to try next when one fails to load.
+ *
+ * A `<picture>` reports a failed `<source>` through the `<img>`'s error event,
+ * but the event does not say which URL was attempted, so the fallback is a
+ * fixed ladder rather than a comparison: the portrait source is simply dropped
+ * from the markup, the browser re-resolves the media query against the desktop
+ * file, and only after that does the logo come into play.
+ */
+function nextStage(stage: number): number {
+  return Math.min(stage + 1, 2);
+}
+
 export default function SplashScreen() {
-  const [src, setSrc] = useState(SPLASH_IMAGE);
+  const [stage, setStage] = useState(0);
   const [phase, setPhase] = useState<Phase>("pending");
 
   useEffect(() => {
@@ -77,16 +109,47 @@ export default function SplashScreen() {
         pointerEvents: phase === "fade" ? "none" : "auto",
       }}
     >
-      {/* eslint-disable-next-line @next/next/no-img-element */}
-      <img
-        src={src}
-        onError={() => {
-          if (src !== FALLBACK_IMAGE) setSrc(FALLBACK_IMAGE);
-        }}
-        alt=""
-        className="h-full w-full object-cover"
-        draggable={false}
-      />
+      {stage === 0 ? (
+        // The portrait file is the `<img>` default, so it is what a narrow
+        // screen gets; the `<source>` above it overrides that on wide screens
+        // before anything paints.
+        <picture>
+          <source media={WIDE_QUERY} srcSet={DESKTOP_IMAGE} />
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src={MOBILE_IMAGE}
+            onError={() => setStage(nextStage)}
+            alt=""
+            className="h-full w-full object-cover"
+            draggable={false}
+          />
+        </picture>
+      ) : stage === 1 ? (
+        // Portrait artwork absent: use the landscape one, cropped as before.
+        // This is the state a deployment without the second file is always in,
+        // so it must look correct rather than merely not be blank.
+        // eslint-disable-next-line @next/next/no-img-element
+        <img
+          src={DESKTOP_IMAGE}
+          onError={() => setStage(nextStage)}
+          alt=""
+          className="h-full w-full object-cover"
+          draggable={false}
+        />
+      ) : (
+        // Neither artwork present. A logo beats an empty black screen.
+        <div className="flex h-full w-full items-center justify-center p-10">
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src={FALLBACK_IMAGE}
+            onError={() => setStage(nextStage)}
+            alt=""
+            className="h-full w-full object-contain"
+            draggable={false}
+          />
+        </div>
+      )}
+
       <div
         className="pointer-events-none absolute inset-0"
         style={{
