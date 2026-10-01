@@ -1,5 +1,6 @@
 import { onValue, ref } from "firebase/database";
 import { getServices } from "./firebaseHistory";
+import { normalizeNotes, type DevNote } from "./notes";
 
 // ── Runtime controls, read by the server on every request ───────────────────
 // The administrator sets these from the admin console. They live in Realtime
@@ -21,6 +22,11 @@ export interface AppConfig {
   searchEnabled: boolean;
   /** A short line shown to every visitor. Empty hides the banner. */
   announcement: string;
+  /** Heading on the notes page, e.g. "News From Developers". */
+  notesTitle: string;
+  /** Everything published under "News from the developers". Empty list hides
+   *  the section entirely rather than showing an empty page. */
+  notes: DevNote[];
   /** Messages per visitor per day. 0 means unlimited. */
   dailyChatCap: number;
   /** Images per visitor per day. 0 means unlimited. */
@@ -42,6 +48,8 @@ export const DEFAULT_CONFIG: AppConfig = {
   imageEnabled: true,
   searchEnabled: true,
   announcement: "",
+  notesTitle: "News From Developers",
+  notes: [],
   dailyChatCap: 0,
   dailyImageCap: 0,
   bannedUids: [],
@@ -64,6 +72,11 @@ export function normalizeConfig(raw: unknown): AppConfig {
     imageEnabled: asBool(value.imageEnabled, DEFAULT_CONFIG.imageEnabled),
     searchEnabled: asBool(value.searchEnabled, DEFAULT_CONFIG.searchEnabled),
     announcement: typeof value.announcement === "string" ? value.announcement.slice(0, 200) : "",
+    notesTitle:
+      typeof value.notesTitle === "string" && value.notesTitle.trim()
+        ? value.notesTitle.slice(0, 60)
+        : DEFAULT_CONFIG.notesTitle,
+    notes: normalizeNotes(value.notes),
     dailyChatCap: asCount(value.dailyChatCap),
     dailyImageCap: asCount(value.dailyImageCap),
     bannedUids: Array.isArray(value.bannedUids)

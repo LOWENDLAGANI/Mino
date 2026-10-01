@@ -61,6 +61,7 @@ import { useMaintenance } from "@/lib/useMaintenance";
 import SplashScreen from "@/components/SplashScreen";
 import InstallPrompt from "@/components/InstallPrompt";
 import MemorySuggestions from "@/components/MemorySuggestions";
+import NotesPrompt from "@/components/NotesPrompt";
 import {
   dismissSuggestions,
   loadSuggestionEnabled,
@@ -816,6 +817,10 @@ export default function HomePage() {
 
       {/* Install prompt — mobile only, and only once Mino has been used. */}
       <InstallPrompt />
+
+      {/* Developer notes — shows a newly published note once per reader, then
+          never again until the next one is published. */}
+      <NotesPrompt />
     </div>
   );
 }

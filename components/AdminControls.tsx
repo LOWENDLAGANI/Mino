@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { DEFAULT_CONFIG, subscribeAppConfig, type AppConfig } from "@/lib/appConfig";
 import { endAdminSession, listUsage, saveAppConfig, type AdminUsage, type AdminUser } from "@/lib/firebaseAdmin";
+import AdminNotes from "./AdminNotes";
 
 // ── Runtime controls ────────────────────────────────────────────────────────
 // These are enforced by the server, not by this screen. A switch here closes
@@ -225,6 +226,12 @@ export default function AdminControls({ users, onError }: AdminControlsProps) {
             Set
           </button>
         </div>
+      </div>
+
+      {/* Notes get their own component because it is a composer rather than a
+          switch, but it writes through the same `save` as everything above. */}
+      <div className="mt-4">
+        <AdminNotes onError={onError} onSave={save} saving={saving} />
       </div>
 
       <div className="mt-4">

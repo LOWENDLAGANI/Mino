@@ -214,6 +214,18 @@ export default function Sidebar({ activeChatId, onSelectChat, onNewChat, open, o
             </span>
           </a>
           <a
+            href="/notes"
+            className="flex w-full items-center gap-2 rounded-xl px-2 py-2 text-[14px] text-white/60 transition-colors hover:bg-white/[0.05] hover:text-white"
+          >
+            <UtilityIcon>
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
+                <rect x="4" y="5" width="16" height="16" rx="2.5" />
+                <path d="M4 9.5h16M8 3.5V6M16 3.5V6M8 13.5h4M8 17h7" />
+              </svg>
+            </UtilityIcon>
+            News
+          </a>
+          <a
             href="/donate"
             className="group relative mt-1 flex w-full items-center gap-2 overflow-hidden rounded-2xl border border-rose-300/20 bg-gradient-to-r from-rose-400/[0.13] via-rose-300/[0.06] to-transparent px-2 py-2 text-[14px] font-medium text-white shadow-[0_0_26px_-12px_rgba(251,113,133,0.9)] transition-shadow hover:shadow-[0_0_30px_-8px_rgba(251,113,133,1)]"
           >
