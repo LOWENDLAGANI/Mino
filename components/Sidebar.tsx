@@ -214,6 +214,21 @@ export default function Sidebar({ activeChatId, onSelectChat, onNewChat, open, o
             </span>
           </a>
           <a
+            href="/donate"
+            className="group relative mt-1 flex w-full items-center gap-2 overflow-hidden rounded-2xl border border-rose-300/20 bg-gradient-to-r from-rose-400/[0.13] via-rose-300/[0.06] to-transparent px-2 py-2 text-[14px] font-medium text-white shadow-[0_0_26px_-12px_rgba(251,113,133,0.9)] transition-shadow hover:shadow-[0_0_30px_-8px_rgba(251,113,133,1)]"
+          >
+            <span
+              aria-hidden
+              className="animate-sheen pointer-events-none absolute inset-y-0 -left-1/2 w-1/3 bg-gradient-to-r from-transparent via-white/[0.12] to-transparent"
+            />
+            <span className="relative flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-rose-400/15 text-rose-200 shadow-[0_0_16px_-4px_rgba(251,113,133,0.9)]">
+              <svg width="17" height="17" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+                <path d="M12 20.7s-7.6-4.7-7.6-10A4.5 4.5 0 0 1 12 7.9a4.5 4.5 0 0 1 7.6 2.8c0 5.3-7.6 10-7.6 10Z" />
+              </svg>
+            </span>
+            <span className="relative truncate">Support Mino</span>
+          </a>
+          <a
             href="/about"
             className="flex w-full items-center gap-2 rounded-xl px-2 py-2 text-[14px] text-white/60 transition-colors hover:bg-white/[0.05] hover:text-white"
           >
