@@ -9,8 +9,10 @@ import MaintenanceGate from "@/components/MaintenanceGate";
 // reveals a picture instead. To personalise the reveal, drop your image at
 // public/ and give it any name you like, then update this one constant.
 
-/** Path (in /public) of the image shown after tapping Subscribe. */
-export const PRANK_IMAGE = "/mino-plus-prank.png";
+/** Path (in /public) of the image shown after tapping Subscribe. Module-local on
+ * purpose: a page file may only export the page itself and Next's known
+ * fields, so exporting this constant breaks `next build`. */
+const PRANK_IMAGE = "/mino-plus-prank.png";
 
 const FEATURES: Array<{ label: string; free: boolean; plus: boolean }> = [
   { label: "Access to the newest model", free: true, plus: true },
