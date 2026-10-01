@@ -192,14 +192,26 @@ export default function Sidebar({ activeChatId, onSelectChat, onNewChat, open, o
           </button>
           <a
             href="/plus"
-            className="flex w-full items-center gap-2 rounded-xl px-2 py-2 text-[14px] text-white/60 transition-colors hover:bg-white/[0.05] hover:text-white"
+            aria-label="Mino Gigachad — upgrade"
+            className="group relative mt-1 flex w-full items-center gap-2 overflow-hidden rounded-2xl border border-[#4da3ff]/30 bg-gradient-to-r from-[#4da3ff]/[0.14] via-[#9ee7ff]/[0.07] to-transparent px-2 py-2 text-[14px] font-medium text-white shadow-[0_0_26px_-10px_rgba(77,163,255,0.85)] transition-shadow hover:shadow-[0_0_34px_-8px_rgba(77,163,255,1)]"
           >
-            <UtilityIcon>
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M4 17.5 9 12l3.5 3.5L20 8" /><path d="M15.5 8H20v4.5" />
+            {/* Slow sheen so the row reads as the live one without moving. */}
+            <span
+              aria-hidden
+              className="animate-sheen pointer-events-none absolute inset-y-0 -left-1/2 w-1/3 bg-gradient-to-r from-transparent via-white/[0.14] to-transparent"
+            />
+            <span className="relative flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-[#4da3ff]/15 text-[#9ee7ff] shadow-[0_0_16px_-4px_rgba(77,163,255,0.9)]">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M4 18h16L14.4 8.6a1.4 1.4 0 0 0-2.4 0L9.6 12 6.8 6.6a1.2 1.2 0 0 0-2.2.5L4 18Z" />
+                <path d="M4 18h16" />
               </svg>
-            </UtilityIcon>
-            Mino Plus
+            </span>
+            <span className="relative flex min-w-0 flex-1 items-center gap-1.5">
+              <span className="truncate">Mino Gigachad</span>
+              <span className="animate-breathe shrink-0 rounded-full bg-[#4da3ff]/20 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-[#9ee7ff]">
+                New
+              </span>
+            </span>
           </a>
           <a
             href="/about"
