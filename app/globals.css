@@ -333,6 +333,28 @@ button {
   transition-duration: 0.08s;
 }
 
+/* Attention glow for the upgrade button. The halo is a separate blurred
+   element behind the button rather than a box-shadow on it: a shadow would
+   repaint on every frame, while animating one element's `opacity` and
+   `transform` stays on the compositor. */
+@keyframes halo {
+  0%, 100% { opacity: 0.45; transform: scale(0.97); }
+  50% { opacity: 0.9; transform: scale(1.03); }
+}
+.animate-halo {
+  animation: halo 2.2s ease-in-out infinite;
+  will-change: transform, opacity;
+}
+
+/* A slow sweep for the highlighted plan pill. */
+@keyframes sheen {
+  0% { transform: translateX(-120%); }
+  100% { transform: translateX(220%); }
+}
+.animate-sheen {
+  animation: sheen 2.8s ease-in-out infinite;
+}
+
 @keyframes blink {
   0%, 100% { opacity: 1; }
   50% { opacity: 0.3; }
@@ -350,6 +372,7 @@ button {
   *::before,
   *::after {
     animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
     transition-duration: 0.01ms !important;
   }
 }

@@ -25,8 +25,24 @@ const FEATURES: Array<{ label: string; free: boolean; plus: boolean }> = [
 ];
 
 const PLANS = [
-  { id: "go", name: "Go", price: "Free", blurb: "For everyday chatting" },
-  { id: "plus", name: "Plus", price: "RM 95.99 / mo", blurb: "For the full experience" },
+  {
+    id: "go",
+    name: "Mino Mini",
+    short: "Mini",
+    price: "RM 200",
+    cadence: "/mo",
+    blurb: "Everything you need to chat",
+    featured: false,
+  },
+  {
+    id: "plus",
+    name: "Mino Gigachad",
+    short: "Gigachad",
+    price: "RM 1,000",
+    cadence: "/mo",
+    blurb: "Maximum access to the whole brain",
+    featured: true,
+  },
 ] as const;
 
 function Mark({ on }: { on: boolean }) {
@@ -95,8 +111,11 @@ export default function MinoPlusPage() {
             </svg>
           </Link>
 
-          <h1 className="mt-7 text-[clamp(2.5rem,9vw,4rem)] font-semibold leading-[1.05] tracking-tight">
-            Mino <span className="text-[#4da3ff]">Plus</span>
+          <h1 className="mt-7 text-[clamp(2.1rem,8vw,3.6rem)] font-semibold leading-[1.05] tracking-tight">
+            Mino{" "}
+            <span className="bg-gradient-to-r from-[#4da3ff] via-[#9ee7ff] to-[#4da3ff] bg-clip-text text-transparent">
+              {active.name.replace("Mino ", "")}
+            </span>
           </h1>
           <p className="mt-3 max-w-xl text-[clamp(1rem,3.6vw,1.3rem)] leading-snug text-white/60">
             Get more access with advanced intelligence and agents
@@ -114,27 +133,37 @@ export default function MinoPlusPage() {
                 role="tab"
                 aria-selected={plan === item.id}
                 onClick={() => setPlan(item.id)}
-                className={`rounded-full px-4 py-3 text-[15px] font-medium transition-all ${
+                className={`relative overflow-hidden rounded-full px-3 py-3 text-[15px] font-medium transition-all ${
                   plan === item.id
-                    ? "bg-white/[0.12] text-white shadow-[0_1px_0_rgba(255,255,255,0.08)_inset]"
+                    ? "bg-white/[0.14] text-white shadow-[0_0_22px_-4px_rgba(77,163,255,0.75),0_1px_0_rgba(255,255,255,0.1)_inset]"
                     : "text-white/50 hover:text-white/80"
                 }`}
               >
-                {item.name}
+                {plan === item.id && (
+                  <span className="animate-sheen pointer-events-none absolute inset-y-0 -left-1/3 w-1/3 bg-gradient-to-r from-transparent via-white/20 to-transparent" />
+                )}
+                <span className="relative flex items-center justify-center gap-1.5">
+                  {item.featured && plan === item.id && (
+                    <span className="text-[13px] leading-none" aria-hidden>
+                      🔥
+                    </span>
+                  )}
+                  {item.short}
+                </span>
               </button>
             ))}
           </div>
           <p className="mt-3 text-[14px] text-white/45">
-            {active.name} — {active.blurb}.{" "}
-            {plan === "go" ? "Upgrade any time." : "Billed monthly in ringgit."}
+            <span className="font-semibold text-white/85">{active.name}</span> — {active.blurb}.{" "}
+            {active.price} {active.cadence}, cancel any time.
           </p>
 
           {/* Features */}
-          <section className="mt-6 overflow-hidden rounded-[26px] border border-white/[0.08] bg-white/[0.035] p-4 sm:p-6">
+          <section        className="relative mt-6 overflow-hidden rounded-[26px] border border-[#4da3ff]/20 bg-white/[0.035] p-4 shadow-[0_0_50px_-18px_rgba(77,163,255,0.6)] sm:p-6">
             <div className="grid grid-cols-[1fr_auto_auto] items-center gap-x-3 sm:gap-x-8">
               <span className="text-[15px] text-white/50">Features</span>
-              <span className="w-12 text-center text-[15px] text-white/50 sm:w-16">Free</span>
-              <span className="w-12 text-center text-[15px] font-medium text-[#4da3ff] sm:w-16">Plus</span>
+              <span className="w-14 text-center text-[15px] text-white/50 sm:w-20">Mini</span>
+              <span className="w-14 text-center text-[15px] font-medium text-[#4da3ff] sm:w-20">Gigachad</span>
             </div>
 
             <ul className="mt-2">
@@ -146,10 +175,10 @@ export default function MinoPlusPage() {
                   <span className="text-[clamp(0.95rem,3.4vw,1.15rem)] leading-snug text-white/90">
                     {feature.label}
                   </span>
-                  <span className="w-12 sm:w-16">
+                  <span className="w-14 sm:w-20">
                     <Mark on={feature.free} />
                   </span>
-                  <span className="w-12 sm:w-16">
+                  <span className="w-14 sm:w-20">
                     <Mark on={feature.plus} />
                   </span>
                 </li>
@@ -161,15 +190,30 @@ export default function MinoPlusPage() {
             Restore subscription
           </button>
 
-          <button
-            onClick={() => {
-              setImageBroken(false);
-              setRevealed(true);
-            }}
-            className="lift mt-4 flex w-full items-center justify-center gap-2 rounded-full bg-white px-6 py-4 text-[clamp(1rem,3.8vw,1.15rem)] font-semibold text-black transition-transform sm:py-[18px]"
-          >
-            {plan === "go" ? "Upgrade for RM 95.99" : "Subscribe"}
-          </button>
+          <div className="relative mt-5">
+            {/* Breathing halo behind the button, plus a thin conic ring that
+                sweeps once per loop. Both are siblings, so the button stays
+                clickable and the glow never shifts layout. */}
+            <span
+              aria-hidden
+              className="animate-halo pointer-events-none absolute -inset-3 rounded-full bg-[#4da3ff]/45 blur-2xl"
+            />
+            <span
+              aria-hidden
+              className="pointer-events-none absolute -inset-[3px] overflow-hidden rounded-full"
+            >
+              <span className="animate-sheen absolute inset-y-0 -left-1/2 w-1/2 bg-[conic-gradient(from_90deg_at_50%_50%,transparent,rgba(158,231,255,0.9),transparent)] blur-[2px]" />
+            </span>
+            <button
+              onClick={() => {
+                setImageBroken(false);
+                setRevealed(true);
+              }}
+              className="lift relative flex w-full items-center justify-center gap-2 rounded-full bg-white px-6 py-4 text-[clamp(1rem,3.8vw,1.15rem)] font-semibold text-black transition-transform sm:py-[18px]"
+            >
+              Upgrade to {active.short} — {active.price}
+            </button>
+          </div>
 
           <p className="mt-4 text-center text-[14px] text-white/45">
             Renews monthly. Cancel anytime.
