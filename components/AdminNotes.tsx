@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { subscribeAppConfig, type AppConfig } from "@/lib/appConfig";
-import { formatNoteDate, newNoteId, type DevNote, type NoteBadgeTone } from "@/lib/notes";
+import { formatNoteDate, newNoteId, upsertNote, type DevNote, type NoteBadgeTone } from "@/lib/notes";
 
 // ── Notes composer ──────────────────────────────────────────────────────────
 // Every field on the note is editable here: the badge text and its colour, the
@@ -66,7 +66,8 @@ export default function AdminNotes({ onError, onSave, saving }: AdminNotesProps)
     // and the "Published 25 Sep 2026" line both mean the same thing.
     void onSave({ ...config, notesTitle: title.trim() || config.notesTitle, notes: nextNotes, ...patch })
       .catch(() => undefined);
-  };
+  };/** Adds the note if it is new, replaces it if it already exists. */
+  const upsert = (note: DevNote) => upsertNote(notes, note);
 
   const publish = (note: DevNote) => {
     if (!note.title.trim()) {
@@ -74,22 +75,15 @@ export default function AdminNotes({ onError, onSave, saving }: AdminNotesProps)
       return;
     }
     onError(null);
-    commit(
-      notes.map((entry) =>
-        entry.id === note.id
-          ? { ...entry, published: true, publishedAt: note.publishedAt || Date.now() }
-          : entry,
-      ),
-    );
+    // `publishedAt` is stamped here, so the list order and the published date
+    // both mean the moment it went live.
+    commit(upsert({ ...note, published: true, publishedAt: note.publishedAt || Date.now() }));
     setDraft(null);
   };
 
   const saveDraft = () => {
     if (!draft) return;
-    const exists = notes.some((entry) => entry.id === draft.id);
-    commit(
-      exists ? notes.map((entry) => (entry.id === draft.id ? draft : entry)) : [draft, ...notes],
-    );
+    commit(upsert(draft));
     setDraft(null);
   };
 

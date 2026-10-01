@@ -21,8 +21,14 @@ import {
 //  * A note published later has a new id, so it surfaces to everyone again
 //    without anybody having to reset anything.
 
-/** A beat after load, so it never competes with the first paint of the chat. */
-const OPEN_DELAY_MS = 1400;
+/**
+ * A beat after load, so it never competes with the first paint of the chat.
+ *
+ * This has to clear the splash screen: it holds an opaque layer above
+ * everything for 1.6s and then fades for another 1.1s. Firing earlier than
+ * that put the sheet behind the splash, where it opened unseen.
+ */
+const OPEN_DELAY_MS = 2900;
 
 function PromptBody({ note, onDismiss }: { note: DevNote; onDismiss: () => void }) {
   return (

@@ -104,6 +104,19 @@ export function unseenNotes(notes: DevNote[], seen: readonly string[]): DevNote[
   return publishedNotes(notes).filter((note) => !known.has(note.id));
 }
 
+/**
+ * Adds a note, or replaces the one with the same id.
+ *
+ * Both editing and publishing go through here. Replacing by mapping over the
+ * list only works for a note already in it, so a first-time publish would
+ * otherwise write the old list back unchanged and the note would vanish.
+ */
+export function upsertNote(notes: DevNote[], note: DevNote): DevNote[] {
+  return notes.some((entry) => entry.id === note.id)
+    ? notes.map((entry) => (entry.id === note.id ? note : entry))
+    : [note, ...notes];
+}
+
 export function newNoteId(): string {
   const random = Math.random().toString(36).slice(2, 8);
   return `note-${Date.now().toString(36)}-${random}`;

@@ -9,6 +9,7 @@ import {
   normalizeNotes,
   publishedNotes,
   unseenNotes,
+  upsertNote,
   type DevNote,
 } from "../lib/notes";
 
@@ -126,6 +127,29 @@ test("seen ids from a previous visit do not hide a note republished under the sa
   // design. This documents that rather than pretending otherwise.
   const notes = [note({ id: "note-1" })];
   assertEqual(unseenNotes(notes, ["note-1"]), [], "same id stays seen");
+});
+
+test("publishing a note that is not in the list yet adds it", () => {
+  // The bug this covers: replacing by mapping over the stored list matches
+  // nothing for a first-time publish, so the note was written back lost.
+  const notes = normalizeNotes([note({ id: "old" })]);
+  const fresh = note({ id: "new", title: "Brand New" });
+  const result = upsertNote(notes, fresh);
+  assertEqual(result.map((n) => n.id), ["new", "old"], "the new note leads");
+  assertEqual(result.length, 2, "nothing was dropped");
+});
+
+test("publishing an existing note replaces it in place rather than duplicating", () => {
+  const notes = normalizeNotes([note({ id: "a" }), note({ id: "b", publishedAt: 2 })]);
+  const result = upsertNote(notes, { ...notes[1], title: "Updated" });
+  assertEqual(result.length, 2, "still two notes");
+  assertEqual(findNote(result, "b")?.title, "Updated", "the edit landed");
+});
+
+test("a first-time publish is what readers see", () => {
+  const published = upsertNote([], { ...note({ id: "fresh" }), published: true });
+  assertEqual(publishedNotes(published).map((n) => n.id), ["fresh"], "published immediately");
+  assertEqual(unseenNotes(published, []).map((n) => n.id), ["fresh"], "so it reaches readers");
 });
 
 test("a note can be found by id, and a wrong or missing id finds nothing", () => {
