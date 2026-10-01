@@ -28,6 +28,7 @@
         ".read": false,
         ".write": "auth != null && auth.uid === $uid",
         "chats": {
+          ".read": "auth != null && auth.uid === $uid",
           "$chatId": {
             ".validate": "newData.hasChildren(['id','title','createdAt','updatedAt','messages'])"
           }

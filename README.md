@@ -6,7 +6,7 @@ Built with **Next.js 15 (App Router)**, **React 19**, **TypeScript**, **Tailwind
 
 ## Features
 
-- **Zero-login persistence** — chats and messages load only from the current browser’s IndexedDB via Dexie; Firebase Realtime Database is used only to log chat text under the anonymous user identity
+- **Zero-login persistence** — chats and messages live in the current browser’s IndexedDB via Dexie; when Firebase is configured they are also written to Realtime Database under the signed-in identity, and an account holder gets them back on any other browser they sign in from
 - **Optional Google account** — Mino works with just a name. Binding a Google account from the welcome screen or Settings is a migration that keeps the same UID, so the chats and the name carry to another browser. It grants no administrator access and shares no code path with the console
 - **Two modes** — **Mino Auto** routes every message to the best available model; **Mino Code** uses Mino V3, tuned for code and technical work. Each mode is powered by its own server-side API key, with automatic fallback if one is missing. Picking Code always opens a **separate session**, so a code conversation is never continued under a different model's answers.
 - **Mino's own model names** — the product never shows a vendor or a vendor's version numbers. Users see **Mino V1**, **Mino V2**, and **Mino V3** (the oldest, middle, and newest model), and **Mino Auto** for the router. The wire-level provider names stay server-side.
@@ -49,7 +49,9 @@ Set either (or both) via `process.env` — locally in `.env.local`, or in Vercel
 
 ### Automatic Firebase logging
 
-When Firebase is configured, Mino automatically signs in with a hidden anonymous identity and logs local chat text to that identity’s Realtime Database namespace. Previous chats are loaded only from the current browser’s local Dexie database; Mino never reads chat history back from Firebase. The Realtime Database rules are write-only, so the client cannot read another user’s logs or use the database as chat history.
+When Firebase is configured, Mino automatically signs in with a hidden anonymous identity and writes local chat text to that identity’s Realtime Database namespace. The Realtime Database rules grant that identity a read **only on its own `users/$uid` node**, so a client can pull its own history back — which is what makes a phone’s conversations appear on a computer signed in with the same Google account — while still being unable to read anybody else’s logs. Chats are merged as a union rather than a replace, and a deletion is recorded so a sync cannot resurrect it.
+
+**Pulling requires one rule to be published.** `users/$uid/chats` grants `.read` to its owner alongside the write. A deployment that has not republished `database.rules.json` keeps the previous write-only behaviour, and `loadChatsFromAccount` returns null rather than emptying the local database — chats then stay on the device, which is the old, safe behaviour rather than a broken one.
 
 To enable automatic logging:
 
@@ -74,7 +76,7 @@ Clicking the Mino logo **on the About page** ten times within a couple of second
 }
 ```
 
-Realtime Database rules cascade downward and cannot be revoked by deeper rules, so those two grants cover every chat of every visitor. Every other signed-in visitor matches no `.read` rule anywhere and keeps the write-only access they had before. Firebase evaluates the condition on every read and write, so nothing in the client bundle is a security boundary — patching it would gain an attacker nothing.
+Realtime Database rules cascade downward and cannot be revoked by deeper rules, so those two grants cover every chat of every visitor. Every other signed-in visitor matches no `.read` rule anywhere except on their own `users/$uid` node, which they alone can read. Firebase evaluates the condition on every read and write, so nothing in the client bundle is a security boundary — patching it would gain an attacker nothing.
 
 ### Setting up the administrator
 
@@ -103,7 +105,7 @@ A wiped user loses `users/{uid}` and `admin/registry/{uid}`; a full wipe clears 
 
 On first visit Mino asks what to call you. The name is stored in that browser's `localStorage` only, so it is never asked again on the same device, and it is written to Realtime Database at `admin/registry/{uid}` alongside the first- and last-seen timestamps so the console can list visitors.
 
-That registry is names and timestamps **only**. Logged chat text under `users/{uid}/chats` is read exclusively by the server-side admin API, never by the browser, so opening the console does not expose anyone's conversations to a visitor.
+That registry is names and timestamps **only**. Logged chat text under `users/{uid}/chats` is read by the server-side admin API and by the browser **only on the visitor's own node**, so opening the console does not expose anyone's conversations to a visitor, and no visitor can read another visitor's.
 
 Note that `admin/registry` is readable by the administrator through the console; ordinary visitors can write their own entry but cannot read the node.
 
@@ -115,11 +117,11 @@ Note that `admin/registry` is readable by the administrator through the console;
 
 **Binding is a migration, not a copy.** Mino signs every first-time visitor in anonymously, which creates a real Firebase account with a UID. Binding calls `linkWithPopup`, which attaches the Google credential to *that* account rather than creating a new one, so **the UID does not change**. Everything already logged under it — the chats, the registry entry — stays exactly where it is. No chat is moved, re-uploaded, or duplicated, and the migration cannot half-finish, because there is no transfer to interrupt.
 
-**If the account already exists elsewhere**, `linkWithPopup` is refused with `auth/credential-already-in-use`. That is not a dead end: Mino signs into the existing account instead, then re-syncs this device's local chats onto it. It deliberately does **not** merge two histories. Merging is the one operation here that could lose someone's words, and the existing history is the real one — so the local copy is what moves, and only the local copy.
+**If the account already exists elsewhere**, `linkWithPopup` is refused with `auth/credential-already-in-use`. That is not a dead end: Mino signs into the existing account instead, pulls that account's chats into this browser, and then writes this device's own chats up onto it. The merge is a **union**, never a replace — either device can hold conversations the other has never seen, and a replace would silently delete one of them. Where the same message exists on both sides the newer `updatedAt` wins, and attachments (images, documents, generated images) are never uploaded at all, so the copy that has them is the only copy that keeps them.
 
 **Detaching** signs out and back in anonymously, rather than unlinking the Google provider. Firebase deletes an account that has had no sign-in provider for a while, so unlinking the only one would quietly discard the history. Detaching leaves the account intact for the next browser that signs into it.
 
-**The name follows you; the chats do not, yet.** The name is written to `users/{uid}/profile`, a node the owner alone can read, so signing in on a new browser greets you by the name you already chose instead of asking again. Chats still load only from the local Dexie cache — Mino does not read chat history back from the database for anyone, signed in or not. Precedence is fixed and deliberate: **a name typed on this device always wins**, then the account's saved name, and only then the name Google holds. That last one is the only name Mino never asked you for, so it is the one least entitled to represent you.
+**The name and the chats both follow you.** The name is written to `users/{uid}/profile`, a node the owner alone can read, so signing in on a new browser greets you by the name you already chose instead of asking again. The chats are read back from `users/{uid}/chats`, which the owner can read alone, and the pull runs on **every** visit rather than only at sign-in — so a phone that wrote history while the computer was closed hands it over the next time the computer is opened. Precedence is fixed and deliberate: **a name typed on this device always wins**, then the account's saved name, and only then the name Google holds. That last one is the only name Mino never asked you for, so it is the one least entitled to represent you.
 
 That profile node needs **one extra rule published** — a read on `users/$uid/profile` for its owner — before cross-browser names work. Until then, and on any failure, Mino falls back to the local name and says nothing. Binding itself does not depend on it.
 
@@ -276,7 +278,7 @@ components/
   posterText.ts        # Poster detection, headline extraction, text-free artwork prompt
   posterRender.tsx     # Draws the real headline over the artwork (next/og + sharp)
   imageGeneration.ts   # Client helper for the Cloudflare Workers AI image route
-  firebaseHistory.ts   # Anonymous write-only Firebase chat logging
+  firebaseHistory.ts   # Two-way chat sync, memory sync, visitor profile writes
   firebaseAdmin.ts     # Rules-gated admin reads and wipes, plus admin sign-in
   visitorName.ts       # Local display name storage
   useAdminTaps.ts      # Ten-tap gesture shared by the header and sidebar logos

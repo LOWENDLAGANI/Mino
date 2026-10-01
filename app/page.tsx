@@ -49,7 +49,13 @@ import {
   type ReasoningEffort,
   type ResponseLength,
 } from "@/lib/settings";
-import { authHeader, firebaseConfigured, getServices, syncFirebaseHistory } from "@/lib/firebaseHistory";
+import {
+  authHeader,
+  firebaseConfigured,
+  getServices,
+  loadChatsFromAccount,
+  syncFirebaseHistory,
+} from "@/lib/firebaseHistory";
 import { subscribeAppConfig, type AppConfig } from "@/lib/appConfig";
 import { useMaintenance } from "@/lib/useMaintenance";
 import SplashScreen from "@/components/SplashScreen";
@@ -147,15 +153,10 @@ export default function HomePage() {
     }
   }, []);
 
-  // A name typed on this device is the authority. This adopts one only when the
-  // browser has none, so someone who signs in on a new device is greeted by the
-  // name they already chose instead of being asked again.
-  //
-  // The check is deliberately cheap. `authStateReady` answers from local storage,
-  // so the two cases that need no further work — a browser with a name, and a
-  // browser signed in anonymously — are settled without a network round trip. A
-  // guest is the common case, and a first-time visitor is not made to wait for a
-  // database read to be told a name that does not exist.
+  // A name typed on this device is the authority, and a linked account brings
+  // both the name and the chat history with it. This runs on every visit rather
+  // than only on sign-in, so a conversation written on a phone while this
+  // browser was closed is here the next time it is opened.
   useEffect(() => {
     if (!hydrated) return;
     let cancelled = false;
@@ -163,7 +164,7 @@ export default function HomePage() {
       if (!cancelled) setResolvingAccount(false);
     };
 
-    if (!firebaseConfigured || loadDisplayName()) {
+    if (!firebaseConfigured) {
       settle();
       return;
     }
@@ -176,10 +177,19 @@ export default function HomePage() {
           settle();
           return;
         }
-        const accountName = await loadAccountName();
-        if (!cancelled && accountName) setDisplayName(saveDisplayName(accountName));
+
+        // The chats that belong to this account are pulled on every visit, not
+        // only at the moment of sign-in: a phone that wrote history while this
+        // browser was closed has to be able to hand it over on the next open.
+        // The name is a separate question and only asked when this browser has
+        // none, so a guest is never made to wait on a database read.
+        if (!cancelled) await loadChatsFromAccount();
+        if (!cancelled && !loadDisplayName()) {
+          const accountName = await loadAccountName();
+          if (!cancelled && accountName) setDisplayName(saveDisplayName(accountName));
+        }
       } catch {
-        // No account, no rule for one, or offline. The local name stands.
+        // No account, no rule for one, or offline. Local data stands.
       } finally {
         settle();
       }
@@ -250,6 +260,10 @@ export default function HomePage() {
     try {
       const result = await bindGoogleAccount();
       if (result.outcome === "dismissed") return;
+      // Whatever the account already holds is adopted before this device's own
+      // history is written over the top of it, so the two are merged rather
+      // than one replacing the other.
+      await loadChatsFromAccount();
       const accountName = await loadAccountName();
       const resolved = normalizeName(
         greetingName(loadDisplayName(), accountName, result.view.name)

@@ -10,6 +10,7 @@ import {
   type BackupPayload,
 } from "@/lib/db";
 import type { Chat } from "@/lib/types";
+import { markChatDeleted, syncChatDelete, syncChatWipe } from "@/lib/firebaseHistory";
 import { nameInitial } from "@/lib/visitorName";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import MinoMark from "@/components/MinoMark";
@@ -100,6 +101,9 @@ export default function Sidebar({ activeChatId, onSelectChat, onNewChat, open, o
       setTimeout(() => setConfirmClear(false), 4000);
       return;
     }
+    // Recorded before the local wipe, so an interrupted delete cannot be undone by
+    // the next sync handing the chat back.
+    void syncChatWipe();
     await clearAllData();
     setConfirmClear(false);
     setNotice("All data cleared");
@@ -255,7 +259,7 @@ export default function Sidebar({ activeChatId, onSelectChat, onNewChat, open, o
                         </span>
                         <button onClick={(event) => { event.stopPropagation(); void db.chats.update(chat.id, { pinned: !chat.pinned, updatedAt: Date.now() }); }} className="hidden shrink-0 rounded p-1 text-white/35 hover:text-[#9ee7ff] group-hover:block" aria-label={chat.pinned ? `Unpin ${chat.title}` : `Pin ${chat.title}`} title={chat.pinned ? "Unpin" : "Pin"}>◆</button>
                         <button onClick={(event) => { event.stopPropagation(); setEditingId(chat.id); setDraftTitle(chat.title); }} className="hidden shrink-0 rounded p-1 text-white/35 hover:text-white group-hover:block" aria-label={`Rename ${chat.title}`} title="Rename"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round"><path d="m4 16-.8 4.8L8 20l10.5-10.5a2.8 2.8 0 0 0-4-4L4 16Z" /><path d="m13.5 6.5 4 4" /></svg></button>
-                        <button onClick={(event) => { event.stopPropagation(); void deleteChat(chat.id); if (active) onNewChat(); }} className="hidden shrink-0 rounded p-1 text-white/35 hover:text-red-300 group-hover:block" aria-label={`Delete ${chat.title}`}><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round"><path d="M6 6l12 12M18 6L6 18" /></svg></button>
+                        <button onClick={(event) => { event.stopPropagation(); markChatDeleted(chat.id); void syncChatDelete(chat.id); void deleteChat(chat.id); if (active) onNewChat(); }} className="hidden shrink-0 rounded p-1 text-white/35 hover:text-red-300 group-hover:block" aria-label={`Delete ${chat.title}`}><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round"><path d="M6 6l12 12M18 6L6 18" /></svg></button>
                       </>
                     )}
                   </div>

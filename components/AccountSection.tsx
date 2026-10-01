@@ -13,7 +13,7 @@ import {
   isDismissed,
   type AccountView,
 } from "@/lib/accountState";
-import { syncFirebaseHistory } from "@/lib/firebaseHistory";
+import { loadChatsFromAccount, syncFirebaseHistory } from "@/lib/firebaseHistory";
 
 interface AccountSectionProps {
   displayName: string;
@@ -47,16 +47,26 @@ export default function AccountSection({ displayName }: AccountSectionProps) {
   }, [notice]);
 
   /**
-   * After a bind the identity may have changed uid, so the chats held in this
-   * browser are written again under whoever is now signed in. Doing it here
-   * rather than inside the bind keeps `lib/account.ts` free of chat logic and
-   * means a failed upload never blocks the sign-in itself.
+   * Brings the account's chats in, then writes this device's own back out.
+   *
+   * The order matters and is the whole point. Pulling first means a computer
+   * that signs in to an account holding a phone's history adopts it instead of
+   * uploading an empty library over the top of it; pushing afterwards means this
+   * device's chats exist on the account too. Doing it here rather than inside
+   * the bind keeps `lib/account.ts` free of chat logic and means a failed sync
+   * never blocks the sign-in itself.
    */
   const resync = useCallback(async () => {
     try {
+      const adopted = await loadChatsFromAccount();
       await syncFirebaseHistory();
+      if (adopted && adopted.chats > 0) {
+        setNotice(
+          `Pulled ${adopted.chats} chat${adopted.chats === 1 ? "" : "s"} from your account.`
+        );
+      }
     } catch (cause: unknown) {
-      console.error("[Mino] Could not move this device's chats onto the account", cause);
+      console.error("[Mino] Could not sync this device's chats with the account", cause);
     }
   }, []);
 
@@ -69,10 +79,8 @@ export default function AccountSection({ displayName }: AccountSectionProps) {
       if (result.outcome === "dismissed") return;
       if (result.outcome === "adopted") {
         await resync();
-        setNotice(
-          "Signed in to your existing Mino account. This device's chats now belong to it."
-        );
       } else {
+        await resync();
         setNotice("Linked. Your chats and your name now follow this Google account.");
       }
     } catch (cause: unknown) {
