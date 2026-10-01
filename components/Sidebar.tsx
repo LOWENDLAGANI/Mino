@@ -191,6 +191,17 @@ export default function Sidebar({ activeChatId, onSelectChat, onNewChat, open, o
             Settings
           </button>
           <a
+            href="/plus"
+            className="flex w-full items-center gap-2 rounded-xl px-2 py-2 text-[14px] text-white/60 transition-colors hover:bg-white/[0.05] hover:text-white"
+          >
+            <UtilityIcon>
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M4 17.5 9 12l3.5 3.5L20 8" /><path d="M15.5 8H20v4.5" />
+              </svg>
+            </UtilityIcon>
+            Mino Plus
+          </a>
+          <a
             href="/about"
             className="flex w-full items-center gap-2 rounded-xl px-2 py-2 text-[14px] text-white/60 transition-colors hover:bg-white/[0.05] hover:text-white"
           >
