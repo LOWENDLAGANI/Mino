@@ -56,7 +56,7 @@ async function main(): Promise<void> {
 console.log("\nthe model list the panel receives");
 
 await test("every configured model gets its own row", async () => {
-  await withKeys({ GEMINI_API_KEY: "test-key", OPENROUTER_API_KEY: "test-key", GROQ_API_KEY: undefined }, () => {
+  await withKeys({ GEMINI_API_KEY: "test-key", OPENROUTER_API_KEY: "test-key", GROQ_API_KEY: undefined, MINO_HF_SPACE: "off" }, () => {
     const targets = listModelTargets();
     const names = targets.map((target) => target.name);
     assert.deepEqual(names, ["Mino Auto", "Mino V3", "Mino V2", "Mino V1"]);
@@ -64,12 +64,22 @@ await test("every configured model gets its own row", async () => {
 });
 
 await test("the last-resort models are listed separately and are distinguishable", async () => {
-  await withKeys({ GEMINI_API_KEY: undefined, OPENROUTER_API_KEY: undefined, GROQ_API_KEY: "test-key" }, () => {
+  await withKeys({ GEMINI_API_KEY: undefined, OPENROUTER_API_KEY: undefined, GROQ_API_KEY: "test-key", MINO_HF_SPACE: "off" }, () => {
     const targets = listModelTargets();
     assert.equal(targets.length, 3, "the last-resort models are missing from the panel");
     const names = targets.map((target) => target.name);
     assert.equal(new Set(names).size, names.length, `two rows share a name: ${names.join(", ")}`);
     for (const target of targets) assert.match(target.name, /^Mino Backup \d+$/);
+  });
+});
+
+await test("Mino's own model is reachable without any vendor key, and can be switched off", async () => {
+  await withKeys({ GEMINI_API_KEY: undefined, OPENROUTER_API_KEY: undefined, GROQ_API_KEY: undefined, MINO_HF_SPACE: undefined }, () => {
+    const names = listModelTargets().map((target) => target.name);
+    assert.deepEqual(names, ["Mino Self"], "the Space is the only model, and it needs no key");
+  });
+  await withKeys({ MINO_HF_SPACE: "off" }, () => {
+    assert.equal(listModelTargets().length, 0, "MINO_HF_SPACE=off removes it entirely");
   });
 });
 

@@ -9,7 +9,7 @@
 // identity stance is that Mino is Mino, and a name that reaches a user's
 // downloads is a name the user can see.
 
-export type ModeId = "auto" | "code";
+export type ModeId = "auto" | "code" | "self";
 
 export interface ModeOption {
   id: ModeId;
@@ -40,6 +40,13 @@ export const MINO_MODES: ModeOption[] = [
     separateSession: true,
     blurb: "Mino V3 · V2 · V1 only",
   },
+  {
+    id: "self",
+    name: "Self",
+    display: "Mino Self",
+    separateSession: true,
+    blurb: "Mino's own model",
+  },
 ];
 
 export const DEFAULT_MODE_ID: ModeId = "auto";
@@ -54,7 +61,7 @@ export function getMode(id: string): ModeOption {
 }
 
 /** A name Mino is willing to show. Anything else is not a Mino name. */
-const MINO_NAME = /^Mino(?: Auto| Canvas| V\d+)?$/;
+const MINO_NAME = /^Mino(?: Auto| Self| Canvas| V\d+)?$/;
 
 /**
  * Normalises whatever a message carries into a name safe to show.

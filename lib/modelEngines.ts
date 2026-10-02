@@ -42,6 +42,10 @@ export function toMinoName(model?: string): string {
   if (!model) return "Mino";
   if (model === AUTO_ENGINE) return "Mino Auto";
   if (model === "mino-canvas") return "Mino Canvas";
+  // Mino's own model, served from a Gradio Space. Matched as a literal rather
+  // than imported, because lib/gradioSpace.ts is server-only and this module
+  // is imported by the client through models.ts.
+  if (model === "mino-self") return "Mino Self";
 
   const version = model.match(/gemini-(\d+\.\d+)/)?.[1];
   if (version && VERSION_NAMES[version]) return VERSION_NAMES[version]!;

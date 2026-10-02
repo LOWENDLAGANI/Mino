@@ -6,8 +6,9 @@
 
 import type { ModeId } from "./models";
 import { AUTO_ENGINE, CODE_ENGINE, CODE_FALLBACKS, toMinoName } from "./modelEngines";
+import { isSpaceConfigured, SPACE_MODEL } from "./gradioSpace";
 
-export type ProviderFamily = "openrouter" | "gemini" | "groq";
+export type ProviderFamily = "openrouter" | "gemini" | "groq" | "space";
 
 export interface ProviderConfig {
   id: ModeId;
@@ -31,6 +32,7 @@ export const FAMILY_MODE: Record<ProviderFamily, string> = {
   openrouter: "Mino Auto",
   gemini: "Mino Code",
   groq: "the Mino fallback",
+  space: "Mino Self",
 };
 
 export function getProviders(requested: ModeId): ProviderConfig[] {
@@ -103,9 +105,36 @@ export function getProviders(requested: ModeId): ProviderConfig[] {
       }))
     : [];
 
-  // Code mode never leaves the Mino family. OpenRouter and Groq are excluded
-  // from its fallback chain entirely, so an outage produces a clear error
-  // instead of code written by a model the user did not ask for.
+  // Mino's own model, on a Gradio Space. It has no OpenAI-compatible endpoint,
+  // so the URL below is never fetched: the chat route recognises the `space`
+  // family and calls lib/gradioSpace.ts instead, which returns the same
+  // OpenAI-shaped SSE every other provider does. The placeholder exists only so
+  // the config shape stays uniform.
+  const space: ProviderConfig[] = isSpaceConfigured()
+    ? [
+        {
+          id: requested,
+          family: "space" as const,
+          label: "Mino Self",
+          url: "",
+          key: "",
+          model: SPACE_MODEL,
+          supportsReasoning: false,
+        },
+      ]
+    : [];
+
+  // Code mode never leaves the Mino family. OpenRouter, Groq and the Space are
+  // excluded from its fallback chain entirely, so an outage produces a clear
+  // error instead of code written by a model the user did not ask for.
   if (requested === "code") return [...gemini];
-  return [...(openrouter ? [openrouter] : []), ...gemini, ...groq];
+
+  // Self mode is the Space and nothing else: a user who picked Mino's own
+  // model did not agree to be answered by a vendor model if it is down.
+  if (requested === "self") return [...space];
+
+  // Auto prefers the router, then the Code family, then Groq, and treats the
+  // Space as the very last resort — it is the one model guaranteed to belong
+  // to this deployment, so it is the right place to end the chain.
+  return [...(openrouter ? [openrouter] : []), ...gemini, ...groq, ...space];
 }

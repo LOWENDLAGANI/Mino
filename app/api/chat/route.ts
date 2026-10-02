@@ -6,6 +6,7 @@ import type { ApiMessage, SearchMode, SearchSource } from "@/lib/types";
 import { getModelDisplayName, type ModeId } from "@/lib/models";
 import { toMinoName } from "@/lib/modelEngines";
 import { FAMILY_MODE, getProviders, type ProviderConfig } from "@/lib/providers";
+import { callSpace, isSpaceConfigured, SpaceError } from "@/lib/gradioSpace";
 import { CODE_SYSTEM_PROMPT } from "@/lib/codePrompt";
 import { formatSearchContext, searchWeb, shouldUseWebSearch } from "@/lib/webSearch";
 import { IdentityFilter, sanitizeIdentity, sanitizeProviderDetail } from "@/lib/identity";
@@ -170,6 +171,12 @@ function extractUpstreamError(detail: string): string {
 }
 
 function explainProviderError(error: unknown): string {
+  // The Space's adapter writes its own copy, already phrased for a reader and
+  // free of provider detail, so it is passed through rather than re-explained
+  // with the key/quota wording that only applies to a vendor API key.
+  if (error instanceof SpaceError) {
+    return `Mino Self: ${error.message}`;
+  }
   if (!(error instanceof ProviderError)) {
     return "Mino could not reach either AI service. Check your network connection and try again.";
   }
@@ -208,6 +215,25 @@ async function callProvider(
   reasoningEffort: ReasoningEffort | null,
   codeMode: boolean
 ): Promise<Response> {
+  const system = [
+    MINO_SYSTEM_PROMPT,
+    // The Code grammar only applies in Code mode. Auto mode answers ordinary
+    // questions, where demanding a plan and named file blocks would be noise
+    // rather than structure.
+    codeMode ? CODE_SYSTEM_PROMPT : "",
+    userPreferences,
+    searchContext,
+  ]
+    .filter(Boolean)
+    .join("\n\n");
+
+  // Mino's own model. It is not an OpenAI-compatible endpoint, so it is called
+  // through the Space adapter rather than fetched — the adapter returns the
+  // same SSE shape, which is why nothing below this branch changes.
+  if (provider.family === "space") {
+    return callSpace(system, messages, signal);
+  }
+
   const body: Record<string, unknown> = {
     model: provider.model,
     messages: [
@@ -304,7 +330,8 @@ export async function POST(req: NextRequest): Promise<Response> {
     }
   }
 
-  const requested: ModeId = body.mode === "code" ? "code" : "auto";
+  const requested: ModeId =
+    body.mode === "code" ? "code" : body.mode === "self" ? "self" : "auto";
   const searchMode: SearchMode = body.searchMode === "always" || body.searchMode === "off" ? body.searchMode : "auto";
   const providers = getProviders(requested);
 
@@ -315,7 +342,9 @@ export async function POST(req: NextRequest): Promise<Response> {
     return textStream(
       requested === "code"
         ? "**Mino Code isn't connected to a model yet.** The person who runs this deployment needs to add a model key before Code mode can answer — it uses Mino V3, V2, and V1 only, and never substitutes another model. Your conversations are already saved safely on this device."
-        : "**Mino isn't connected to a model yet.** The person who runs this deployment needs to add a model key before Auto can answer. Your conversations are already saved safely on this device."
+        : requested === "self"
+          ? "**Mino Self isn't available on this deployment.** The person who runs this deployment needs to enable Mino's own model before Self mode can answer. Your conversations are already saved safely on this device."
+          : "**Mino isn't connected to a model yet.** The person who runs this deployment needs to add a model key before Auto can answer. Your conversations are already saved safely on this device."
     );
   }
 
@@ -661,6 +690,9 @@ export async function GET(): Promise<Response> {
   if (process.env.GROQ_API_KEY?.trim() && !available.includes("auto")) {
     available.push("auto");
   }
+  // Mino's own model needs no key, so it is available whenever it is not
+  // explicitly switched off.
+  if (isSpaceConfigured()) available.push("self");
   return Response.json({
     available,
     searchAvailable: Boolean(process.env.TAVILY_API_KEY?.trim()),

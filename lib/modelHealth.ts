@@ -19,6 +19,7 @@ import { createHash } from "node:crypto";
 import { getModelDisplayName } from "./models";
 import { toMinoName } from "./modelEngines";
 import { getProviders, type ProviderConfig } from "./providers";
+import { probeSpace } from "./gradioSpace";
 import { mentionsProvider, sanitizeIdentity } from "./identity";
 
 export type ModelRole = "auto" | "version" | "backup";
@@ -144,6 +145,10 @@ export function listModelTargets(): ModelTarget[] {
       targets.push({ id: modelTargetId(provider.model), name: `Mino Backup ${backups}`, role: "backup" });
       continue;
     }
+    if (provider.family === "space") {
+      targets.push({ id: modelTargetId(provider.model), name: "Mino Self", role: "backup" });
+      continue;
+    }
     targets.push({
       id: modelTargetId(provider.model),
       name: getModelDisplayName(toMinoName(provider.model)),
@@ -158,7 +163,7 @@ function findProvider(id: string): ProviderConfig | null {
   // Both mode lists are searched so an id from either resolves. In practice
   // "auto" is a superset of "code", but a model being reachable from only one
   // mode is exactly the sort of thing this panel exists to reveal.
-  for (const mode of ["auto", "code"] as const) {
+  for (const mode of ["auto", "code", "self"] as const) {
     const match = getProviders(mode).find((provider) => modelTargetId(provider.model) === id);
     if (match) return match;
   }
@@ -171,6 +176,9 @@ function nameFor(provider: ProviderConfig, backups: Map<string, number>): ModelT
     const index = (backups.get(provider.family) ?? 0) + 1;
     backups.set(provider.family, index);
     return { id: modelTargetId(provider.model), name: `Mino Backup ${index}`, role: "backup" };
+  }
+  if (provider.family === "space") {
+    return { id: modelTargetId(provider.model), name: "Mino Self", role: "backup" };
   }
   return {
     id: modelTargetId(provider.model),
@@ -212,6 +220,16 @@ export async function probeModel(id: string, signal?: AbortSignal): Promise<Prob
   const { stream_options: _streamOptions, ...extraBody } = provider.extraBody ?? {};
 
   try {
+    // Mino's own model is not an OpenAI-compatible endpoint, so it is probed
+    // through the Space adapter instead of being fetched. The adapter returns
+    // the same SSE shape, so the parsing below is unchanged.
+    if (provider.family === "space") {
+      const reply = sanitizeIdentity((await probeSpace(abort)).trim());
+      return reply
+        ? { ...target, ok: true, ms: Date.now() - startedAt, reply: reply.slice(0, 120), error: "" }
+        : { ...target, ok: false, ms: Date.now() - startedAt, reply: "", error: "Mino Self returned an empty answer." };
+    }
+
     const response = await fetch(provider.url, {
       method: "POST",
       headers: {
