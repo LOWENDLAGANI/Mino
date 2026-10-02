@@ -34,6 +34,36 @@ function spaceToken(): string {
   return process.env.MINO_HF_TOKEN?.trim() || "";
 }
 
+/**
+ * How long one call may take before it is treated as a Space that never
+ * answered, in milliseconds.
+ *
+ * The bound exists because a ZeroGPU Space is frequently asleep. A cold start
+ * queues the job behind the allocation, and a Space whose worker died closes
+ * without ever sending `complete` — in both cases the event feed simply never
+ * ends. Without a deadline the request stays open until the browser gives up,
+ * which is the one failure mode a user experiences as a permanently spinning
+ * message. Overridable so a colder hardware tier can be given more room.
+ */
+function readTimeoutMs(): number {
+  const configured = Number(process.env.MINO_HF_TIMEOUT_MS);
+  return Number.isFinite(configured) && configured > 0 ? configured : 120_000;
+}
+
+/**
+ * Roughly how many characters of conversation are sent to the Space.
+ *
+ * The Space takes one flat string and the model behind it is a 7B coder with a
+ * 32k window, so an unbounded transcript does not fail loudly: the prompt
+ * overflows and the model answers something unrelated, or the Space errors with
+ * nothing a reader can act on. Budgeting here means a long thread loses its
+ * oldest turns instead of its newest question.
+ */
+function promptBudget(): number {
+  const configured = Number(process.env.MINO_HF_PROMPT_BUDGET);
+  return Number.isFinite(configured) && configured > 0 ? configured : 12_000;
+}
+
 /** The wire id used for this model in provider lists and stored messages. */
 export const SPACE_MODEL = "mino-self";
 
@@ -63,7 +93,11 @@ interface ChatTurn {
  * merged into the first user turn, because a Space that only sees "prompt"
  * has no other way to learn the persona.
  */
-export function toSpacePrompt(system: string, messages: ChatTurn[]): string {
+export function toSpacePrompt(
+  system: string,
+  messages: ChatTurn[],
+  budget: number = promptBudget()
+): string {
   const turns = messages
     .map((message) => {
       const content =
@@ -86,7 +120,54 @@ export function toSpacePrompt(system: string, messages: ChatTurn[]): string {
     })
     .filter(Boolean);
 
-  return [`System: ${system}`, "", ...turns].join("\n");
+  const header = [`System: ${system}`, ""];
+  const full = [...header, ...turns].join("\n");
+  const limit = Math.max(1, Math.trunc(budget));
+  if (full.length <= limit) return full;
+
+  // Keep the newest turns that still fit. The question being asked right now is
+  // the one thing that must survive, so the walk runs backwards and the oldest
+  // turns are what fall off.
+  let used = header.join("\n").length + 1;
+  const kept: string[] = [];
+  for (let index = turns.length - 1; index >= 0; index -= 1) {
+    const cost = turns[index].length + 1;
+    if (used + cost > limit) break;
+    kept.unshift(turns[index]);
+    used += cost;
+  }
+  // A single turn longer than the whole budget still gets asked: cutting the
+  // question is worse than asking a shortened version of it.
+  if (kept.length === 0 && turns.length > 0) {
+    kept.push(turns[turns.length - 1].slice(0, Math.max(1, limit - used)));
+  }
+
+  const dropped = turns.length - kept.length;
+  const note =
+    dropped > 0
+      ? [`[${dropped} earlier message${dropped === 1 ? "" : "s"} omitted to fit Mino's context window]`, ""]
+      : [];
+  return [...header, ...note, ...kept].join("\n");
+}
+
+/**
+ * Whether an answer from the Space reads as cut off mid-thought.
+ *
+ * The Space caps its own generation and reports only that it finished, so a
+ * reply stopped at the cap is indistinguishable from a complete one. The chat
+ * route already has exactly the right response to that — it marks the message
+ * truncated and the thread says so out loud — but it can only act on a
+ * `length` finish reason, which Gradio never sends. Deciding it here is a
+ * guess, so the test is deliberately narrow: an unclosed code fence, or a tail
+ * that cannot end a real sentence. Anything weaker would mark finished answers
+ * as broken, which is the more expensive mistake of the two.
+ */
+export function looksTruncated(text: string): boolean {
+  const trimmed = text.trimEnd();
+  if (!trimmed) return false;
+  const fences = trimmed.match(/```/g)?.length ?? 0;
+  if (fences % 2 === 1) return true;
+  return /[\\,;([{=<>|+&~]$/.test(trimmed);
 }
 
 interface SpaceEvent {
@@ -123,10 +204,24 @@ function spaceErrorMessage(data: unknown): string {
 
 /** Reads the call's SSE feed until it completes, and returns the text. */
 async function readCompletion(url: string, signal: AbortSignal): Promise<string> {
-  const response = await fetch(url, {
-    headers: { Accept: "text/event-stream" },
-    signal,
-  });
+  // Two reasons to stop: the caller went away, or the Space stopped answering.
+  // Only the second is this function's error to explain.
+  const deadline = AbortSignal.timeout(readTimeoutMs());
+  const stop = AbortSignal.any([signal, deadline]);
+
+  let response: Response;
+  try {
+    response = await fetch(url, {
+      headers: { Accept: "text/event-stream" },
+      signal: stop,
+    });
+  } catch (error) {
+    if (signal.aborted) throw error;
+    throw new SpaceError(
+      "Mino Self did not answer in time. It may be starting up or out of GPU time — try again.",
+      504
+    );
+  }
   if (!response.ok || !response.body) {
     throw new SpaceError("The Space did not return a readable response.", response.status);
   }
@@ -140,6 +235,12 @@ async function readCompletion(url: string, signal: AbortSignal): Promise<string>
       const { done, value } = await reader.read();
       if (done) break;
       buffer += decoder.decode(value, { stream: true });
+      if (deadline.aborted) {
+        throw new SpaceError(
+          "Mino Self stopped answering partway through. It may be starting up or out of GPU time — try again.",
+          504
+        );
+      }
 
       // Events are separated by a blank line; the last block stays buffered
       // until more arrives, so a split event is never parsed half-read.
@@ -178,6 +279,20 @@ async function readCompletion(url: string, signal: AbortSignal): Promise<string>
         return text;
       }
     }
+  } catch (error) {
+    // A SpaceError from the loop is already phrased for a reader and passes
+    // through untouched. Only the deadline's own abort is translated: when the
+    // feed stalls mid-answer the stream never ends on its own, so this is the
+    // one place that can turn silence into a retryable message.
+    if (error instanceof SpaceError) throw error;
+    if (signal.aborted) throw error;
+    if (deadline.aborted) {
+      throw new SpaceError(
+        "Mino Self stopped answering partway through. It may be starting up or out of GPU time — try again.",
+        504
+      );
+    }
+    throw error;
   } finally {
     reader.releaseLock();
   }
@@ -204,13 +319,21 @@ async function askSpace(prompt: string, signal: AbortSignal): Promise<string> {
   const token = spaceToken();
   if (token) headers.Authorization = `Bearer ${token}`;
 
+  const budget = AbortSignal.timeout(readTimeoutMs());
+
   // Step one: open a call and get an event id back.
-  const opened = await fetch(`${HOST}/gradio_api/call/v2${ENDPOINT}`, {
-    method: "POST",
-    headers,
-    body: JSON.stringify({ prompt }),
-    signal,
-  });
+  let opened: Response;
+  try {
+    opened = await fetch(`${HOST}/gradio_api/call/v2${ENDPOINT}`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify({ prompt }),
+      signal: AbortSignal.any([signal, budget]),
+    });
+  } catch (error) {
+    if (signal.aborted) throw error;
+    throw new SpaceError("Mino Self could not be reached in time.", 504);
+  }
 
   if (opened.status === 429) {
     throw new SpaceError("The Space is busy and has paused new requests. Try again shortly.", 429);
@@ -239,9 +362,15 @@ export async function callSpace(
   }
   const text = await askSpace(prompt, signal);
 
+  // `length` is the one finish reason the chat route reads as "this answer is
+  // incomplete", and it is the only thing standing between a reply stopped at
+  // the Space's token cap and a clean-looking message that is quietly missing
+  // its ending. The Space never reports it, so the shape of the answer decides
+  // — narrowly, so a finished answer is never mislabelled as broken.
+  const finishReason = looksTruncated(text) ? "length" : "stop";
   const body = [
     `data: ${JSON.stringify({
-      choices: [{ delta: { content: text }, finish_reason: "stop" }],
+      choices: [{ delta: { content: text }, finish_reason: finishReason }],
     })}\n\n`,
     "data: [DONE]\n\n",
   ].join("");

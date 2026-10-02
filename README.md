@@ -9,6 +9,7 @@ Built with **Next.js 15 (App Router)**, **React 19**, **TypeScript**, **Tailwind
 - **Zero-login persistence** — chats and messages live in the current browser’s IndexedDB via Dexie; when Firebase is configured they are also written to Realtime Database under the signed-in identity, and an account holder gets them back on any other browser they sign in from
 - **Optional Google account** — Mino works with just a name. Binding a Google account from the welcome screen or Settings is a migration that keeps the same UID, so the chats and the name carry to another browser. It grants no administrator access and shares no code path with the console
 - **Two modes** — **Mino Auto** routes every message to the best available model; **Mino Code** uses Mino V3, tuned for code and technical work. Each mode is powered by its own server-side API key, with automatic fallback if one is missing. Picking Code always opens a **separate session**, so a code conversation is never continued under a different model's answers.
+- **Mino Self** — Mino's own model, served from a Gradio Space on Hugging Face. It needs no vendor key, is never used to answer a Code question, and never silently replaces the model a user chose (see [Mino Self](#mino-self-the-gradio-space))
 - **Mino's own model names** — the product never shows a vendor or a vendor's version numbers. Users see **Mino V1**, **Mino V2**, and **Mino V3** (the oldest, middle, and newest model), and **Mino Auto** for the router. The wire-level provider names stay server-side.
 - **Code you can copy** — in Code mode every file arrives as a code block labelled with its path (`` ```ts src/lib/thing.ts ``) and a **Copy** button, so it pastes straight into a local editor. The model is asked for complete files rather than fragments, because a partial file gives the reader no way to tell what was left out.
 - **Secure API keys** — provider keys are only ever read server-side in the `/api/chat` Route Handler; the admin console holds no service-account credential at all
@@ -46,6 +47,52 @@ Set either (or both) via `process.env` — locally in `.env.local`, or in Vercel
 | `CLOUDFLARE_API_TOKEN` | **Image generation** | API token with the *Workers AI: Read* permission |
 | `MINO_ADMIN_EMAIL` | **Admin controls** | The administrator's address, matching the one in `database.rules.json` |
 
+### Mino Self (the Gradio Space)
+
+Mino's own model lives on a Hugging Face Space behind Gradio and is offered to
+users as a third mode, **Mino Self**. It needs no vendor key at all, which is why
+it is the only mode that still answers on a deployment with nothing else
+configured.
+
+| Variable | Purpose |
+|---|---|
+| `MINO_HF_SPACE` | Space id, e.g. `Minetallest/Mino`. Defaults to `Minetallest/Mino`. Set to `off` to remove Mino Self from the deployment entirely |
+| `MINO_HF_TOKEN` | Optional. A read-only Hugging Face token — needed for a private Space, and worth setting for a ZeroGPU one, because it draws on your own GPU quota instead of the small anonymous pool |
+| `MINO_HF_TIMEOUT_MS` | Optional. How long one call may take before it is reported as a Space that stopped answering. Defaults to `120000` |
+| `MINO_HF_PROMPT_BUDGET` | Optional. Characters of conversation sent to the Space. Defaults to `12000` |
+
+To get a token: Hugging Face → **Settings → Access Tokens → Create new token**
+(fine-grained, read-only). Nothing else is needed — the Space is public.
+
+**How it is called.** `lib/gradioSpace.ts` is the only file that knows the Space
+exists. The Space takes a single `prompt` string and answers with one finished
+string rather than a token stream, so the conversation is flattened into a
+transcript (`System: …` then `User:` / `Assistant:` turns) and the reply is handed
+back shaped like an OpenAI SSE response. Everything downstream — the identity
+filter, the truncation check, the fallback chain, the client — then behaves
+exactly as it does for every other provider, with no special case anywhere else.
+
+**Where it sits in the chain.** Self mode is the Space and nothing else: someone
+who picked Mino's own model did not agree to be answered by a vendor if it is
+down. Code mode excludes it entirely, because code written by a different model
+family is a different answer. Auto reaches it last, as the one model guaranteed
+to belong to the deployment.
+
+**Three things the Space cannot do for itself**, all handled in the adapter:
+
+- **It never reports a cut-off answer.** It caps its own generation and then
+  claims it finished, so a reply stopped at the cap is indistinguishable from a
+  complete one. The adapter reads the shape of the answer — an unclosed code
+  fence, or a tail that cannot end a sentence — and emits the `length` finish
+  reason, which is the signal the chat route already uses to mark a message
+  truncated and say so in the thread. The test is deliberately narrow, because
+  marking a finished answer as broken is the more expensive mistake.
+- **A stalled feed never ends.** A ZeroGPU Space that is asleep queues the job
+  behind the allocation, and a worker that dies simply closes the stream. Both
+  are bounded by `MINO_HF_TIMEOUT_MS` and reported as a retryable message.
+- **The prompt would overflow silently.** The transcript is budgeted, and a long
+  thread loses its oldest turns rather than its newest question, with the loss
+  stated in the prompt rather than hidden.
 
 ### Automatic Firebase logging
 
@@ -268,6 +315,7 @@ components/
   db.ts                # Dexie schema, chat/message ops, backup, persona prompt
   imageUtils.ts        # Canvas compression (1024px, JPEG q0.8)
   models.ts            # Model catalog + token estimator
+  gradioSpace.ts       # Server only: the one file that talks to Mino's Gradio Space
   webSearch.ts         # Server-side current-web search and source formatting
   appConfig.ts         # Runtime control settings, shared by client and server
   serverControl.ts     # Server-side enforcement: config read, token verify, usage
