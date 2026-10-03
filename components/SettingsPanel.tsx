@@ -3,6 +3,9 @@
 import type { Appearance, ReasoningEffort, ResponseLength } from "@/lib/settings";
 import type { SearchMode } from "@/lib/types";
 import { firebaseConfigured } from "@/lib/firebaseHistory";
+import { useRouter } from "next/navigation";
+import { isUnlocked } from "@/lib/paywallState";
+import { useSubscription } from "@/lib/useSubscription";
 import { useEffect } from "react";
 import AccountSection from "@/components/AccountSection";
 import MemoryPanel from "@/components/MemoryPanel";
@@ -40,6 +43,9 @@ const EFFORT_OPTIONS: Array<{ id: ReasoningEffort; label: string; description: s
   { id: "high", label: "High", description: "Slowest, most careful" },
 ];
 
+/** Effort above Low costs real tokens on every message, so it belongs to a plan. */
+const PAID_EFFORT: ReasoningEffort[] = ["medium", "high"];
+
 export default function SettingsPanel({
   open,
   onClose,
@@ -54,6 +60,11 @@ export default function SettingsPanel({
   appearance,
   onAppearanceChange,
 }: SettingsPanelProps) {
+  // What this visitor has paid for, so the paid effort levels can be locked and
+  // say what they take rather than disappearing.
+  const { planId } = useSubscription();
+  const router = useRouter();
+
   useEffect(() => {
     if (!open) return;
     const onKey = (event: KeyboardEvent) => {
@@ -162,21 +173,47 @@ export default function SettingsPanel({
           <section>
             <h3 className="mb-2.5 text-[13px] font-semibold text-white">Effort</h3>
             <div className="grid grid-cols-3 gap-1 rounded-[16px] bg-white/[0.05] p-1">
-              {EFFORT_OPTIONS.map((option) => (
-                <button
-                  key={option.id}
-                  type="button"
-                  onClick={() => onReasoningEffortChange(option.id)}
-                  className={`rounded-[12px] px-2 py-2 text-left transition-colors ${
-                    reasoningEffort === option.id
-                      ? "bg-white/[0.12] text-white"
-                      : "text-white/45 hover:bg-white/[0.06] hover:text-white/75"
-                  }`}
-                >
-                  <span className="block text-[12px] font-medium">{option.label}</span>
-                  <span className="mt-0.5 block text-[9px] text-white/30">{option.description}</span>
-                </button>
-              ))}
+              {EFFORT_OPTIONS.map((option) => {
+                // Locked rather than hidden. A setting that silently vanishes is
+                // a question nobody asks out loud, and this one costs real
+                // tokens, so it is worth saying what it takes rather than
+                // pretending the option was never there.
+                const locked = PAID_EFFORT.includes(option.id) && !isUnlocked("reasoning", planId);
+                return (
+                  <button
+                    key={option.id}
+                    type="button"
+                    aria-disabled={locked}
+                    onClick={() => {
+                      if (locked) {
+                        router.push("/plus");
+                        return;
+                      }
+                      onReasoningEffortChange(option.id);
+                    }}
+                    className={`rounded-[12px] px-2 py-2 text-left transition-colors ${
+                      reasoningEffort === option.id
+                        ? "bg-white/[0.12] text-white"
+                        : locked
+                          ? "text-white/30 hover:bg-white/[0.05]"
+                          : "text-white/45 hover:bg-white/[0.06] hover:text-white/75"
+                    }`}
+                  >
+                    <span className="flex items-center gap-1.5">
+                      <span className="block text-[12px] font-medium">{option.label}</span>
+                      {locked && (
+                        <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-white/35" aria-hidden>
+                          <rect x="4" y="10" width="16" height="11" rx="2" />
+                          <path d="M8 10V7a4 4 0 0 1 8 0v3" />
+                        </svg>
+                      )}
+                    </span>
+                    <span className="mt-0.5 block text-[9px] text-white/30">
+                      {locked ? "Mini and up" : option.description}
+                    </span>
+                  </button>
+                );
+              })}
             </div>
           </section>
 

@@ -20,6 +20,13 @@ const QR_CAPTION = "Scan with your banking app · DuitNow";
 export type PlanId = "mini" | "lunar";
 
 /**
+ * The gated capabilities, named here so the comparison table cannot describe
+ * something the paywall has never heard of. See `lib/paywallState.ts` for what
+ * each one costs and which mode it locks.
+ */
+export type FeatureId = "reasoning" | "images" | "azure";
+
+/**
  * The lengths a buyer may pay for.
  *
  * A year is ten months rather than twelve. Nobody should have to be talked into
@@ -100,21 +107,41 @@ export const TERM_IDS: readonly TermId[] = ["day", "month", "year"];
 /**
  * What each tier unlocks. Read per column, so `free` is what a visitor gets
  * with no plan at all, and a plan never claims something the free tier has.
+ *
+ * **Every row here is something Mino actually does**, and `enforced` says
+ * whether the difference is real *today*. It exists because a row for a feature
+ * the product does not have is not marketing, it is a lie somebody pays money
+ * to discover — and "Agent mode with deep research" sat in this table for a
+ * commit before anything in the codebase could have answered to it.
+ *
+ * A row with `enforced: false` is included with every plan and is *not yet
+ * limited* per plan. It is honest to list it and dishonest to imply otherwise,
+ * so `tests/subscription.test.ts` pins the two sets against each other: nothing
+ * can be marked included-and-paid without a matching entry in the paywall.
  */
 export const FEATURES: readonly {
   label: string;
+  /** Which capability this is, for the paywall. Null when it is not gated. */
+  feature: FeatureId | null;
   free: boolean;
   mini: boolean;
   lunar: boolean;
+  /** True when the difference is enforced in the product, not just promised. */
+  enforced: boolean;
 }[] = [
-  { label: "Access to the newest model", free: true, mini: true, lunar: true },
-  { label: "Advanced reasoning", free: false, mini: true, lunar: true },
-  { label: "More messages and uploads", free: false, mini: true, lunar: true },
-  { label: "Advanced image creation", free: false, mini: true, lunar: true },
-  { label: "More memory", free: false, mini: true, lunar: true },
-  { label: "Mino Azure", free: false, mini: false, lunar: true },
-  { label: "Early access to new features", free: false, mini: false, lunar: true },
-  { label: "Agent mode with deep research", free: false, mini: false, lunar: true },
+  // Free for everybody. Mino works with a name, and this is what it does.
+  { label: "Mino Auto and Mino Code", feature: null, free: true, mini: true, lunar: true, enforced: true },
+  { label: "Send photos and screenshots", feature: null, free: true, mini: true, lunar: true, enforced: true },
+  { label: "Voice input, uploads and chat history", feature: null, free: true, mini: true, lunar: true, enforced: true },
+  { label: "Web search with sources", feature: null, free: true, mini: true, lunar: true, enforced: true },
+
+  // Paid, and genuinely locked. Reasoning above Low and image generation both
+  // cost real tokens per message, so gating them is honest on the price side too.
+  { label: "Advanced reasoning, medium and high", feature: "reasoning", free: false, mini: true, lunar: true, enforced: true },
+  { label: "Image creation", feature: "images", free: false, mini: true, lunar: true, enforced: true },
+
+  // The one genuinely gated thing, and the reason Lunar costs more than Mini.
+  { label: "Mino Azure — Mino's own model", feature: "azure", free: false, mini: false, lunar: true, enforced: true },
 ] as const;
 
 /** The plan with this id, falling back to the default rather than throwing. */

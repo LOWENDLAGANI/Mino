@@ -42,7 +42,7 @@ import {
   lockNoticeFor,
   resolveMode,
 } from "../lib/paywallState";
-import { PLANS, planById, planTerm, type TermId } from "../lib/plans";
+import { FEATURES, PLANS, planById, planTerm, type PlanId, type TermId } from "../lib/plans";
 
 let failures = 0;
 let passes = 0;
@@ -362,6 +362,46 @@ test("the price quoted in the dialog is the plan's own price", () => {
   assert.equal(planById("lunar").short, "Lunar");
 });
 
+console.log("\nwhat the pricing page promises");
+
+test("every row of the comparison table is a thing Mino actually does", () => {
+  // The failure this exists to prevent: "Agent mode with deep research" sat in
+  // the feature table for a commit, and nothing in the codebase could have
+  // answered to it. It was priced, sold and shown to buyers as a feature.
+  const gated = new Set(Object.keys(FEATURE_MIN_PLAN));
+  for (const row of FEATURES) {
+    if (row.feature === null) continue;
+    assert.ok(gated.has(row.feature), `${row.label} is gated but the paywall has never heard of it`);
+  }
+  const listed = new Set(FEATURES.map((row) => row.feature).filter(Boolean) as string[]);
+  for (const id of gated) {
+    assert.ok(listed.has(id), `${id} is priced as a paid capability but nobody can see it on the table`);
+  }
+});
+
+test("nothing is sold as locked unless it is actually locked", () => {
+  // A row marked paid is a promise. Where the difference is not yet enforced,
+  // it says so here rather than letting the page imply otherwise.
+  for (const row of FEATURES) {
+    const paid = row.free ? false : row.mini;
+    assert.ok(row.enforced || !paid, `${row.label} is sold as paid but is not enforced`);
+  }
+  // And the one row that carries the whole reason Lunar costs more is enforced.
+  assert.equal(
+    FEATURES.find((row) => row.feature === "azure")?.enforced,
+    true,
+    "Mino Azure is the tier's reason to exist; it has to actually be locked"
+  );
+});
+
+test("a plan never claims something the free tier already has", () => {
+  for (const row of FEATURES) {
+    assert.ok(!(row.free && !row.mini), `${row.label}: free has it but Mini does not`);
+    assert.ok(!(row.free && !row.lunar), `${row.label}: free has it but Lunar does not`);
+    assert.ok(!(row.mini && !row.lunar), `${row.label}: Mini has it but Lunar does not`);
+  }
+});
+
 console.log("\nthe paywall");
 
 test("Mino Azure is Lunar's, and nothing cheaper opens it", () => {
@@ -371,18 +411,19 @@ test("Mino Azure is Lunar's, and nothing cheaper opens it", () => {
   assert.equal(isUnlocked("azure", "lunar"), true);
 });
 
-test("a paid plan unlocks strictly more than the one below it", () => {
-  // The whole point of a tier being more expensive. If this ever stops being
-  // true, somebody is being charged for nothing.
-  for (const plan of PLANS) {
-    for (const id of Object.keys(FEATURE_MIN_PLAN) as Array<keyof typeof FEATURE_MIN_PLAN>) {
-      assert.ok(
-        isUnlocked(id, plan.id) || plan.id === "mini",
-        `${plan.id} unlocks ${id}`
-      );
-    }
-  }
+test("each tier is strictly better than the one below it", () => {
+  // The whole reason a plan costs anything. Mini must be worth buying over free,
+  // and Lunar worth buying over Mini, or somebody is paying for nothing.
+  const ids = Object.keys(FEATURE_MIN_PLAN) as Array<keyof typeof FEATURE_MIN_PLAN>;
+  const rank = (planId: PlanId | null) => ids.filter((id) => isUnlocked(id, planId)).length;
+
+  assert.ok(rank(null) < rank("mini"), "Mini unlocks something free does not");
+  assert.ok(rank("mini") < rank("lunar"), "Lunar unlocks something Mini does not");
+  // Specifically: Mini opens reasoning and images, and Lunar opens Azure on top.
   assert.equal(isUnlocked("reasoning", "mini"), true);
+  assert.equal(isUnlocked("images", "mini"), true);
+  assert.equal(isUnlocked("azure", "mini"), false);
+  assert.equal(isUnlocked("azure", "lunar"), true);
   assert.equal(isUnlocked("reasoning", null), false);
 });
 

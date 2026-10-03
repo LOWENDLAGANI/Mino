@@ -17,20 +17,10 @@
 // which modes disappear — is derived. Adding a paywalled feature means adding
 // one row here and nothing else.
 
-import { planById, planRank, type PlanId } from "./plans";
+import { planById, planRank, type FeatureId, type PlanId } from "./plans";
 import type { ModeId } from "./models";
 
-export type FeatureId =
-  /** Advanced reasoning effort. */
-  | "reasoning"
-  /** Image generation. */
-  | "images"
-  /** Additional memory slots. */
-  | "memory"
-  /** Mino Azure — Mino's own model, served from its own Space. */
-  | "azure"
-  /** Agent mode with deep research. */
-  | "research";
+export type { FeatureId };
 
 /**
  * The cheapest plan that unlocks each capability, and `null` for free.
@@ -38,13 +28,16 @@ export type FeatureId =
  * The whole paywall, in one table, in order of price. Free is what somebody who
  * has never paid for gets, which is why it is `null` rather than a plan: the
  * honest reason a free visitor cannot use a feature is that they have no plan.
+ *
+ * Every id here must appear as a `feature` on a row of `FEATURES`, and nothing
+ * there may be gated without appearing here. A test enforces both directions,
+ * which is the only reason a capability cannot quietly drift into being
+ * advertised, sold, and never actually locked.
  */
 export const FEATURE_MIN_PLAN: Record<FeatureId, PlanId | null> = {
   reasoning: "mini",
   images: "mini",
-  memory: "mini",
   azure: "lunar",
-  research: "lunar",
 };
 
 /** One capability, described. */
@@ -57,11 +50,9 @@ export interface Feature {
 }
 
 export const FEATURES_CATALOG: readonly Feature[] = [
-  { id: "reasoning", label: "Advanced reasoning", blurb: "think harder on every answer" },
-  { id: "images", label: "Image creation", blurb: "create and edit images" },
-  { id: "memory", label: "More memory", blurb: "keep more in mind about you" },
+  { id: "reasoning", label: "Advanced reasoning", blurb: "let Mino think harder on every answer" },
+  { id: "images", label: "Image creation", blurb: "create images inside Mino" },
   { id: "azure", label: "Mino Azure", blurb: "answer from Mino's own model" },
-  { id: "research", label: "Agent mode", blurb: "research deeply on its own" },
 ] as const;
 
 /**
