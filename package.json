@@ -7,7 +7,7 @@
     "build": "next build",
     "start": "next start -H 0.0.0.0 -p 3000",
     "lint": "next lint",
-    "test": "bunx tsx tests/code-fence.test.ts && bunx tsx tests/account.test.ts && bunx tsx tests/chat-sync.test.ts && bunx tsx tests/truncation.test.ts && bunx tsx tests/model-health.test.ts && bunx tsx tests/memory.test.ts && bunx tsx tests/memory-suggestions.test.ts && bunx tsx tests/notes.test.ts && bunx tsx tests/space-prompt.test.ts && bunx tsx tests/subscription.test.ts",
+    "test": "bunx tsx tests/code-fence.test.ts && bunx tsx tests/account.test.ts && bunx tsx tests/chat-sync.test.ts && bunx tsx tests/truncation.test.ts && bunx tsx tests/model-health.test.ts && bunx tsx tests/memory.test.ts && bunx tsx tests/memory-suggestions.test.ts && bunx tsx tests/notes.test.ts && bunx tsx tests/space-prompt.test.ts && bunx tsx tests/subscription.test.ts && bunx tsx tests/paywall-server.test.ts",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {

@@ -183,15 +183,28 @@ A subscription granted before durations existed carries `months` and no `days`; 
 
 | Capability | Free | Mini | Lunar |
 |---|---|---|---|
-| Auto and Code modes | ✓ | ✓ | ✓ |
-| Advanced reasoning, image creation, more memory | — | ✓ | ✓ |
-| **Mino Azure**, agent mode, early access | — | — | ✓ |
+| Auto and Code modes, attachments, history, web search | ✓ | ✓ | ✓ |
+| Advanced reasoning, image creation | — | ✓ | ✓ |
+| **Mino Azure** — Mino's own model | — | — | ✓ |
+
+Every row is something Mino actually does, and every row marked as paid is enforced in the route handlers. `FEATURES` in `lib/plans.ts` carries an `enforced` flag and a test refuses to let anything be sold as paid without a matching entry in the paywall — a row for a feature the product does not have is not marketing, it is something a buyer pays money to discover.
 
 **Mino Azure is Lunar's.** Nobody on the free tier or on Mini can pick it. The mode stays *visible* in the selector with a padlock and what it would take — a mode that silently disappears is a question nobody asks out loud — and pressing it goes to the pricing page, so somebody locked out of Azure sees the whole table rather than a one-line refusal.
 
 A lapsed plan leaves the user somewhere they can still write: if the stored preference is a mode this plan no longer opens, it is moved out of it (Auto is always open). It only ever moves them *out* of a locked mode, never into one.
 
-**This is a client-side gate, and it is not a security boundary.** The decision has to be made on a device that has not told the server who they are, so someone who edits the bundle can bypass it. It stops the honest user using what they have not paid for, and it makes the pricing page honest about what is behind the paywall. Anything that must not be bypassable — the daily caps, the ban list — is enforced in the route handlers.
+### Enforced on the server
+
+**The client gate is advisory; the route handler is the boundary.** `lib/paywallState.ts` decides what the page shows — the padlock, the sentence, where the button leads — and all of that runs on a device the person controls, so it is kept for the interface and trusted for nothing. The decision that counts is made in `lib/paywallServer.ts`, called from `app/api/chat/route.ts` and `app/api/image/route.ts`.
+
+The rule is that the server never believes the client about money:
+
+- **The plan comes from the database.** `lib/serverPlan.ts` reads `subscriptions/{uid}` and hands the route a plan or nothing. There is no code path that accepts a plan from the request body, a header, or a query string, so a caller who edits the bundle to claim Lunar gains nothing. A test fails if one ever appears.
+- **Identity is the server's own.** The uid comes from `verifyCaller`, which checks the Firebase ID token with Google; the plan read forwards that same token, so `database.rules.json` judges it exactly as it would for the browser. There is still no service account, and reading somebody else's plan is refused by the rules rather than by a check here.
+- **A failed read is no plan.** An unconfigured deployment, an unpublished rules file, or a database that is briefly unreachable all resolve to *free*, never to *allowed*. The one outage in which the paywall could be tested is not the one in which it disappears.
+- **The administrator is exempt**, derived from the verified identity, so the person who grants plans can still see what they open.
+
+Refusals name what is missing and where to go, reusing the wording the lock badge already shows, so the sentence in the chat is the sentence on the pricing page. Reasoning is the one setting that is **clamped** rather than refused when it was not explicitly asked for: Code mode defaults one notch above plain chat, and a free user's default is lowered to what their plan allows instead of the request being turned away. An *explicit* request for a paid setting is refused outright.
 
 ## Visitor names
 

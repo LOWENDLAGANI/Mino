@@ -3,14 +3,16 @@
 // question about what a plan unlocks — and what a person without one is told —
 // is answered in one place and can be tested without a browser.
 //
-// This is a *client-side* gate, and that is a deliberate, stated limit. It stops
-// the honest user from using what they have not paid for, and it is what makes
-// the pricing page honest about what is behind the paywall. It is not a
-// security boundary: someone who edits the bundle can bypass it, because the
-// decision has to be made on a device that has not told the server who they are.
-// Anything that must not be bypassable — the daily caps, the ban list — is
-// enforced in the route handlers, and the caps a plan raises are configuration
-// the server already reads.
+// This is the *interface* gate: it decides what the page shows, not what the
+// server will serve. Someone who edits the bundle can walk past it, because the
+// decision is being made on a device that has not told the server who they are.
+// It is kept anyway, because it is what puts the padlock on the button and the
+// sentence in front of the person, and doing that well is worth a second table.
+//
+// The boundary is `lib/paywallServer.ts`, which decides from the plan the server
+// reads out of the database with a token it verified itself. Both files read the
+// same `FEATURE_MIN_PLAN` table below, and `tests/paywall-server.test.ts` fails
+// if the two ever disagree about what a plan opens.
 //
 // The rule is one flat table. A capability names the cheapest plan that opens
 // it, and everything else — the lock badge, the sentence a blocked person reads,

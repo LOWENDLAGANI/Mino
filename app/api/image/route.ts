@@ -1,5 +1,7 @@
 import { NextRequest } from "next/server";
 import { checkRateLimit, consumeUsage, identityGate, isAdmin, readConfig, verifyCaller } from "@/lib/serverControl";
+import { readCallerPlan } from "@/lib/serverPlan";
+import { checkImageEntitlement } from "@/lib/paywallServer";
 import { optimizePrompt } from "@/lib/promptOptimizer";
 import { planPoster, type PosterPlan } from "@/lib/posterText";
 import { renderPoster } from "@/lib/posterRender";
@@ -216,6 +218,25 @@ export async function POST(req: NextRequest): Promise<Response> {
         { error: `Mino's daily limit of ${controls.dailyImageCap} images has been reached on this device. It resets tomorrow.` },
         { status: 429 }
       );
+    }
+  }
+
+  // ── The paywall ───────────────────────────────────────────────────────────
+  // Image creation is a paid capability, and this is the check that makes it so.
+  // The composer hides the button, but a modified bundle reaches this route
+  // anyway, and Workers AI quota is not free to spend on a caller who has not
+  // paid for it. The plan comes from the database, read with the caller's own
+  // verified token — never from the request.
+  if (!isAdmin(identity)) {
+    const { planId } = identity
+      ? await readCallerPlan(authorization, identity.uid)
+      : { planId: null };
+    const entitlement = checkImageEntitlement(planId);
+    if (!entitlement.allowed) {
+      // 402 rather than 403: the request was understood and authenticated, and
+      // what is missing is payment. A client that reads the status learns the
+      // feature is genuinely paid, which is the point of selling it.
+      return Response.json({ error: entitlement.error }, { status: 402 });
     }
   }
 

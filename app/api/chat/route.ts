@@ -11,6 +11,8 @@ import { CODE_SYSTEM_PROMPT } from "@/lib/codePrompt";
 import { formatSearchContext, searchWeb, shouldUseWebSearch } from "@/lib/webSearch";
 import { IdentityFilter, sanitizeIdentity, sanitizeProviderDetail } from "@/lib/identity";
 import { checkRateLimit, consumeUsage, identityGate, isAdmin, readConfig, verifyCaller } from "@/lib/serverControl";
+import { readCallerPlan } from "@/lib/serverPlan";
+import { checkChatEntitlement, clampReasoningEffort } from "@/lib/paywallServer";
 
 // ── Mino — resilient SSE proxy for Auto and Code ─────────────────────────────
 //   OPENROUTER_API_KEY → OpenRouter Auto Router
@@ -333,6 +335,44 @@ export async function POST(req: NextRequest): Promise<Response> {
   const requested: ModeId =
     body.mode === "code" ? "code" : body.mode === "self" ? "self" : "auto";
   const searchMode: SearchMode = body.searchMode === "always" || body.searchMode === "off" ? body.searchMode : "auto";
+
+  // ── The paywall ───────────────────────────────────────────────────────────
+  // Decided here, from the plan the server read for this caller, and not from
+  // anything the body claims. The client locks the same features, but a client
+  // that was edited — or a request sent with curl — reaches this check, which is
+  // the only version of it that can be relied on.
+  //
+  // The administrator is exempt. They granted the plans, they are the one
+  // account that should be able to see what a plan unlocks, and their exemption
+  // is derived from the verified identity like every other decision on this
+  // page.
+  const isCallerAdmin = isAdmin(identity);
+  // What a provider will actually be asked for. Computed here, from the caller's
+  // verified plan, so the value that leaves this function is already the one the
+  // paywall permits — the code below cannot reintroduce a locked effort.
+  let allowedEffort: ReasoningEffort | null = null;
+  if (!isCallerAdmin) {
+    const { planId } = identity
+      ? await readCallerPlan(authorization, identity.uid)
+      : { planId: null };
+    const askedFor =
+      body.reasoningEffort === "low" || body.reasoningEffort === "medium" || body.reasoningEffort === "high"
+        ? body.reasoningEffort
+        : null;
+    const entitlement = checkChatEntitlement(planId, {
+      mode: requested,
+      requestedEffort: askedFor,
+      // Code is the mode where thinking before answering pays for itself, so it
+      // defaults one notch above the chat default. That default is clamped rather
+      // than refused for anyone who has not paid — see lib/paywallServer.ts.
+      defaultEffort: requested === "code" ? "medium" : "low",
+    });
+    if (!entitlement.allowed) {
+      return errorStream(entitlement.error);
+    }
+    allowedEffort = entitlement.effort;
+  }
+
   const providers = getProviders(requested);
 
   if (providers.length === 0) {
@@ -394,15 +434,17 @@ export async function POST(req: NextRequest): Promise<Response> {
   // Reasoning effort is a preference, not a promise. Not every model on every
   // route accepts it, so it is only sent where the provider is known to, and
   // the same request is retried without it if the provider still refuses.
+  // The requested effort was already cleared with the paywall above; what
+  // reaches a provider is the value that survived that check, never the raw one.
+  // Reasoning is still a preference, not a promise: it is only sent where the
+  // provider is known to accept it, and dropped if a model rejects the value.
   const reasoningEffort: ReasoningEffort | null =
-    body.reasoningEffort === "low" || body.reasoningEffort === "medium" || body.reasoningEffort === "high"
+    allowedEffort ??
+    (body.reasoningEffort === "low" || body.reasoningEffort === "medium" || body.reasoningEffort === "high"
       ? body.reasoningEffort
-      // Code is the mode where thinking before answering pays for itself, so it
-      // defaults one notch higher than the chat default. It is still a
-      // preference, and still dropped if a model rejects the value.
       : isCodeMode
         ? "medium"
-        : "low";
+        : "low");
 
   let upstream: Response | null = null;
   let activeProvider: ProviderConfig | null = null;
