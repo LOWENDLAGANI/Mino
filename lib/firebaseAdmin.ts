@@ -169,9 +169,19 @@ export async function listUsers(): Promise<AdminUser[]> {
   const plans = (subscriptionsSnapshot.val() ?? {}) as Record<string, unknown>;
   const now = Date.now();
 
-  const rows = Object.entries(chats).map(([uid, value]) => {
+  // Everyone who has been here at all, not only everyone who has talked.
+//
+// This list is how a plan gets handed over, and the person a plan is granted to
+// has usually just paid: opened /plus, scanned the QR, transferred, and gone
+// without sending a single message. They exist in `admin/registry` because that
+// is written the moment they give their name, and they have no entry under
+// `users/` at all until a chat is logged. Building this list from chats alone
+// therefore hides exactly the person the owner is looking for.
+const uids = new Set([...Object.keys(names), ...Object.keys(chats), ...Object.keys(plans)]);
+
+const rows = [...uids].map((uid) => {
     const profile = names[uid];
-    const entries = Object.values(value?.chats ?? {});
+    const entries = Object.values(chats[uid]?.chats ?? {});
     let messages = 0;
     for (const chat of entries) {
       const stored = (chat as { messages?: Record<string, unknown> }).messages ?? {};
@@ -205,6 +215,9 @@ export async function listUsers(): Promise<AdminUser[]> {
     };
   });
 
+  // Whoever was seen most recently first, with anyone who has never returned to
+  // a chat — only opened the pricing page, scanned the QR and gone — sorted by
+  // the moment they were last here rather than by the top of an empty list.
   rows.sort((a, b) => (b.lastSeen ?? 0) - (a.lastSeen ?? 0));
   return rows;
 }

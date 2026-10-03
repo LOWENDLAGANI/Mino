@@ -77,6 +77,9 @@ export default function AdminPanel({
   // the panel always reads the current record out of `users` rather than a copy
   // that goes stale the moment a grant lands.
   const [grantingUid, setGrantingUid] = useState<string | null>(null);
+  // Who the owner is looking for. The list can be long, and the person a grant
+  // is for is normally found by the name printed on the transfer.
+  const [peopleQuery, setPeopleQuery] = useState("");
   const [grantPlan, setGrantPlan] = useState<PlanId>(DEFAULT_PLAN.id);
   const [grantMonths, setGrantMonths] = useState<number>(1);
   const [grantNote, setGrantNote] = useState("");
@@ -275,6 +278,16 @@ export default function AdminPanel({
 
   const grantingUser = grantingUid ? users?.find((user) => user.uid === grantingUid) ?? null : null;
   const subscribed = (users ?? []).filter((user) => user.subscription).length;
+  // Filtering by name, by uid, or by the plan they already hold — the three
+  // things an owner has in hand when a transfer needs matching to a person.
+  const query = peopleQuery.trim().toLowerCase();
+  const visible = (users ?? []).filter(
+    (user) =>
+      !query ||
+      (user.name ?? "").toLowerCase().includes(query) ||
+      user.uid.toLowerCase().includes(query) ||
+      (user.subscription ? planById(user.subscription.plan).name.toLowerCase().includes(query) : false)
+  );
 
   if (!open) return null;
 
@@ -348,13 +361,29 @@ export default function AdminPanel({
                     {subscribed} subscribed
                   </span>
                 </div>
+                <input
+                  value={peopleQuery}
+                  onChange={(event) => setPeopleQuery(event.target.value)}
+                  placeholder="Find a name to grant"
+                  aria-label="Find a visitor by name"
+                  className="mb-2 w-full rounded-[10px] border border-white/[0.1] bg-[#0d0d0f] px-2.5 py-2 text-[11px] text-white/85 outline-none placeholder:text-white/25 focus:border-[#4da3ff]/50"
+                />
+                <p className="mb-2 text-[10px] leading-relaxed text-white/30">
+                  Press <span className="font-semibold text-white/60">Plan</span> beside whoever
+                  paid — including someone who has never sent a message.
+                </p>
                 {users === null ? (
                   <p className="py-2 text-[11px] text-white/35">Loading…</p>
                 ) : users.length === 0 ? (
-                  <p className="py-2 text-[11px] text-white/35">No conversations have been logged yet.</p>
+                  <p className="py-2 text-[11px] leading-relaxed text-white/35">
+                    Nobody has visited yet. Anyone who opens Mino and gives a name appears here,
+                    whether or not they have ever sent a message.
+                  </p>
+                ) : visible.length === 0 ? (
+                  <p className="py-2 text-[11px] text-white/35">No one matches “{peopleQuery}”.</p>
                 ) : (
                   <ul className="space-y-1.5">
-                    {users.map((user) => (
+                    {visible.map((user) => (
                       <li key={user.uid}>
                         <div className="flex items-center gap-2">
                           <button
@@ -398,6 +427,7 @@ export default function AdminPanel({
 
                         {grantingUid === user.uid && (
                           <GrantPanel
+                            key={user.uid}
                             plan={grantPlan}
                             months={grantMonths}
                             note={grantNote}

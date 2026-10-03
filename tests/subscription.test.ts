@@ -230,6 +230,47 @@ test("the price quoted in the dialog is the plan's own price", () => {
 
 console.log("\nsubscription wiring");
 
+test("the console lists somebody who has never sent a message", () => {
+  // This is the person the grant is *for*: they opened /plus, scanned the QR,
+  // transferred, and left. They have a registry entry from the moment they gave
+  // their name and no entry under `users/` at all until a chat is logged, so a
+  // list built from chats alone hides them and there is nothing to press.
+  const source = code("lib/firebaseAdmin.ts");
+  assert.match(source, /Object\.keys\(names\)/, "the registry is a source of people");
+  assert.match(
+    source,
+    /new Set\(\[\.\.\.Object\.keys\(names\),\s*\.\.\.Object\.keys\(chats\)/,
+    "the people list is the union of everyone named, everything chatted, and every plan"
+  );
+  const panel = code("components/AdminPanel.tsx");
+  assert.match(panel, /Plan/, "there is a button that opens the grant form");
+  assert.match(panel, /setGrantingUid\(/, "pressing it opens that visitor's grant form");
+  assert.match(panel, /Find a name to grant/, "and they can be found by name");
+});
+
+test("the payment QR cannot be reached without an account", () => {
+  // A transfer from a browser that never signs in could not be granted to
+  // anyone, because the owner would have no way to tell whose money it was.
+  const page = code("app/plus/page.tsx");
+  assert.match(page, /watchAccount/, "the page knows whether this browser is signed in");
+  assert.match(
+    page,
+    /if \(signedIn\) setPaying\(wanted\);\s*else setGating\(wanted\);/,
+    "the QR opens for a signed-in browser and only a gate opens for one that is not"
+  );
+  assert.match(page, /<SubscribeGate/, "the gate is what stands in the way");
+  // The buyer's own button must never reach the QR directly, or the gate would
+  // be something that could be skipped rather than something that holds.
+  assert.match(page, /onClick=\{\(\) => beginPurchase\(plan\)\}/, "the button goes through the gate");
+  assert.ok(
+    !/onClick=\{\(\) => setPaying/.test(page),
+    "nothing on the page opens the payment QR without going through the gate"
+  );
+  // Binding rather than signing in: the UID must not move, or the grant would
+  // land on an identity the buyer is no longer using.
+  assert.match(code("components/SubscribeGate.tsx"), /bindGoogleAccount\(/);
+});
+
 test("a plan lives outside `users`, which the buyer can write", () => {
   // This is the reason the whole design sits where it does. The rules grant a
   // visitor `.write` on their own `users/$uid` for chat logging, and a
