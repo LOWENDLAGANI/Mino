@@ -192,7 +192,7 @@ export default function Sidebar({ activeChatId, onSelectChat, onNewChat, open, o
           </button>
           <a
             href="/plus"
-            aria-label="Mino Gigachad — upgrade"
+            aria-label="Mino Lunar — upgrade"
             className="group relative mt-1 flex w-full items-center gap-2 overflow-hidden rounded-2xl border border-[#4da3ff]/30 bg-gradient-to-r from-[#4da3ff]/[0.14] via-[#9ee7ff]/[0.07] to-transparent px-2 py-2 text-[14px] font-medium text-white shadow-[0_0_26px_-10px_rgba(77,163,255,0.85)] transition-shadow hover:shadow-[0_0_34px_-8px_rgba(77,163,255,1)]"
           >
             {/* Slow sheen so the row reads as the live one without moving. */}
@@ -207,7 +207,7 @@ export default function Sidebar({ activeChatId, onSelectChat, onNewChat, open, o
               </svg>
             </span>
             <span className="relative flex min-w-0 flex-1 items-center gap-1.5">
-              <span className="truncate">Mino Gigachad</span>
+              <span className="truncate">Mino Lunar</span>
               <span className="animate-breathe shrink-0 rounded-full bg-[#4da3ff]/20 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-[#9ee7ff]">
                 New
               </span>
