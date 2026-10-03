@@ -208,25 +208,18 @@ export async function POST(req: NextRequest): Promise<Response> {
   if (!gate.allowed) {
     return Response.json({ error: gate.error }, { status: 403 });
   }
-  if (identity && controls.dailyImageCap > 0) {
-    const { used, allowed } = await consumeUsage(authorization, identity.uid, "image");
-    if (!allowed) {
-      return Response.json({ error: "Mino could not verify this device. Please try again shortly." }, { status: 403 });
-    }
-    if (used > controls.dailyImageCap) {
-      return Response.json(
-        { error: `Mino's daily limit of ${controls.dailyImageCap} images has been reached on this device. It resets tomorrow.` },
-        { status: 429 }
-      );
-    }
-  }
-
   // ── The paywall ───────────────────────────────────────────────────────────
   // Image creation is a paid capability, and this is the check that makes it so.
   // The composer hides the button, but a modified bundle reaches this route
   // anyway, and Workers AI quota is not free to spend on a caller who has not
   // paid for it. The plan comes from the database, read with the caller's own
   // verified token — never from the request.
+  //
+  // Ahead of the daily cap, deliberately. A refusal that first spends a quota
+  // slot would mean an unpaid caller burns their allowance on every attempt and
+  // then meets "limit reached, try again tomorrow" instead of the sentence that
+  // tells them what to do about it. The cap is for images they may actually
+  // have; this is for images they may not.
   if (!isAdmin(identity)) {
     const { planId } = identity
       ? await readCallerPlan(authorization, identity.uid)
@@ -237,6 +230,19 @@ export async function POST(req: NextRequest): Promise<Response> {
       // what is missing is payment. A client that reads the status learns the
       // feature is genuinely paid, which is the point of selling it.
       return Response.json({ error: entitlement.error }, { status: 402 });
+    }
+  }
+
+  if (identity && controls.dailyImageCap > 0) {
+    const { used, allowed } = await consumeUsage(authorization, identity.uid, "image");
+    if (!allowed) {
+      return Response.json({ error: "Mino could not verify this device. Please try again shortly." }, { status: 403 });
+    }
+    if (used > controls.dailyImageCap) {
+      return Response.json(
+        { error: `Mino's daily limit of ${controls.dailyImageCap} images has been reached on this device. It resets tomorrow.` },
+        { status: 429 }
+      );
     }
   }
 

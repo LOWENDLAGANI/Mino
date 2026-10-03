@@ -320,18 +320,6 @@ export async function POST(req: NextRequest): Promise<Response> {
   if (!gate.allowed) {
     return errorStream(gate.error ?? "Mino is not available to this device.");
   }
-  if (identity && config.dailyChatCap > 0) {
-    const { used, allowed } = await consumeUsage(authorization, identity.uid, "chat");
-    if (!allowed) {
-      return errorStream("Mino could not verify this device. Please try again shortly.");
-    }
-    if (used > config.dailyChatCap) {
-      return errorStream(
-        `Mino's daily limit of ${config.dailyChatCap} messages has been reached on this device. It resets tomorrow.`
-      );
-    }
-  }
-
   const requested: ModeId =
     body.mode === "code" ? "code" : body.mode === "self" ? "self" : "auto";
   const searchMode: SearchMode = body.searchMode === "always" || body.searchMode === "off" ? body.searchMode : "auto";
@@ -342,10 +330,15 @@ export async function POST(req: NextRequest): Promise<Response> {
   // that was edited — or a request sent with curl — reaches this check, which is
   // the only version of it that can be relied on.
   //
+  // Ahead of the daily cap, deliberately. A refusal that first spends a message
+  // of someone's allowance would mean an unpaid caller burns the messages they
+  // do get to use on being told they cannot have this one, and eventually meets
+  // "limit reached, try again tomorrow" instead of the sentence explaining why.
+  // The cap is for messages they may send; this is for messages they may not.
+  //
   // The administrator is exempt. They granted the plans, they are the one
   // account that should be able to see what a plan unlocks, and their exemption
-  // is derived from the verified identity like every other decision on this
-  // page.
+  // is derived from the verified identity like every other decision here.
   const isCallerAdmin = isAdmin(identity);
   // What a provider will actually be asked for. Computed here, from the caller's
   // verified plan, so the value that leaves this function is already the one the
@@ -371,6 +364,18 @@ export async function POST(req: NextRequest): Promise<Response> {
       return errorStream(entitlement.error);
     }
     allowedEffort = entitlement.effort;
+  }
+
+  if (identity && config.dailyChatCap > 0) {
+    const { used, allowed } = await consumeUsage(authorization, identity.uid, "chat");
+    if (!allowed) {
+      return errorStream("Mino could not verify this device. Please try again shortly.");
+    }
+    if (used > config.dailyChatCap) {
+      return errorStream(
+        `Mino's daily limit of ${config.dailyChatCap} messages has been reached on this device. It resets tomorrow.`
+      );
+    }
   }
 
   const providers = getProviders(requested);

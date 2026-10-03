@@ -166,20 +166,10 @@ const freeImage = checkImageEntitlement(null);
 assert.equal(freeImage.allowed, false, "image creation must be refused without a plan");
 assert.equal(freeImage.feature, "images", "the image refusal must name the feature");
 
-// ── The client is never the authority ────────────────────────────────────────
-//
-// The enforcement point has to read the plan from the server's own record. The
-// failure this guards against is quiet and total: a route that accepts a plan
-// from the request body is enforced by nothing, because the value being checked
-// is the one being forged. These assertions read the source, so a future edit
-// that reintroduces that cannot pass unnoticed.
-
-const routeSource = (name: string): string => code(join(process.cwd(), "app", "api", name, "route.ts"));
-
 /**
  * A file with its comments removed.
  *
- * These assertions look for things that must never appear in a route, and a
+ * The assertions below look for things that must never appear in a route, and a
  * comment that *discusses* those things would otherwise fail them — which is the
  * wrong way round: the explanation of why a route never reads a plan from the
  * body is not the route reading a plan from the body. Stripping comments first
@@ -191,6 +181,35 @@ function code(path: string): string {
     .replace(/^\s*\/\/.*$/gm, "")
     .replace(/[ \t]+$/gm, "");
 }
+
+const routeSource = (name: string): string => code(join(process.cwd(), "app", "api", name, "route.ts"));
+
+// A refusal must not cost the caller anything.
+//
+// Both routes spend a daily allowance (a message, an image) before doing the
+// work. If the paywall ran after that counter, every refused attempt would burn
+// a slot of an allowance the person needs for the things they *can* use, and
+// after enough attempts they would be told to come back tomorrow rather than
+// told what to buy. The ordering is the whole difference between a paywall and a
+// dead end, so it is pinned here rather than left to review.
+for (const route of ["chat", "image"]) {
+  const source = routeSource(route);
+  const paywallAt = source.search(/check(Chat|Image)Entitlement\(/);
+  const quotaAt = source.indexOf("consumeUsage(");
+  assert.ok(paywallAt !== -1 && quotaAt !== -1, `${route} must have both a paywall and a quota check`);
+  assert.ok(
+    paywallAt < quotaAt,
+    `${route} must check the paywall before spending any daily allowance`
+  );
+}
+
+// ── The client is never the authority ────────────────────────────────────────
+//
+// The enforcement point has to read the plan from the server's own record. The
+// failure this guards against is quiet and total: a route that accepts a plan
+// from the request body is enforced by nothing, because the value being checked
+// is the one being forged. These assertions read the source, so a future edit
+// that reintroduces that cannot pass unnoticed.
 
 for (const route of ["chat", "image"]) {
   const source = routeSource(route);
