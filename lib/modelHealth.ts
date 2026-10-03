@@ -146,7 +146,7 @@ export function listModelTargets(): ModelTarget[] {
       continue;
     }
     if (provider.family === "space") {
-      targets.push({ id: modelTargetId(provider.model), name: "Mino Self", role: "backup" });
+      targets.push({ id: modelTargetId(provider.model), name: "Mino Azure", role: "backup" });
       continue;
     }
     targets.push({
@@ -178,7 +178,7 @@ function nameFor(provider: ProviderConfig, backups: Map<string, number>): ModelT
     return { id: modelTargetId(provider.model), name: `Mino Backup ${index}`, role: "backup" };
   }
   if (provider.family === "space") {
-    return { id: modelTargetId(provider.model), name: "Mino Self", role: "backup" };
+    return { id: modelTargetId(provider.model), name: "Mino Azure", role: "backup" };
   }
   return {
     id: modelTargetId(provider.model),
@@ -227,7 +227,7 @@ export async function probeModel(id: string, signal?: AbortSignal): Promise<Prob
       const reply = sanitizeIdentity((await probeSpace(abort)).trim());
       return reply
         ? { ...target, ok: true, ms: Date.now() - startedAt, reply: reply.slice(0, 120), error: "" }
-        : { ...target, ok: false, ms: Date.now() - startedAt, reply: "", error: "Mino Self returned an empty answer." };
+        : { ...target, ok: false, ms: Date.now() - startedAt, reply: "", error: "Mino Azure returned an empty answer." };
     }
 
     const response = await fetch(provider.url, {

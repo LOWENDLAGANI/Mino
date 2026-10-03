@@ -9,7 +9,7 @@ Built with **Next.js 15 (App Router)**, **React 19**, **TypeScript**, **Tailwind
 - **Zero-login persistence** — chats and messages live in the current browser’s IndexedDB via Dexie; when Firebase is configured they are also written to Realtime Database under the signed-in identity, and an account holder gets them back on any other browser they sign in from
 - **Optional Google account** — Mino works with just a name. Binding a Google account from the welcome screen or Settings is a migration that keeps the same UID, so the chats and the name carry to another browser. It grants no administrator access and shares no code path with the console
 - **Two modes** — **Mino Auto** routes every message to the best available model; **Mino Code** uses Mino V3, tuned for code and technical work. Each mode is powered by its own server-side API key, with automatic fallback if one is missing. Picking Code always opens a **separate session**, so a code conversation is never continued under a different model's answers.
-- **Mino Self** — Mino's own model, served from a Gradio Space on Hugging Face. It needs no vendor key, is never used to answer a Code question, and never silently replaces the model a user chose (see [Mino Self](#mino-self-the-gradio-space))
+- **Mino Azure** — Mino's own model, served from a Gradio Space on Hugging Face. It needs no vendor key, is never used to answer a Code question, and never silently replaces the model a user chose (see [Mino Azure](#mino-azure-the-gradio-space)). **It is part of Mino Lunar** — see [The paywall](#the-paywall)
 - **Mino's own model names** — the product never shows a vendor or a vendor's version numbers. Users see **Mino V1**, **Mino V2**, and **Mino V3** (the oldest, middle, and newest model), and **Mino Auto** for the router. The wire-level provider names stay server-side.
 - **Code you can copy** — in Code mode every file arrives as a code block labelled with its path (`` ```ts src/lib/thing.ts ``) and a **Copy** button, so it pastes straight into a local editor. The model is asked for complete files rather than fragments, because a partial file gives the reader no way to tell what was left out.
 - **Secure API keys** — provider keys are only ever read server-side in the `/api/chat` Route Handler; the admin console holds no service-account credential at all
@@ -47,16 +47,16 @@ Set either (or both) via `process.env` — locally in `.env.local`, or in Vercel
 | `CLOUDFLARE_API_TOKEN` | **Image generation** | API token with the *Workers AI: Read* permission |
 | `MINO_ADMIN_EMAIL` | **Admin controls** | The administrator's address, matching the one in `database.rules.json` |
 
-### Mino Self (the Gradio Space)
+### Mino Azure (the Gradio Space)
 
 Mino's own model lives on a Hugging Face Space behind Gradio and is offered to
-users as a third mode, **Mino Self**. It needs no vendor key at all, which is why
+users as a third mode, **Mino Azure**. It needs no vendor key at all, which is why
 it is the only mode that still answers on a deployment with nothing else
 configured.
 
 | Variable | Purpose |
 |---|---|
-| `MINO_HF_SPACE` | Space id, e.g. `Minetallest/Mino`. Defaults to `Minetallest/Mino`. Set to `off` to remove Mino Self from the deployment entirely |
+| `MINO_HF_SPACE` | Space id, e.g. `Minetallest/Mino`. Defaults to `Minetallest/Mino`. Set to `off` to remove Mino Azure from the deployment entirely |
 | `MINO_HF_TOKEN` | Optional. A read-only Hugging Face token — needed for a private Space, and worth setting for a ZeroGPU one, because it draws on your own GPU quota instead of the small anonymous pool |
 | `MINO_HF_TIMEOUT_MS` | Optional. How long one call may take before it is reported as a Space that stopped answering. Defaults to `120000` |
 | `MINO_HF_PROMPT_BUDGET` | Optional. Characters of conversation sent to the Space. Defaults to `12000` |
@@ -156,11 +156,48 @@ A wiped user loses `users/{uid}`, `admin/registry/{uid}` and `subscriptions/{uid
 
 It is a requirement, not an upsell, and the pricing page says so before anyone presses the button. A deployment with no Firebase configured has no accounts and no database to record a grant in, so it takes no subscription at all and says why.
 
-**How a grant is made.** In the admin console, under **People**, press **Plan** beside the person who paid, choose the tier, choose how many months, optionally type the reference their banking app showed, and press **Grant**. The tier is chosen first and granted second on purpose: one button that grants whatever is highlighted is one stray tap away from selling the wrong tier. The same panel offers **Remove plan**, and each subscriber's tier is shown on their row.
+**How a grant is made.** In the admin console, under **People**, press **Plan** beside the person who paid, choose the tier, choose the length, optionally type the reference their banking app showed, and press **Grant**. The tier is chosen first and granted second on purpose: one button that grants whatever is highlighted is one stray tap away from selling the wrong tier. The same panel offers **Remove plan**, and each subscriber's tier is shown on their row.
+
+The length is any number of days: the named spans the pricing page sells (a day, a week, a month, 3 months, a year) as buttons, plus −/+ and a free day count for the span nobody sells — somebody who paid for six weeks gets six weeks. It is deliberately not a calendar: a grant is a length, not a date.
 
 The People list is everyone who has ever been here, **including people who have never sent a message** — the person you most often need to grant to is one who opened `/plus`, scanned the QR, transferred and left, and they exist only in `admin/registry`. Search by name with the field above the list.
 
-**What the buyer sees.** The grant writes `subscriptions/{uid}` — the node their browser is already subscribed to — so a tab that is open shows **Payment received** the moment it is written, with the plan, the price, how many months were paid for, when it was activated, the exact date it ends, and the payment reference. If they were not on the site, it is waiting on their next visit. **It is shown exactly once**, and afterwards it never appears again for that grant; a renewal is a new grant and is announced once in turn.
+## Durations and pricing
+
+A subscription is stored as **a number of days**, which is the whole model. A day is now the shortest thing that can be bought, and storing "months" would have made that unrepresentable the moment anybody bought one.
+
+| | A day | A month | A year |
+|---|---|---|---|
+| **Mino Mini** | RM 1 | RM 10 | RM 100 |
+| **Mino Lunar** | RM 1.50 | RM 15 | RM 150 |
+
+Prices live in `lib/plans.ts` as `terms` on each plan, and everything follows from them — the pricing page's length buttons, the amount printed next to the QR, the receipt in the success dialog, and the renewal sentence. The monthly price is a plan's headline (`ringgit`) and is what a renewal quotes.
+
+Thirty-day months and 365-day years, not calendar arithmetic. A buyer who starts on the 31st loses a day, and that is stated on the button rather than hidden: the exact end date is printed on the pricing page and again in the dialog that follows the payment. A year is ten months, because nobody should have to be talked into one.
+
+A subscription granted before durations existed carries `months` and no `days`; those records are read back as thirty-day months, which is exactly what they were granted as.
+
+## The paywall
+
+**The paywall is one table.** `FEATURE_MIN_PLAN` in `lib/paywallState.ts` maps each gated capability to the cheapest plan that opens it, and everything else is derived from it:
+
+| Capability | Free | Mini | Lunar |
+|---|---|---|---|
+| Auto and Code modes | ✓ | ✓ | ✓ |
+| Advanced reasoning, image creation, more memory | — | ✓ | ✓ |
+| **Mino Azure**, agent mode, early access | — | — | ✓ |
+
+**Mino Azure is Lunar's.** Nobody on the free tier or on Mini can pick it. The mode stays *visible* in the selector with a padlock and what it would take — a mode that silently disappears is a question nobody asks out loud — and pressing it goes to the pricing page, so somebody locked out of Azure sees the whole table rather than a one-line refusal.
+
+A lapsed plan leaves the user somewhere they can still write: if the stored preference is a mode this plan no longer opens, it is moved out of it (Auto is always open). It only ever moves them *out* of a locked mode, never into one.
+
+**This is a client-side gate, and it is not a security boundary.** The decision has to be made on a device that has not told the server who they are, so someone who edits the bundle can bypass it. It stops the honest user using what they have not paid for, and it makes the pricing page honest about what is behind the paywall. Anything that must not be bypassable — the daily caps, the ban list — is enforced in the route handlers.
+
+## Visitor names
+
+**What the buyer sees.** The grant writes `subscriptions/{uid}` — the node their browser is already subscribed to — so a tab that is open shows **Payment received** the moment it is written, with the plan, what they paid, how long it was for, when it was activated, the exact date it ends, and the payment reference. If they were not on the site, it is waiting on their next visit. **It is shown exactly once**, and afterwards it never appears again for that grant; a renewal is a new grant and is announced once in turn.
+
+**The pricing page knows what you already have.** A visitor holding an active plan is shown it at the top with a tick and its full receipt — plan, length, price, days left, exact end date — and the plans they could move to are laid out underneath as an upgrade, listing exactly what each one adds. The buy button then reads *Add a month of Mini* rather than *Get Mini*, because buying the plan you already hold is how time gets added to it, and the days are added to what is left.
 
 **The dialog closes only on its button.** No backdrop click, no Escape, no outside tap. This is the one screen somebody has to read, and an accidental dismissal is how someone misses that their money landed and waits a day to ask about it.
 
@@ -175,7 +212,7 @@ A grant carries an `announcementId` that goes up by one on every grant. The dial
 
 **Rules that must be published.** The `subscriptions` block in `database.rules.json`. Until it is, granting still works for the administrator but a visitor's read is refused, so nobody is shown a plan they have not been given, and the acknowledgement never lands.
 
-**Expiry and renewal.** A month is thirty days from the grant. Granting the same tier again while it is still running **adds** to the date it already ends on, so a renewal never discards time that was paid for. Switching tier starts from today — there is no proration, and quietly carrying Mini's remaining days into a Lunar charge would invent a discount nobody agreed to. An expired grant is treated as no grant: no dialog, and the person is shown as free in the console.
+**Expiry and renewal.** A grant lasts the number of days it was for. Granting the same tier again while it is still running **adds** to the date it already ends on, so a renewal never discards time that was paid for. Switching tier starts from today — there is no proration, and quietly carrying Mini's remaining days into a Lunar charge would invent a discount nobody agreed to. An expired grant is treated as no grant: no dialog, no paywall, and the person is shown as free in the console.
 
 ## Visitor names
 

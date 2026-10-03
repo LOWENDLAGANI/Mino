@@ -13,12 +13,9 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import {
-  MONTH_MS,
-  MONTHS_OFFERED,
   grantRecord,
   isActive,
   nextExpiry,
-  normalizeMonths,
   normalizeNote,
   parseSubscription,
   parseSubscriptionView,
@@ -28,7 +25,23 @@ import {
   subscriptionHeadline,
   type Subscription,
 } from "../lib/subscriptionState";
-import { PLANS, planById } from "../lib/plans";
+import {
+  BUYER_DURATION_IDS,
+  DAY_MS,
+  DURATIONS,
+  MAX_DAYS,
+  describeDuration,
+  normalizeDays,
+  presetFor,
+} from "../lib/durations";
+import {
+  FEATURE_MIN_PLAN,
+  isModeUnlocked,
+  isUnlocked,
+  lockNoticeFor,
+  resolveMode,
+} from "../lib/paywallState";
+import { PLANS, planById, planTerm, type TermId } from "../lib/plans";
 
 let failures = 0;
 let passes = 0;
@@ -55,8 +68,8 @@ const date = (timestamp: number) => new Date(timestamp).toISOString().slice(0, 1
 const GRANTED: Subscription = {
   plan: "lunar",
   grantedAt: NOW,
-  expiresAt: NOW + MONTH_MS,
-  months: 1,
+  expiresAt: NOW + 30 * DAY_MS,
+  days: 30,
   note: "",
   announcementId: 1,
 };
@@ -66,28 +79,60 @@ console.log("\nsubscriptions");
 test("a grant is stored as one record with everything the dialog prints", () => {
   const record = grantRecord({
     plan: "mini",
-    months: 3,
+    days: 90,
     now: NOW,
     note: "  DuitNow   ref 8842  ",
     previous: null,
   });
   assert.equal(record.plan, "mini");
-  assert.equal(record.months, 3);
+  assert.equal(record.days, 90);
   assert.equal(record.grantedAt, NOW);
-  assert.equal(record.expiresAt, NOW + 3 * MONTH_MS);
+  assert.equal(record.expiresAt, NOW + 90 * DAY_MS);
   assert.equal(record.note, "DuitNow ref 8842");
   assert.equal(record.announcementId, 1);
 });
 
-test("every offered span is inside the limit the record enforces", () => {
-  for (const span of MONTHS_OFFERED) {
-    assert.ok(span >= 1 && span <= 12, `${span} months is offerable`);
+test("every span is a length of days, inside the bound the record enforces", () => {
+  for (const option of DURATIONS) {
+    assert.ok(option.days >= 1 && option.days <= MAX_DAYS, `${option.label} is grantable`);
   }
-  assert.equal(normalizeMonths(0), 1, "no grant is ever zero months");
-  assert.equal(normalizeMonths(-3), 1);
-  assert.equal(normalizeMonths(1.9), 1);
-  assert.equal(normalizeMonths(99), 12, "a typo cannot buy nine years");
-  assert.equal(normalizeMonths("2"), 2);
+  assert.equal(normalizeDays(0), 1, "no grant is ever zero days");
+  assert.equal(normalizeDays(-3), 1);
+  assert.equal(normalizeDays(1.4), 1);
+  assert.equal(normalizeDays(99_999), MAX_DAYS, "a stray digit cannot buy a century");
+  assert.equal(normalizeDays("45"), 45);
+});
+
+test("a length nobody has a name for is still grantable, and is counted in days", () => {
+  // The console lets an owner type any number of days, so the receipt must be
+  // able to say what it actually is. "45 days" is exact; "3 months and 15
+  // days" would be calendar arithmetic nobody agreed to.
+  assert.equal(describeDuration(45), "45 days");
+  assert.equal(describeDuration(1), "a day");
+  assert.equal(describeDuration(3), "3 days");
+  assert.equal(describeDuration(21), "3 weeks");
+  assert.equal(describeDuration(30), "a month");
+  assert.equal(describeDuration(90), "3 months");
+  assert.equal(describeDuration(365), "a year");
+  assert.equal(describeDuration(730), "2 years");
+  assert.equal(describeDuration(400), "1 year and 1 month");
+  assert.equal(presetFor(30)?.id, "month");
+  assert.equal(presetFor(45), null);
+});
+
+test("a record written before durations existed keeps the time that was paid for", () => {
+  // These are real subscriptions sitting in the database right now, carrying
+  // `months`. Reading them as thirty-day months is what they were granted as;
+  // dropping the field would silently end a paid plan.
+  const legacy = parseSubscription({
+    plan: "mini",
+    grantedAt: NOW,
+    expiresAt: NOW + 90 * DAY_MS,
+    months: 3,
+    announcementId: 2,
+  });
+  assert.equal(legacy?.days, 90);
+  assert.equal(parseSubscription({ ...GRANTED, days: 0, months: 2 })?.days, 60, "days wins when present");
 });
 
 test("a payment reference is trimmed and capped rather than truncated mid-word", () => {
@@ -99,8 +144,13 @@ test("a payment reference is trimmed and capped rather than truncated mid-word",
 test("a renewal adds to the time already paid for instead of replacing it", () => {
   // Re-granting the same tier a week before it runs out must not cost the buyer
   // the week they already bought.
-  const renewal = grantRecord({ plan: "lunar", months: 1, now: NOW + 7 * 86_400_000, previous: GRANTED });
-  assert.equal(renewal.expiresAt, GRANTED.expiresAt + MONTH_MS);
+  const renewal = grantRecord({ plan: "lunar", days: 30, now: NOW + 7 * DAY_MS, previous: GRANTED });
+  assert.equal(renewal.expiresAt, GRANTED.expiresAt + 30 * DAY_MS);
+});
+
+test("a single day is a real length, not a rounding of a month", () => {
+  const record = grantRecord({ plan: "mini", days: 1, now: NOW, previous: null });
+  assert.equal(record.expiresAt, NOW + DAY_MS);
 });
 
 test("switching tier starts from today, because there is no proration to invent", () => {
@@ -108,21 +158,21 @@ test("switching tier starts from today, because there is no proration to invent"
   // nobody agreed to, so an upgrade begins now.
   const upgrade = grantRecord({
     plan: "lunar",
-    months: 1,
-    now: NOW + 7 * 86_400_000,
+    days: 30,
+    now: NOW + 7 * DAY_MS,
     previous: { ...GRANTED, plan: "mini" },
   });
-  assert.equal(upgrade.expiresAt, NOW + 7 * 86_400_000 + MONTH_MS);
+  assert.equal(upgrade.expiresAt, NOW + 7 * DAY_MS + 30 * DAY_MS);
 });
 
 test("an expired plan renewed starts from the renewal, not from last month", () => {
   const lapsed: Subscription = { ...GRANTED, expiresAt: NOW - 1 };
-  assert.equal(nextExpiry(lapsed, "lunar", 1, NOW), NOW + MONTH_MS);
+  assert.equal(nextExpiry(lapsed, "lunar", 30, NOW), NOW + 30 * DAY_MS);
 });
 
 test("each grant announces itself once and only once", () => {
-  const first = grantRecord({ plan: "mini", months: 1, now: NOW, previous: null });
-  const second = grantRecord({ plan: "lunar", months: 1, now: NOW + 1, previous: first });
+  const first = grantRecord({ plan: "mini", days: 30, now: NOW, previous: null });
+  const second = grantRecord({ plan: "lunar", days: 30, now: NOW + 1, previous: first });
   assert.equal(first.announcementId, 1);
   assert.equal(second.announcementId, 2);
   assert.ok(second.announcementId > first.announcementId, "a renewal is worth announcing again");
@@ -141,7 +191,7 @@ test("a record that is not a plan is treated as no plan at all", () => {
 });
 
 test("a record whose end date precedes its start is repaired, not trusted", () => {
-  const parsed = parseSubscription({ ...GRANTED, expiresAt: NOW - 10 * MONTH_MS });
+  const parsed = parseSubscription({ ...GRANTED, expiresAt: NOW - 10 * DAY_MS });
   assert.equal(parsed?.expiresAt, NOW, "a backwards expiry reads as ending immediately, not as forever");
 });
 
@@ -182,13 +232,13 @@ test("a later grant still gets through after the first was acknowledged", () => 
   const renewed = parseSubscriptionView({
     ...GRANTED,
     announcementId: 2,
-    grantedAt: NOW + MONTH_MS,
-    expiresAt: NOW + 2 * MONTH_MS,
+    grantedAt: NOW + 30 * DAY_MS,
+    expiresAt: NOW + 60 * DAY_MS,
     ack: { announcementId: 1 },
   });
-  assert.equal(shouldCelebrate(renewed, { now: NOW + MONTH_MS })?.announcementId, 2);
+  assert.equal(shouldCelebrate(renewed, { now: NOW + 30 * DAY_MS })?.announcementId, 2);
   // And an old local acknowledgement is not allowed to swallow a new one.
-  assert.equal(shouldCelebrate(renewed, { local: 1, now: NOW + MONTH_MS })?.announcementId, 2);
+  assert.equal(shouldCelebrate(renewed, { local: 1, now: NOW + 30 * DAY_MS })?.announcementId, 2);
 });
 
 test("a local acknowledgement beats a stale database copy, and vice versa", () => {
@@ -205,27 +255,134 @@ test("the dialog shows every detail the buyer needs to match the transfer", () =
   );
   const byLabel = new Map(rows.map((row) => [row.label, row.value]));
   assert.equal(byLabel.get("Plan"), "Mino Lunar");
-  assert.equal(byLabel.get("Price"), "RM 15 / month");
-  assert.equal(byLabel.get("Paid for"), "1 month");
+  assert.equal(byLabel.get("Paid for"), "a month");
+  assert.equal(byLabel.get("Price"), "RM 15");
   assert.equal(byLabel.get("Active until"), date(GRANTED.expiresAt));
   assert.equal(byLabel.get("Payment reference"), "DuitNow ref 8842");
+});
+
+test("the receipt quotes the price for the length bought, not the monthly headline", () => {
+  // Somebody who bought a year has to be told they bought a year, at the year's
+  // price. Printing RM 15 next to "a year" would be a different number than the
+  // one they paid, and it would be the buyer's word against the owner's.
+  const yearly = subscriptionDetails({ ...GRANTED, days: 365 }, date);
+  const price = yearly.find((row) => row.label === "Price")?.value;
+  assert.equal(price, "RM 150");
+  assert.equal(yearly.find((row) => row.label === "Paid for")?.value, "a year");
+  // A length that was never on the price list falls back rather than guessing.
+  assert.equal(
+    subscriptionDetails({ ...GRANTED, days: 45 }, date).find((row) => row.label === "Price")?.value,
+    "RM 15"
+  );
 });
 
 test("a grant with no reference does not print an empty row", () => {
   const rows = subscriptionDetails(GRANTED, date).map((row) => row.label);
   assert.ok(!rows.includes("Payment reference"));
-  assert.equal(rows.length, 5);
+  assert.equal(rows.length, 5, "five rows when there is no reference, six with one");
 });
 
 test("the price quoted in the dialog is the plan's own price", () => {
   for (const plan of PLANS) {
     const rows = subscriptionDetails({ ...GRANTED, plan: plan.id }, date);
     const price = rows.find((row) => row.label === "Price")?.value ?? "";
-    assert.equal(price, `${plan.ringgit === 10 ? "RM 10" : "RM 15"} / month`);
+    assert.equal(price, plan.ringgit === 10 ? "RM 10" : "RM 15");
     assert.equal(subscriptionHeadline({ ...GRANTED, plan: plan.id }), `${plan.name} · active`);
     assert.match(renewalNote({ ...GRANTED, plan: plan.id }, date), new RegExp(plan.name === "Mino Lunar" ? "RM 15" : "RM 10"));
   }
   assert.equal(planById("lunar").short, "Lunar");
+});
+
+console.log("\nthe paywall");
+
+test("Mino Azure is Lunar's, and nothing cheaper opens it", () => {
+  assert.equal(FEATURE_MIN_PLAN.azure, "lunar");
+  assert.equal(isUnlocked("azure", null), false, "free does not get Azure");
+  assert.equal(isUnlocked("azure", "mini"), false, "Mini does not get Azure either");
+  assert.equal(isUnlocked("azure", "lunar"), true);
+});
+
+test("a paid plan unlocks strictly more than the one below it", () => {
+  // The whole point of a tier being more expensive. If this ever stops being
+  // true, somebody is being charged for nothing.
+  for (const plan of PLANS) {
+    for (const id of Object.keys(FEATURE_MIN_PLAN) as Array<keyof typeof FEATURE_MIN_PLAN>) {
+      assert.ok(
+        isUnlocked(id, plan.id) || plan.id === "mini",
+        `${plan.id} unlocks ${id}`
+      );
+    }
+  }
+  assert.equal(isUnlocked("reasoning", "mini"), true);
+  assert.equal(isUnlocked("reasoning", null), false);
+});
+
+test("a locked mode says what it would take, rather than disappearing", () => {
+  // The mode that needs Azure is the one people press to reach it.
+  assert.equal(isModeUnlocked("self", "mini"), false);
+  assert.equal(isModeUnlocked("self", "lunar"), true);
+  assert.equal(isModeUnlocked("auto", null), true, "the everyday modes are never taken away");
+  assert.equal(isModeUnlocked("code", null), true);
+
+  const onNothing = lockNoticeFor("azure", null);
+  assert.equal(onNothing?.planName, "Mino Lunar");
+  assert.equal(onNothing?.price, "RM 15/mo");
+  assert.match(onNothing!.title, /not on the free tier/);
+  assert.match(onNothing!.body, /Mino Lunar/);
+
+  // Somebody already paying the cheaper tier is told it is an upgrade, and is
+  // not asked to buy the thing they already have.
+  const onMini = lockNoticeFor("azure", "mini");
+  assert.match(onMini!.title, /Mino Lunar/);
+  assert.match(onMini!.body, /Mino Mini/);
+  assert.match(onMini!.body, /carries over/, "the time already paid for is kept");
+  assert.equal(lockNoticeFor("azure", "lunar"), null, "no notice to somebody who has it");
+});
+
+test("a lapsed plan leaves the user somewhere they can still write", () => {
+  const available = ["auto", "code", "self"] as const;
+  assert.equal(resolveMode("self", available, null), "auto", "Azure is not left selected on the free tier");
+  assert.equal(resolveMode("self", available, "mini"), "auto");
+  assert.equal(resolveMode("self", available, "lunar"), "self");
+  // And never moves somebody *into* a locked mode.
+  assert.equal(resolveMode("code", available, null), "code");
+  assert.equal(resolveMode("code", available, "mini"), "code");
+});
+
+console.log("\ndurations and pricing");
+
+test("every plan is sold at every length a buyer may choose", () => {
+  for (const plan of PLANS) {
+    for (const id of BUYER_DURATION_IDS) {
+      const term = planTerm(plan, id);
+      assert.ok(term.days >= 1, `${plan.short} sells ${id}`);
+      assert.ok(term.ringgit > 0, `${plan.short} ${id} has a price`);
+    }
+    // A plan that cannot sell a month cannot honour a renewal either.
+    assert.equal(planTerm(plan, "month").ringgit, plan.ringgit, `${plan.short} month is its headline price`);
+  }
+});
+
+test("buying longer costs more than buying shorter, on both plans", () => {
+  for (const plan of PLANS) {
+    const day = planTerm(plan, "day").ringgit;
+    const month = planTerm(plan, "month").ringgit;
+    const year = planTerm(plan, "year").ringgit;
+    assert.ok(day < month, `${plan.short}: a day costs less than a month`);
+    assert.ok(month < year, `${plan.short}: a month costs less than a year`);
+    // And a year is better value than twelve months, which is the only reason
+    // to buy one.
+    assert.ok(year < month * 12, `${plan.short}: a year is cheaper than paying monthly`);
+  }
+});
+
+test("a price nobody has set falls back rather than showing nothing", () => {
+  const mini = planById("mini");
+  assert.equal(planTerm(mini, "day").ringgit, 1);
+  assert.equal(planTerm(mini, "year").ringgit, 100);
+  const unknownTerm = "century" as unknown as TermId;
+  assert.equal(planTerm(mini, unknownTerm).id, "month", "an unknown length is answered with the month");
+  assert.equal(planById("lunar").ringgit, 15);
 });
 
 console.log("\nsubscription wiring");
@@ -261,7 +418,7 @@ test("the payment QR cannot be reached without an account", () => {
   assert.match(page, /<SubscribeGate/, "the gate is what stands in the way");
   // The buyer's own button must never reach the QR directly, or the gate would
   // be something that could be skipped rather than something that holds.
-  assert.match(page, /onClick=\{\(\) => beginPurchase\(plan\)\}/, "the button goes through the gate");
+  assert.match(page, /onClick=\{\(\) => beginPurchase\(/, "the button goes through the gate");
   assert.ok(
     !/onClick=\{\(\) => setPaying/.test(page),
     "nothing on the page opens the payment QR without going through the gate"

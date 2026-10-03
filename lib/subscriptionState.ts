@@ -9,42 +9,26 @@
 // that follow: the record that describes what was bought, and the rule for
 // showing the person their purchase landed exactly once.
 
-import { formatRinggit, planById, type PlanId } from "./plans";
-
-/**
- * A month is priced per calendar month but stored as a fixed span.
- *
- * Thirty days rather than a calendar month because there is no date arithmetic
- * in the product worth the complexity, and a person who buys on the 31st should
- * not silently lose a day. What the dialog says is always an exact date, so the
- * approximation is never hidden from them.
- */
-export const MONTH_MS = 30 * 24 * 60 * 60 * 1000;
-
-/** Longest grant the console offers, so a typo cannot buy ten years. */
-export const MAX_MONTHS = 12;
-
-/**
- * The spans the console actually offers.
- *
- * A plain list rather than a free number field: the price is per month, so
- * "how many months" is a quantity with sensible values, and typing one is how a
- * ten-year subscription happens by accident.
- */
-export const MONTHS_OFFERED = [1, 3, 6, 12] as const;
+import { formatRinggit, planById, termForDays, type PlanId } from "./plans";
+import { DAY_MS, MAX_DAYS, MIN_DAYS, describeDuration, normalizeDays } from "./durations";
 
 /** The payment reference is what the owner reads off their banking app. */
 export const NOTE_MAX = 120;
 
-/** One grant. Everything the celebration dialog prints comes from here. */
+/**
+ * One grant. Everything the celebration dialog prints comes from here.
+ *
+ * The length is a number of days rather than a number of months, because a day
+ * is now the shortest thing that can be bought and "months" could not say one.
+ */
 export interface Subscription {
   plan: PlanId;
   /** When this grant was made — the start of a fresh purchase. */
   grantedAt: number;
   /** When the access runs out. An extension adds to this. */
   expiresAt: number;
-  /** How many months were paid for in this grant. */
-  months: number;
+  /** How many days were paid for in this grant. */
+  days: number;
   /** The owner's own note about the payment. Shown to the buyer. */
   note: string;
   /**
@@ -95,10 +79,26 @@ export function parseSubscription(raw: unknown): Subscription | null {
     grantedAt,
     // A grant that expires before it began is a mistake, not a long subscription.
     expiresAt: Math.max(expiresAt, grantedAt),
-    months: normalizeMonths(value.months),
+    days: readDays(value),
     note: normalizeNote(value.note),
     announcementId: Math.floor(announcementId),
   };
+}
+
+/**
+ * How long this record was for.
+ *
+ * A record written before durations existed carries `months` and no `days`, and
+ * those are real paid subscriptions sitting in the database. Reading them as
+ * thirty-day months is exactly what they were granted as, so nobody loses the
+ * access they already paid for when this ships.
+ */
+function readDays(value: Record<string, unknown>): number {
+  const days = Number(value.days);
+  if (Number.isFinite(days) && days > 0) return normalizeDays(days);
+  const months = Number(value.months);
+  if (Number.isFinite(months) && months > 0) return normalizeDays(months * 30);
+  return 30;
 }
 
 /**
@@ -120,12 +120,6 @@ export function parseSubscriptionView(raw: unknown): SubscriptionView {
 
 // ── Granting ────────────────────────────────────────────────────────────────
 
-export function normalizeMonths(months: unknown): number {
-  const value = Math.floor(Number(months));
-  if (!Number.isFinite(value) || value < 1) return 1;
-  return Math.min(value, MAX_MONTHS);
-}
-
 export function normalizeNote(note: unknown): string {
   return String(note ?? "")
     .trim()
@@ -145,28 +139,28 @@ export function normalizeNote(note: unknown): string {
 export function nextExpiry(
   previous: Subscription | null | undefined,
   plan: PlanId,
-  months: number,
+  days: number,
   now: number
 ): number {
   const stillRunning = previous && previous.plan === plan && previous.expiresAt > now;
   const from = stillRunning ? previous.expiresAt : now;
-  return from + normalizeMonths(months) * MONTH_MS;
+  return from + normalizeDays(days) * DAY_MS;
 }
 
 /** Builds the record a grant writes. The admin's only job is choosing a plan. */
 export function grantRecord(input: {
   plan: PlanId;
-  months: number;
+  days: number;
   now: number;
   note?: unknown;
   previous?: Subscription | null;
 }): Subscription {
-  const months = normalizeMonths(input.months);
+  const days = normalizeDays(input.days);
   return {
     plan: input.plan,
     grantedAt: input.now,
-    expiresAt: nextExpiry(input.previous, input.plan, months, input.now),
-    months,
+    expiresAt: nextExpiry(input.previous, input.plan, days, input.now),
+    days,
     note: normalizeNote(input.note),
     announcementId: (input.previous?.announcementId ?? 0) + 1,
   };
@@ -220,10 +214,14 @@ export function subscriptionDetails(
   formatDate: (timestamp: number) => string
 ): SubscriptionDetail[] {
   const plan = planById(subscription.plan);
+  // The price is the one for the length that was actually bought. Somebody who
+  // bought a year must not be shown the monthly headline for it, because that
+  // is a different number than the one they paid.
+  const term = termForDays(plan, subscription.days);
   const rows: SubscriptionDetail[] = [
     { label: "Plan", value: plan.name },
-    { label: "Price", value: `${formatRinggit(plan.ringgit)} / month` },
-    { label: "Paid for", value: `${subscription.months} month${subscription.months === 1 ? "" : "s"}` },
+    { label: "Paid for", value: describeDuration(subscription.days) },
+    { label: "Price", value: formatRinggit(term.ringgit) },
     { label: "Activated", value: formatDate(subscription.grantedAt) },
     { label: "Active until", value: formatDate(subscription.expiresAt) },
   ];
@@ -236,9 +234,9 @@ export function renewalNote(
   subscription: Subscription,
   formatDate: (timestamp: number) => string
 ): string {
-  return `To keep it, transfer ${formatRinggit(
-    planById(subscription.plan).ringgit
-  )} again before ${formatDate(subscription.expiresAt)}.`;
+  return `To keep it, transfer ${formatRinggit(planById(subscription.plan).ringgit)} a month again before ${formatDate(
+    subscription.expiresAt
+  )}.`;
 }
 
 /** The one-word verdict the dialog leads with. */

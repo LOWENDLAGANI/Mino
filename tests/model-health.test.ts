@@ -76,7 +76,7 @@ await test("the last-resort models are listed separately and are distinguishable
 await test("Mino's own model is reachable without any vendor key, and can be switched off", async () => {
   await withKeys({ GEMINI_API_KEY: undefined, OPENROUTER_API_KEY: undefined, GROQ_API_KEY: undefined, MINO_HF_SPACE: undefined }, () => {
     const names = listModelTargets().map((target) => target.name);
-    assert.deepEqual(names, ["Mino Self"], "the Space is the only model, and it needs no key");
+    assert.deepEqual(names, ["Mino Azure"], "the Space is the only model, and it needs no key");
   });
   await withKeys({ MINO_HF_SPACE: "off" }, () => {
     assert.equal(listModelTargets().length, 0, "MINO_HF_SPACE=off removes it entirely");

@@ -16,7 +16,7 @@ import {
   type AdminSubscription,
 } from "@/lib/firebaseAdmin";
 import { PLANS, DEFAULT_PLAN, formatRinggit, planById, type PlanId } from "@/lib/plans";
-import { MONTHS_OFFERED } from "@/lib/subscriptionState";
+import { DURATIONS, describeDuration, normalizeDays } from "@/lib/durations";
 
 // ── Admin console ────────────────────────────────────────────────────────────
 // Reads and wipes go straight to the Realtime Database from the browser. Access
@@ -81,7 +81,7 @@ export default function AdminPanel({
   // is for is normally found by the name printed on the transfer.
   const [peopleQuery, setPeopleQuery] = useState("");
   const [grantPlan, setGrantPlan] = useState<PlanId>(DEFAULT_PLAN.id);
-  const [grantMonths, setGrantMonths] = useState<number>(1);
+  const [grantDays, setGrantDays] = useState<number>(30);
   const [grantNote, setGrantNote] = useState("");
 
   // Signing out must actually empty the screen. The gate only watches the
@@ -235,7 +235,7 @@ export default function AdminPanel({
     setBusy(true);
     setError(null);
     try {
-      const record = await grantSubscription(uid, grantPlan, grantMonths, grantNote);
+      const record = await grantSubscription(uid, grantPlan, grantDays, grantNote);
       setUsers((current) =>
         (current ?? []).map((user) =>
           user.uid === uid
@@ -245,7 +245,7 @@ export default function AdminPanel({
                   plan: record.plan,
                   grantedAt: record.grantedAt,
                   expiresAt: record.expiresAt,
-                  months: record.months,
+                  days: record.days,
                 },
               }
             : user
@@ -429,12 +429,12 @@ export default function AdminPanel({
                           <GrantPanel
                             key={user.uid}
                             plan={grantPlan}
-                            months={grantMonths}
+                            days={grantDays}
                             note={grantNote}
                             busy={busy}
                             hasPlan={Boolean(grantingUser?.subscription)}
                             onPlan={setGrantPlan}
-                            onMonths={setGrantMonths}
+                            onDays={setGrantDays}
                             onNote={setGrantNote}
                             onCancel={() => setGrantingUid(null)}
                             onGrant={() => void runGrant(user.uid)}
@@ -587,24 +587,24 @@ export default function AdminPanel({
  */
 function GrantPanel({
   plan,
-  months,
+  days,
   note,
   busy,
   hasPlan,
   onPlan,
-  onMonths,
+  onDays,
   onNote,
   onCancel,
   onGrant,
   onRevoke,
 }: {
   plan: PlanId;
-  months: number;
+  days: number;
   note: string;
   busy: boolean;
   hasPlan: boolean;
   onPlan: (plan: PlanId) => void;
-  onMonths: (months: number) => void;
+  onDays: (days: number) => void;
   onNote: (note: string) => void;
   onCancel: () => void;
   onGrant: () => void;
@@ -635,22 +635,70 @@ function GrantPanel({
         ))}
       </div>
 
-      <div className="mt-2.5 flex items-center gap-2">
-        <label className="text-[10px] text-white/40" htmlFor="mino-grant-months">
-          For
-        </label>
-        <select
-          id="mino-grant-months"
-          value={months}
-          onChange={(event) => onMonths(Number(event.target.value))}
-          className="rounded-[9px] border border-white/[0.1] bg-[#0d0d0f] px-2 py-1.5 text-[11px] text-white/80 outline-none focus:border-[#4da3ff]/50"
-        >
-          {MONTHS_OFFERED.map((span) => (
-            <option key={span} value={span}>
-              {span} month{span === 1 ? "" : "s"}
-            </option>
+      {/* Length, chosen from the same named spans the pricing page sells, plus
+          a free count for the span nobody sells: somebody who paid for six
+          weeks gets six weeks. A calendar would be the wrong control for all of
+          it — a grant is a number of days, not a date. */}
+      <div className="mt-2.5">
+        <span className="text-[10px] text-white/40">For</span>
+        <div className="mt-1.5 flex flex-wrap gap-1.5">
+          {DURATIONS.map((span) => (
+            <button
+              key={span.id}
+              type="button"
+              aria-pressed={days === span.days}
+              onClick={() => onDays(span.days)}
+              className={`rounded-full border px-2.5 py-1.5 text-[11px] transition-colors ${
+                days === span.days
+                  ? "border-[#4da3ff]/60 bg-[#4da3ff]/15 text-white"
+                  : "border-white/[0.1] bg-white/[0.02] text-white/50 hover:border-white/20 hover:text-white/80"
+              }`}
+            >
+              {span.label}
+            </button>
           ))}
-        </select>
+        </div>
+
+        <div className="mt-2 flex items-center gap-2">
+          <button
+            type="button"
+            onClick={() => onDays(normalizeDays(days - 1))}
+            className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-white/[0.1] text-white/60 transition-colors hover:border-white/25 hover:text-white"
+            aria-label="One day shorter"
+          >
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+              <path d="M5 12h14" />
+            </svg>
+          </button>
+          <label className="flex-1">
+            <span className="sr-only">Custom length in days</span>
+            <input
+              type="number"
+              inputMode="numeric"
+              min={1}
+              max={3650}
+              value={days}
+              onChange={(event) => onDays(normalizeDays(event.target.value))}
+              className="w-full rounded-[9px] border border-white/[0.1] bg-[#0d0d0f] px-2 py-1.5 text-center text-[11px] text-white/85 outline-none focus:border-[#4da3ff]/50"
+            />
+          </label>
+          <button
+            type="button"
+            onClick={() => onDays(normalizeDays(days + 1))}
+            className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-white/[0.1] text-white/60 transition-colors hover:border-white/25 hover:text-white"
+            aria-label="One day longer"
+          >
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+              <path d="M12 5v14M5 12h14" />
+            </svg>
+          </button>
+        </div>
+        <p className="mt-1.5 text-[10px] text-white/35">
+          {describeDuration(days)} · runs to{" "}
+          {new Date(Date.now() + normalizeDays(days) * 86_400_000).toLocaleDateString(undefined, {
+            dateStyle: "medium",
+          })}
+        </p>
       </div>
 
       <input
@@ -686,7 +734,7 @@ function GrantPanel({
           disabled={busy}
           className="ml-auto rounded-[10px] bg-[#4da3ff] px-3 py-2 text-[11px] font-semibold text-black disabled:opacity-50"
         >
-          {busy ? "Granting…" : `Grant ${planById(plan).short}`}
+          {busy ? "Granting…" : `Grant ${planById(plan).short} · ${describeDuration(days)}`}
         </button>
       </div>
     </div>

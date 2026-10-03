@@ -1,6 +1,7 @@
 "use client";
 
 import { useLiveQuery } from "dexie-react-hooks";
+import { useSubscription } from "@/lib/useSubscription";
 import {
   db,
   deleteChat,
@@ -61,6 +62,13 @@ export default function Sidebar({ activeChatId, onSelectChat, onNewChat, open, o
     [],
     [] as Chat[]
   );
+
+  // What this visitor has paid for. The promotion at the bottom of the sidebar
+  // changes shape entirely once they have: selling Mino Lunar to somebody who
+  // already has it is the kind of small dishonesty that makes a pricing page
+  // stop being believed.
+  const { subscription } = useSubscription();
+  const hasLunar = subscription?.plan === "lunar";
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [confirmClear, setConfirmClear] = useState(false);  const [notice, setNotice] = useState<string | null>(null);
@@ -192,7 +200,7 @@ export default function Sidebar({ activeChatId, onSelectChat, onNewChat, open, o
           </button>
           <a
             href="/plus"
-            aria-label="Mino Lunar — upgrade"
+            aria-label={hasLunar ? "Your Mino Lunar plan" : "Mino Lunar — upgrade"}
             className="group relative mt-1 flex w-full items-center gap-2 overflow-hidden rounded-2xl border border-[#4da3ff]/30 bg-gradient-to-r from-[#4da3ff]/[0.14] via-[#9ee7ff]/[0.07] to-transparent px-2 py-2 text-[14px] font-medium text-white shadow-[0_0_26px_-10px_rgba(77,163,255,0.85)] transition-shadow hover:shadow-[0_0_34px_-8px_rgba(77,163,255,1)]"
           >
             {/* Slow sheen so the row reads as the live one without moving. */}
@@ -208,9 +216,15 @@ export default function Sidebar({ activeChatId, onSelectChat, onNewChat, open, o
             </span>
             <span className="relative flex min-w-0 flex-1 items-center gap-1.5">
               <span className="truncate">Mino Lunar</span>
-              <span className="animate-breathe shrink-0 rounded-full bg-[#4da3ff]/20 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-[#9ee7ff]">
-                New
-              </span>
+              {hasLunar ? (
+                <span className="shrink-0 rounded-full bg-[#4da3ff]/20 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-[#9ee7ff]">
+                  ✓ Your plan
+                </span>
+              ) : (
+                <span className="animate-breathe shrink-0 rounded-full bg-[#4da3ff]/20 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-[#9ee7ff]">
+                  {subscription?.plan === "mini" ? "Upgrade" : "New"}
+                </span>
+              )}
             </span>
           </a>
           <a

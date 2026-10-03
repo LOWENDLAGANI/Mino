@@ -175,7 +175,7 @@ function explainProviderError(error: unknown): string {
   // free of provider detail, so it is passed through rather than re-explained
   // with the key/quota wording that only applies to a vendor API key.
   if (error instanceof SpaceError) {
-    return `Mino Self: ${error.message}`;
+    return `Mino Azure: ${error.message}`;
   }
   if (!(error instanceof ProviderError)) {
     return "Mino could not reach either AI service. Check your network connection and try again.";
@@ -343,7 +343,7 @@ export async function POST(req: NextRequest): Promise<Response> {
       requested === "code"
         ? "**Mino Code isn't connected to a model yet.** The person who runs this deployment needs to add a model key before Code mode can answer — it uses Mino V3, V2, and V1 only, and never substitutes another model. Your conversations are already saved safely on this device."
         : requested === "self"
-          ? "**Mino Self isn't available on this deployment.** The person who runs this deployment needs to enable Mino's own model before Self mode can answer. Your conversations are already saved safely on this device."
+          ? "**Mino Azure isn't available on this deployment.** The person who runs this deployment needs to enable Mino's own model before Azure mode can answer. Your conversations are already saved safely on this device."
           : "**Mino isn't connected to a model yet.** The person who runs this deployment needs to add a model key before Auto can answer. Your conversations are already saved safely on this device."
     );
   }

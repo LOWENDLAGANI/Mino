@@ -32,7 +32,7 @@ export const FAMILY_MODE: Record<ProviderFamily, string> = {
   openrouter: "Mino Auto",
   gemini: "Mino Code",
   groq: "the Mino fallback",
-  space: "Mino Self",
+  space: "Mino Azure",
 };
 
 export function getProviders(requested: ModeId): ProviderConfig[] {
@@ -115,7 +115,7 @@ export function getProviders(requested: ModeId): ProviderConfig[] {
         {
           id: requested,
           family: "space" as const,
-          label: "Mino Self",
+          label: "Mino Azure",
           url: "",
           key: "",
           model: SPACE_MODEL,
@@ -129,7 +129,7 @@ export function getProviders(requested: ModeId): ProviderConfig[] {
   // error instead of code written by a model the user did not ask for.
   if (requested === "code") return [...gemini];
 
-  // Self mode is the Space and nothing else: a user who picked Mino's own
+  // Azure mode is the Space and nothing else: a user who picked Mino's own
   // model did not agree to be answered by a vendor model if it is down.
   if (requested === "self") return [...space];
 

@@ -193,13 +193,13 @@ function spaceErrorMessage(data: unknown): string {
 
   const detail = typeof error === "string" ? error.trim() : "";
   if (/zero ?gpu|quota/i.test(detail)) {
-    return "Mino Self is out of GPU time. A Hugging Face token gives it more — the person who runs this deployment needs to add one.";
+    return "Mino Azure is out of GPU time. A Hugging Face token gives it more — the person who runs this deployment needs to add one.";
   }
   if (detail) {
     const first = detail.split(/(?<=[.!?])\s/)[0] ?? detail;
-    return first.length > 160 ? "Mino Self could not generate a reply." : first;
+    return first.length > 160 ? "Mino Azure could not generate a reply." : first;
   }
-  return "Mino Self reported an error while generating.";
+  return "Mino Azure reported an error while generating.";
 }
 
 /** Reads the call's SSE feed until it completes, and returns the text. */
@@ -218,7 +218,7 @@ async function readCompletion(url: string, signal: AbortSignal): Promise<string>
   } catch (error) {
     if (signal.aborted) throw error;
     throw new SpaceError(
-      "Mino Self did not answer in time. It may be starting up or out of GPU time — try again.",
+      "Mino Azure did not answer in time. It may be starting up or out of GPU time — try again.",
       504
     );
   }
@@ -237,7 +237,7 @@ async function readCompletion(url: string, signal: AbortSignal): Promise<string>
       buffer += decoder.decode(value, { stream: true });
       if (deadline.aborted) {
         throw new SpaceError(
-          "Mino Self stopped answering partway through. It may be starting up or out of GPU time — try again.",
+          "Mino Azure stopped answering partway through. It may be starting up or out of GPU time — try again.",
           504
         );
       }
@@ -288,7 +288,7 @@ async function readCompletion(url: string, signal: AbortSignal): Promise<string>
     if (signal.aborted) throw error;
     if (deadline.aborted) {
       throw new SpaceError(
-        "Mino Self stopped answering partway through. It may be starting up or out of GPU time — try again.",
+        "Mino Azure stopped answering partway through. It may be starting up or out of GPU time — try again.",
         504
       );
     }
@@ -332,7 +332,7 @@ async function askSpace(prompt: string, signal: AbortSignal): Promise<string> {
     });
   } catch (error) {
     if (signal.aborted) throw error;
-    throw new SpaceError("Mino Self could not be reached in time.", 504);
+    throw new SpaceError("Mino Azure could not be reached in time.", 504);
   }
 
   if (opened.status === 429) {

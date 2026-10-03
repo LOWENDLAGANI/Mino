@@ -42,8 +42,8 @@ export const MINO_MODES: ModeOption[] = [
   },
   {
     id: "self",
-    name: "Self",
-    display: "Mino Self",
+    name: "Azure",
+    display: "Mino Azure",
     separateSession: true,
     blurb: "Mino's own model",
   },
@@ -60,8 +60,14 @@ export function getMode(id: string): ModeOption {
   return MINO_MODES.find((m) => m.id === id) ?? MINO_MODES[0];
 }
 
-/** A name Mino is willing to show. Anything else is not a Mino name. */
-const MINO_NAME = /^Mino(?: Auto| Self| Canvas| V\d+)?$/;
+/**
+ * A name Mino is willing to show. Anything else is not a Mino name.
+ *
+ * `Self` is still accepted even though the mode is now called Mino Azure: it
+ * is what was written into every message stored before the rename, and dropping
+ * it would blank out the model name on a year of existing conversations.
+ */
+const MINO_NAME = /^Mino(?: Auto| Self| Azure| Canvas| V\d+)?$/;
 
 /**
  * Normalises whatever a message carries into a name safe to show.

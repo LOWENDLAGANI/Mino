@@ -1,19 +1,22 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { formatRinggit, type Plan } from "@/lib/plans";
+import { formatRinggit, type Plan, type PlanTerm } from "@/lib/plans";
+import { describeDuration } from "@/lib/durations";
 
 // ── Pay ─────────────────────────────────────────────────────────────────────
-// Pressing a plan on /plus opens this: the payment QR for that plan, the exact
-// amount to enter, and what happens next. `onClose` must be a stable callback
+// Pressing a plan on /plus opens this: the payment QR, the exact amount for the
+// length they chose, and what happens next. `onClose` must be a stable callback
 // from the parent, because it is an effect dependency that locks the page
 // behind the dialog while it is open.
 
 export default function PayQrDialog({
   plan,
+  term,
   onClose,
 }: {
   plan: Plan;
+  term: PlanTerm;
   onClose: () => void;
 }) {
   // Reset per mount, not per render: the parent keys this dialog on the plan,
@@ -33,15 +36,16 @@ export default function PayQrDialog({
     };
   }, [onClose]);
 
-  const amount = formatRinggit(plan.ringgit);
+  const amount = formatRinggit(term.ringgit);
   // What the buyer must confirm in their banking app. A static DuitNow QR
   // carries no amount, so this number is the whole instruction. Always two
   // decimals, because that is what a payment screen asks for.
-  const payable = `RM ${plan.ringgit.toFixed(2)}`;
+  const payable = `RM ${term.ringgit.toFixed(2)}`;
+  const length = describeDuration(term.days);
 
   async function copyAmount() {
     try {
-      await navigator.clipboard.writeText(plan.ringgit.toFixed(2));
+      await navigator.clipboard.writeText(term.ringgit.toFixed(2));
     } catch {
       // Clipboard can be blocked (insecure origin, denied permission); the
       // amount is on screen anyway, so failing quietly is fine.
@@ -90,7 +94,7 @@ export default function PayQrDialog({
           <span className="text-[clamp(2.2rem,9vw,3rem)] font-semibold leading-none tracking-tight text-white">
             {amount}
           </span>
-          <span className="text-[15px] text-white/50">/month</span>
+          <span className="text-[15px] text-white/50">for {length}</span>
           <button
             type="button"
             onClick={copyAmount}
@@ -145,7 +149,7 @@ export default function PayQrDialog({
           <li className="flex gap-2.5">
             <span className="shrink-0 font-semibold text-[#4da3ff]">3</span>
             <span>
-              Your {plan.name} starts once the payment lands, and runs for a month.
+              Your {plan.name} starts once the payment lands, and runs for {length}.
             </span>
           </li>
         </ol>

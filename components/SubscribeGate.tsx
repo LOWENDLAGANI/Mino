@@ -4,7 +4,8 @@ import { useEffect, useState } from "react";
 import { bindGoogleAccount } from "@/lib/account";
 import { describeLinkError, isDismissed } from "@/lib/accountState";
 import { firebaseConfigured } from "@/lib/firebaseHistory";
-import type { Plan } from "@/lib/plans";
+import { describeDuration } from "@/lib/durations";
+import type { Plan, PlanTerm } from "@/lib/plans";
 
 // ── Sign in to subscribe ─────────────────────────────────────────────────────
 // Stands between the pricing page and the payment QR.
@@ -23,10 +24,12 @@ import type { Plan } from "@/lib/plans";
 
 export default function SubscribeGate({
   plan,
+  term,
   onSignedIn,
   onClose,
 }: {
   plan: Plan;
+  term: PlanTerm;
   onSignedIn: () => void;
   onClose: () => void;
 }) {
@@ -89,8 +92,9 @@ export default function SubscribeGate({
         {available ? (
           <>
             <p className="mt-2 text-[14px] leading-relaxed text-white/60">
-              Sign in with Google and your {plan.name} belongs to your account — not to this
-              browser. Change phones, lose the laptop, come back anywhere, and it is still there.
+              Sign in with Google and your {plan.name} — {describeDuration(term.days)} — belongs to
+              your account, not to this browser. Change phones, lose the laptop, come back anywhere,
+              and it is still there.
             </p>
             <p className="mt-3 text-[13px] leading-relaxed text-white/45">
               Mino attaches the account you sign in with to the one this browser already has, so

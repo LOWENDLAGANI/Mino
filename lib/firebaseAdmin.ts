@@ -17,13 +17,8 @@ import { get, ref, remove, set } from "firebase/database";
 import { firebaseConfigured, getServices } from "./firebaseHistory";
 import type { AppConfig } from "./appConfig";
 import type { PlanId } from "./plans";
-import {
-  grantRecord,
-  isActive,
-  normalizeMonths,
-  parseSubscription,
-  type Subscription,
-} from "./subscriptionState";
+import { normalizeDays } from "./durations";
+import { grantRecord, isActive, parseSubscription, type Subscription } from "./subscriptionState";
 
 /**
  * The administrator is defined in exactly one place: the `ADMIN_UID` inside
@@ -79,7 +74,7 @@ export interface AdminSubscription {
   plan: PlanId;
   grantedAt: number;
   expiresAt: number;
-  months: number;
+  days: number;
 }
 
 export interface AdminChat {
@@ -209,7 +204,7 @@ const rows = [...uids].map((uid) => {
             plan: active.plan,
             grantedAt: active.grantedAt,
             expiresAt: active.expiresAt,
-            months: active.months,
+            days: active.days,
           }
         : null,
     };
@@ -311,12 +306,12 @@ export async function readSubscription(uid: string): Promise<Subscription | null
 export async function grantSubscription(
   uid: string,
   plan: PlanId,
-  months = 1,
+  days = 30,
   note = ""
 ): Promise<Subscription> {
   const { database } = await requireAdmin();
   const previous = await readSubscription(uid);
-  const record = grantRecord({ plan, months, now: Date.now(), note, previous });
+  const record = grantRecord({ plan, days: normalizeDays(days), now: Date.now(), note, previous });
   await set(ref(database, `subscriptions/${uid}`), {
     ...record,
     // The acknowledgement is kept rather than cleared. It is what stops a
@@ -332,9 +327,6 @@ export async function revokeSubscription(uid: string): Promise<void> {
   const { database } = await requireAdmin();
   await remove(ref(database, `subscriptions/${uid}`)).catch(rethrow);
 }
-
-/** Re-exported for the console, which shows the whole span rather than a month. */
-export { normalizeMonths };
 
 /**
  * Saves the runtime controls.
