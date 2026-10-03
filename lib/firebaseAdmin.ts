@@ -13,9 +13,17 @@
 // this file would gain an attacker nothing.
 
 import { GoogleAuthProvider, signInWithPopup, signOut } from "firebase/auth";
-import { get, ref, remove } from "firebase/database";
+import { get, ref, remove, set } from "firebase/database";
 import { firebaseConfigured, getServices } from "./firebaseHistory";
 import type { AppConfig } from "./appConfig";
+import type { PlanId } from "./plans";
+import {
+  grantRecord,
+  isActive,
+  normalizeMonths,
+  parseSubscription,
+  type Subscription,
+} from "./subscriptionState";
 
 /**
  * The administrator is defined in exactly one place: the `ADMIN_UID` inside
@@ -63,6 +71,15 @@ export interface AdminUser {
   lastSeen: number | null;
   chats: number;
   messages: number;
+  /** What they have paid for, or null when they are on the free tier. */
+  subscription: AdminSubscription | null;
+}
+
+export interface AdminSubscription {
+  plan: PlanId;
+  grantedAt: number;
+  expiresAt: number;
+  months: number;
 }
 
 export interface AdminChat {
@@ -135,9 +152,13 @@ export async function currentUid(): Promise<string | null> {
 
 export async function listUsers(): Promise<AdminUser[]> {
   const { database } = await requireAdmin();
-  const [registrySnapshot, usersSnapshot] = await Promise.all([
+  const [registrySnapshot, usersSnapshot, subscriptionsSnapshot] = await Promise.all([
     get(ref(database, "admin/registry")),
     get(ref(database, "users")),
+    // A deployment whose rules predate subscriptions refuses this read. That is
+    // not a reason to fail the whole console, so it degrades to "nobody has a
+    // plan" rather than to an empty visitor list.
+    get(ref(database, "subscriptions")).catch(() => ({ val: () => null }) as never),
   ]).catch(rethrow);
 
   const names = (registrySnapshot.val() ?? {}) as Record<
@@ -145,6 +166,8 @@ export async function listUsers(): Promise<AdminUser[]> {
     { name?: string; firstSeen?: number; lastSeen?: number }
   >;
   const chats = (usersSnapshot.val() ?? {}) as Record<string, { chats?: Record<string, unknown> }>;
+  const plans = (subscriptionsSnapshot.val() ?? {}) as Record<string, unknown>;
+  const now = Date.now();
 
   const rows = Object.entries(chats).map(([uid, value]) => {
     const profile = names[uid];
@@ -159,6 +182,11 @@ export async function listUsers(): Promise<AdminUser[]> {
       return updated > latest ? updated : latest;
     }, 0);
 
+    // Only what is still paid for. A lapsed grant is shown to the owner as free
+    // rather than as an expired plan, because "Free" is the thing they can act on.
+    const plan = parseSubscription(plans[uid]);
+    const active = isActive(plan, now) ? (plan as Subscription) : null;
+
     return {
       uid,
       name: profile?.name ?? null,
@@ -166,6 +194,14 @@ export async function listUsers(): Promise<AdminUser[]> {
       lastSeen: profile?.lastSeen ?? lastChatAt,
       chats: entries.length,
       messages,
+      subscription: active
+        ? {
+            plan: active.plan,
+            grantedAt: active.grantedAt,
+            expiresAt: active.expiresAt,
+            months: active.months,
+          }
+        : null,
     };
   });
 
@@ -213,20 +249,79 @@ export async function getChat(uid: string, chatId: string): Promise<{ title: str
   return { title: chat.title ?? "Untitled", messages };
 }
 
-/** Removes one visitor's chats and their registry entry. */
+/** Removes one visitor's chats, their registry entry, and any plan they held. */
 export async function wipeUser(uid: string): Promise<void> {
   const { database } = await requireAdmin();
   await Promise.all([
     remove(ref(database, `users/${uid}`)),
     remove(ref(database, `admin/registry/${uid}`)),
+    remove(ref(database, `subscriptions/${uid}`)),
   ]).catch(rethrow);
 }
 
-/** Removes every logged chat and every visitor entry. */
+/** Removes every logged chat, every visitor entry, and every subscription. */
 export async function wipeAll(): Promise<void> {
   const { database } = await requireAdmin();
-  await Promise.all([remove(ref(database, "users")), remove(ref(database, "admin/registry"))]).catch(rethrow);
+  await Promise.all([
+    remove(ref(database, "users")),
+    remove(ref(database, "admin/registry")),
+    remove(ref(database, "subscriptions")),
+  ]).catch(rethrow);
 }
+
+// ── Granting a plan ──────────────────────────────────────────────────────────
+// This is the whole payment system. Buyers transfer by QR, the owner sees the
+// money arrive, and the plan is handed over by hand from this screen. There is
+// no webhook and no gateway, which means the grant is a decision somebody makes
+// rather than an event a provider reports.
+//
+// It writes the same node the buyer's browser is already listening to, so the
+// celebration appears on their open tab the moment this returns.
+
+/** One visitor's current record, or null when they have never been granted one. */
+export async function readSubscription(uid: string): Promise<Subscription | null> {
+  const { database } = await requireAdmin();
+  const snapshot = await get(ref(database, `subscriptions/${uid}`)).catch(rethrow);
+  return parseSubscription(snapshot.val());
+}
+
+/**
+ * Grants a plan to a visitor, extending it if they already have that one.
+ *
+ * `note` is the owner's own reference for the payment — whatever their banking
+ * app showed — and it is shown to the buyer, which is what lets them match a
+ * transfer to a purchase without being asked.
+ *
+ * Returns the record that was written so the console can show what actually
+ * landed rather than what was asked for.
+ */
+export async function grantSubscription(
+  uid: string,
+  plan: PlanId,
+  months = 1,
+  note = ""
+): Promise<Subscription> {
+  const { database } = await requireAdmin();
+  const previous = await readSubscription(uid);
+  const record = grantRecord({ plan, months, now: Date.now(), note, previous });
+  await set(ref(database, `subscriptions/${uid}`), {
+    ...record,
+    // The acknowledgement is kept rather than cleared. It is what stops a
+    // grant the buyer has already seen from being announced twice, and this
+    // grant's own id is one higher, so the new purchase is still announced.
+    ack: { announcementId: previous?.announcementId ?? 0 },
+  }).catch(rethrow);
+  return record;
+}
+
+/** Takes a plan away, so the visitor is back on the free tier. */
+export async function revokeSubscription(uid: string): Promise<void> {
+  const { database } = await requireAdmin();
+  await remove(ref(database, `subscriptions/${uid}`)).catch(rethrow);
+}
+
+/** Re-exported for the console, which shows the whole span rather than a month. */
+export { normalizeMonths };
 
 /**
  * Saves the runtime controls.

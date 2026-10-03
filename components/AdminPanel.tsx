@@ -5,7 +5,18 @@ import { onAuthStateChanged } from "firebase/auth";
 import AdminControls from "./AdminControls";
 import ModelHealthSection from "./ModelHealth";
 import { firebaseConfigured, fetchVisitorRegistry, getServices, type VisitorProfile } from "@/lib/firebaseHistory";
-import { getChat, listChats, listUsers, wipeAll, wipeUser } from "@/lib/firebaseAdmin";
+import {
+  getChat,
+  grantSubscription,
+  listChats,
+  listUsers,
+  revokeSubscription,
+  wipeAll,
+  wipeUser,
+  type AdminSubscription,
+} from "@/lib/firebaseAdmin";
+import { PLANS, DEFAULT_PLAN, formatRinggit, planById, type PlanId } from "@/lib/plans";
+import { MONTHS_OFFERED } from "@/lib/subscriptionState";
 
 // ── Admin console ────────────────────────────────────────────────────────────
 // Reads and wipes go straight to the Realtime Database from the browser. Access
@@ -20,6 +31,7 @@ interface AdminUser {
   lastSeen: number | null;
   chats: number;
   messages: number;
+  subscription: AdminSubscription | null;
 }
 interface AdminChat {
   chatId: string;
@@ -61,6 +73,13 @@ export default function AdminPanel({
   const [diagnostics, setDiagnostics] = useState<Record<string, unknown> | null>(null);
   const [busy, setBusy] = useState(false);
   const [confirmWipe, setConfirmWipe] = useState<null | { scope: "all" | "user"; uid?: string; label: string }>(null);
+  // Whose plan is being granted, and the choices made for it. Kept as a uid so
+  // the panel always reads the current record out of `users` rather than a copy
+  // that goes stale the moment a grant lands.
+  const [grantingUid, setGrantingUid] = useState<string | null>(null);
+  const [grantPlan, setGrantPlan] = useState<PlanId>(DEFAULT_PLAN.id);
+  const [grantMonths, setGrantMonths] = useState<number>(1);
+  const [grantNote, setGrantNote] = useState("");
 
   // Signing out must actually empty the screen. The gate only watches the
   // session while its own dialog is open, so a sign-out triggered from inside
@@ -109,6 +128,9 @@ export default function AdminPanel({
           case "wipeAll":
             await wipeAll();
             return { ok: true };
+          case "revokeSubscription":
+            await revokeSubscription(extra.uid!);
+            return { ok: true };
           default:
             throw new Error("Unknown action.");
         }
@@ -139,6 +161,8 @@ export default function AdminPanel({
     setNamed(null);
     setError(null);
     setConfirmWipe(null);
+    setGrantingUid(null);
+    setGrantNote("");
 
     void call("listUsers")
       .then((data) => setUsers(data.users as AdminUser[]))
@@ -195,6 +219,62 @@ export default function AdminPanel({
       setBusy(false);
     }
   };
+
+  /**
+   * Hands a plan to one visitor.
+   *
+   * The record that comes back is what gets shown, not what was asked for, so a
+   * renewal that extended the end date reports the real date rather than the
+   * one this screen guessed. The buyer's browser is already listening to the
+   * node this writes.
+   */
+  const runGrant = async (uid: string) => {
+    setBusy(true);
+    setError(null);
+    try {
+      const record = await grantSubscription(uid, grantPlan, grantMonths, grantNote);
+      setUsers((current) =>
+        (current ?? []).map((user) =>
+          user.uid === uid
+            ? {
+                ...user,
+                subscription: {
+                  plan: record.plan,
+                  grantedAt: record.grantedAt,
+                  expiresAt: record.expiresAt,
+                  months: record.months,
+                },
+              }
+            : user
+        )
+      );
+      setGrantingUid(null);
+      setGrantNote("");
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : "Could not grant the plan.");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const runRevoke = async (uid: string) => {
+    setBusy(true);
+    setError(null);
+    try {
+      await revokeSubscription(uid);
+      setUsers((current) =>
+        (current ?? []).map((user) => (user.uid === uid ? { ...user, subscription: null } : user))
+      );
+      setGrantingUid(null);
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : "Could not remove the plan.");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const grantingUser = grantingUid ? users?.find((user) => user.uid === grantingUid) ?? null : null;
+  const subscribed = (users ?? []).filter((user) => user.subscription).length;
 
   if (!open) return null;
 
@@ -262,33 +342,75 @@ export default function AdminPanel({
               <AdminControls users={users} onError={setError} />
 
               <section>
-                <h3 className="mb-2 text-[10px] font-semibold uppercase tracking-[0.14em] text-white/35">People</h3>
+                <div className="mb-2 flex items-center justify-between">
+                  <h3 className="text-[10px] font-semibold uppercase tracking-[0.14em] text-white/35">People</h3>
+                  <span className="text-[10px] text-white/25">
+                    {subscribed} subscribed
+                  </span>
+                </div>
                 {users === null ? (
                   <p className="py-2 text-[11px] text-white/35">Loading…</p>
                 ) : users.length === 0 ? (
                   <p className="py-2 text-[11px] text-white/35">No conversations have been logged yet.</p>
                 ) : (
-                  <ul className="space-y-1">
+                  <ul className="space-y-1.5">
                     {users.map((user) => (
-                      <li key={user.uid} className="flex items-center gap-2">
-                        <button
-                          type="button"
-                          onClick={() => openChats(user)}
-                          className="min-w-0 flex-1 rounded-[12px] border border-white/[0.06] bg-white/[0.03] px-3 py-2.5 text-left transition-colors hover:bg-white/[0.07]"
-                        >
-                          <span className="block truncate text-[13px] font-semibold text-white/90">{user.name ?? "Unnamed visitor"}</span>
-                          <span className="mt-0.5 block text-[10px] text-white/30">
-                            {user.chats} chat{user.chats === 1 ? "" : "s"} · {user.messages} message{user.messages === 1 ? "" : "s"} · {when(user.lastSeen)}
-                          </span>
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => setConfirmWipe({ scope: "user", uid: user.uid, label: user.name ?? "Unnamed visitor" })}
-                          className="shrink-0 rounded-[10px] px-2 py-2 text-[10px] text-white/30 hover:bg-red-500/10 hover:text-red-300"
-                          aria-label={`Delete data for ${user.name ?? "this visitor"}`}
-                        >
-                          Wipe
-                        </button>
+                      <li key={user.uid}>
+                        <div className="flex items-center gap-2">
+                          <button
+                            type="button"
+                            onClick={() => openChats(user)}
+                            className="min-w-0 flex-1 rounded-[12px] border border-white/[0.06] bg-white/[0.03] px-3 py-2.5 text-left transition-colors hover:bg-white/[0.07]"
+                          >
+                            <span className="block truncate text-[13px] font-semibold text-white/90">{user.name ?? "Unnamed visitor"}</span>
+                            <span className="mt-0.5 block text-[10px] text-white/30">
+                              {user.chats} chat{user.chats === 1 ? "" : "s"} · {user.messages} message{user.messages === 1 ? "" : "s"} · {when(user.lastSeen)}
+                            </span>
+                          </button>
+                          {user.subscription ? (
+                            <button
+                              type="button"
+                              onClick={() => setGrantingUid(grantingUid === user.uid ? null : user.uid)}
+                              className="shrink-0 rounded-[10px] border border-[#4da3ff]/25 bg-[#4da3ff]/10 px-2 py-1.5 text-[10px] font-semibold text-[#9ee7ff]"
+                              aria-label={`${planById(user.subscription.plan).name} until ${new Date(user.subscription.expiresAt).toLocaleDateString()}`}
+                            >
+                              {planById(user.subscription.plan).short}
+                            </button>
+                          ) : (
+                            <button
+                              type="button"
+                              onClick={() => setGrantingUid(grantingUid === user.uid ? null : user.uid)}
+                              className="shrink-0 rounded-[10px] px-2 py-2 text-[10px] text-white/30 hover:bg-white/[0.07] hover:text-white/70"
+                              aria-label={`Grant a plan to ${user.name ?? "this visitor"}`}
+                            >
+                              Plan
+                            </button>
+                          )}
+                          <button
+                            type="button"
+                            onClick={() => setConfirmWipe({ scope: "user", uid: user.uid, label: user.name ?? "Unnamed visitor" })}
+                            className="shrink-0 rounded-[10px] px-2 py-2 text-[10px] text-white/30 hover:bg-red-500/10 hover:text-red-300"
+                            aria-label={`Delete data for ${user.name ?? "this visitor"}`}
+                          >
+                            Wipe
+                          </button>
+                        </div>
+
+                        {grantingUid === user.uid && (
+                          <GrantPanel
+                            plan={grantPlan}
+                            months={grantMonths}
+                            note={grantNote}
+                            busy={busy}
+                            hasPlan={Boolean(grantingUser?.subscription)}
+                            onPlan={setGrantPlan}
+                            onMonths={setGrantMonths}
+                            onNote={setGrantNote}
+                            onCancel={() => setGrantingUid(null)}
+                            onGrant={() => void runGrant(user.uid)}
+                            onRevoke={() => void runRevoke(user.uid)}
+                          />
+                        )}
                       </li>
                     ))}
                   </ul>
@@ -418,6 +540,125 @@ export default function AdminPanel({
           </div>
         )}
       </section>
+    </div>
+  );
+}
+
+/**
+ * The grant form for one visitor.
+ *
+ * A QR transfer is checked by hand, so this is the moment the payment becomes a
+ * plan. The tier is chosen first and granted second on purpose: one button that
+ * grants whatever is highlighted is one stray tap away from selling a month of
+ * the wrong tier, and nobody can undo that for the buyer except another tap
+ * here. The reference field carries whatever the banking app showed, and it is
+ * shown to the buyer — that is what lets them match a transfer to a purchase
+ * without asking.
+ */
+function GrantPanel({
+  plan,
+  months,
+  note,
+  busy,
+  hasPlan,
+  onPlan,
+  onMonths,
+  onNote,
+  onCancel,
+  onGrant,
+  onRevoke,
+}: {
+  plan: PlanId;
+  months: number;
+  note: string;
+  busy: boolean;
+  hasPlan: boolean;
+  onPlan: (plan: PlanId) => void;
+  onMonths: (months: number) => void;
+  onNote: (note: string) => void;
+  onCancel: () => void;
+  onGrant: () => void;
+  onRevoke: () => void;
+}) {
+  return (
+    <div className="mt-1.5 rounded-[14px] border border-[#4da3ff]/20 bg-[#4da3ff]/[0.05] p-3">
+      <p className="text-[10px] leading-relaxed text-white/45">
+        Payment received? Choose the tier they paid for.
+      </p>
+
+      <div className="mt-2.5 grid grid-cols-2 gap-1.5">
+        {PLANS.map((item) => (
+          <button
+            key={item.id}
+            type="button"
+            aria-pressed={plan === item.id}
+            onClick={() => onPlan(item.id)}
+            className={`rounded-[10px] border px-2.5 py-2 text-left transition-colors ${
+              plan === item.id
+                ? "border-[#4da3ff]/60 bg-[#4da3ff]/15 text-white"
+                : "border-white/[0.08] bg-white/[0.02] text-white/45 hover:border-white/20 hover:text-white/75"
+            }`}
+          >
+            <span className="block text-[12px] font-semibold">{item.short}</span>
+            <span className="block text-[10px] opacity-70">{formatRinggit(item.ringgit)}/mo</span>
+          </button>
+        ))}
+      </div>
+
+      <div className="mt-2.5 flex items-center gap-2">
+        <label className="text-[10px] text-white/40" htmlFor="mino-grant-months">
+          For
+        </label>
+        <select
+          id="mino-grant-months"
+          value={months}
+          onChange={(event) => onMonths(Number(event.target.value))}
+          className="rounded-[9px] border border-white/[0.1] bg-[#0d0d0f] px-2 py-1.5 text-[11px] text-white/80 outline-none focus:border-[#4da3ff]/50"
+        >
+          {MONTHS_OFFERED.map((span) => (
+            <option key={span} value={span}>
+              {span} month{span === 1 ? "" : "s"}
+            </option>
+          ))}
+        </select>
+      </div>
+
+      <input
+        value={note}
+        onChange={(event) => onNote(event.target.value)}
+        placeholder="Payment reference (optional)"
+        aria-label="Payment reference"
+        maxLength={120}
+        className="mt-2 w-full rounded-[10px] border border-white/[0.1] bg-[#0d0d0f] px-2.5 py-2 text-[11px] text-white/85 outline-none placeholder:text-white/25 focus:border-[#4da3ff]/50"
+      />
+
+      <div className="mt-2.5 flex gap-1.5">
+        <button
+          type="button"
+          onClick={onCancel}
+          className="rounded-[10px] px-2.5 py-2 text-[11px] text-white/45 hover:bg-white/[0.06] hover:text-white"
+        >
+          Cancel
+        </button>
+        {hasPlan && (
+          <button
+            type="button"
+            onClick={onRevoke}
+            disabled={busy}
+            className="rounded-[10px] px-2.5 py-2 text-[11px] text-red-300/70 hover:bg-red-500/10 hover:text-red-300 disabled:opacity-40"
+          >
+            Remove plan
+          </button>
+        )}
+        <button
+          type="button"
+          onClick={onGrant}
+          disabled={busy}
+          className="ml-auto rounded-[10px] bg-[#4da3ff] px-3 py-2 text-[11px] font-semibold text-black disabled:opacity-50"
+        >
+          {busy ? "Granting…" : `Grant ${planById(plan).short}`}
+        </button>
+      </div>
     </div>
   );
 }

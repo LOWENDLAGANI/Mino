@@ -21,6 +21,17 @@
         }
       }
     },
+    "subscriptions": {
+      ".read": "auth != null && auth.token.email === 'myrealmetvreal@gmail.com'",
+      ".write": "auth != null && auth.token.email === 'myrealmetvreal@gmail.com'",
+      "$uid": {
+        ".read": "auth != null && auth.uid === $uid",
+        ".validate": "newData.hasChildren(['plan','grantedAt','expiresAt','announcementId']) && (newData.child('plan').val() === 'mini' || newData.child('plan').val() === 'lunar') && newData.child('grantedAt').isNumber() && newData.child('expiresAt').isNumber() && newData.child('announcementId').isNumber()",
+        "ack": {
+          ".write": "auth != null && auth.uid === $uid"
+        }
+      }
+    },
     "users": {
       ".read": "auth != null && auth.token.email === 'myrealmetvreal@gmail.com'",
       ".write": "auth != null && auth.token.email === 'myrealmetvreal@gmail.com'",

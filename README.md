@@ -146,7 +146,30 @@ The old `admin/pinHash` node is unused and can be deleted from the Firebase cons
 
 Browsing conversations, listing people, and wiping data all go through `lib/firebaseAdmin.ts`, which calls the Realtime Database directly from the browser under those rules. There is no API route and no server-side credential: the deployment environment holds no `FIREBASE_ADMIN_*` variables and never needs a key pasted into a dashboard.
 
-A wiped user loses `users/{uid}` and `admin/registry/{uid}`; a full wipe clears both trees. `.validate` rules are not evaluated on delete, so neither operation is blocked by the schema checks.
+A wiped user loses `users/{uid}`, `admin/registry/{uid}` and `subscriptions/{uid}`; a full wipe clears all three trees. `.validate` rules are not evaluated on delete, so neither operation is blocked by the schema checks.
+
+## Subscriptions (Mino Mini and Mino Lunar)
+
+**Mino is paid for by QR transfer, and the subscription is granted by hand.** There is no payment gateway and no webhook: a buyer sends RM 10 (Mini) or RM 15 (Lunar) to the DuitNow QR on `/plus`, the owner sees the money arrive, and the owner grants the plan from the admin console. `lib/plans.ts` holds both tiers — price, features, QR — and nothing else hardcodes them.
+
+**How a grant is made.** In the console, press **Plan** beside a visitor, choose the tier they paid for, choose how many months, optionally type the reference their banking app showed, and press **Grant**. The tier is chosen first and granted second on purpose: one button that grants whatever is highlighted is one stray tap away from selling the wrong tier. The same panel offers **Remove plan**, and the People list shows each subscriber's tier and how many are subscribed.
+
+**What the buyer sees.** The grant writes `subscriptions/{uid}` — the node their browser is already subscribed to — so a tab that is open shows **Payment received** the moment it is written, with the plan, the price, how many months were paid for, when it was activated, the exact date it ends, and the payment reference. If they were not on the site, it is waiting on their next visit. **It is shown exactly once**, and afterwards it never appears again for that grant; a renewal is a new grant and is announced once in turn.
+
+**The dialog closes only on its button.** No backdrop click, no Escape, no outside tap. This is the one screen somebody has to read, and an accidental dismissal is how someone misses that their money landed and waits a day to ask about it.
+
+**Why the record lives outside `users/`.** The rules grant a visitor `.write` on their own `users/$uid` node so their chats can be logged, and a Realtime Database grant cannot be revoked by a deeper rule. A subscription stored there could therefore be written by the person it describes. `subscriptions/` is a separate top-level tree: the administrator reads and writes it, each visitor reads only their own record, and the single thing a visitor may write is `subscriptions/$uid/ack` — the number of the grant they have already been shown.
+
+| Node | Read | Write |
+|---|---|---|
+| `subscriptions/$uid` | the owner **and** its owner | the owner only |
+| `subscriptions/$uid/ack` | the owner | **its owner**, and the owner |
+
+A grant carries an `announcementId` that goes up by one on every grant. The dialog is owed whenever that number is higher than the one the person has acknowledged — recorded in the database *and* in this browser's `localStorage`, so "after that don't show again" holds even on a deployment whose rules have not been republished, and on a second browser that has never seen the grant.
+
+**Rules that must be published.** The `subscriptions` block in `database.rules.json`. Until it is, granting still works for the administrator but a visitor's read is refused, so nobody is shown a plan they have not been given, and the acknowledgement never lands.
+
+**Expiry and renewal.** A month is thirty days from the grant. Granting the same tier again while it is still running **adds** to the date it already ends on, so a renewal never discards time that was paid for. Switching tier starts from today — there is no proration, and quietly carrying Mini's remaining days into a Lunar charge would invent a discount nobody agreed to. An expired grant is treated as no grant: no dialog, and the person is shown as free in the console.
 
 ## Visitor names
 

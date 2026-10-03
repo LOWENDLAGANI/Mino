@@ -1,5 +1,6 @@
 import type { Metadata, Viewport } from "next";
 import ServiceWorker from "@/components/ServiceWorker";
+import SubscriptionCelebration from "@/components/SubscriptionCelebration";
 import "./globals.css";
 
 export const metadata: Metadata = {
@@ -52,6 +53,10 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
     <html lang="en" className="dark">
       <body className="h-[100dvh]">
         {children}
+        {/* Mounted here rather than in one page, because a purchase is not tied
+            to a screen: whoever is granted a plan must be told about it whether
+            they are in the chat, on the pricing page, or reading this sentence. */}
+        <SubscriptionCelebration />
         <ServiceWorker />
       </body>
     </html>
