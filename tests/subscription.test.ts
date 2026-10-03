@@ -14,6 +14,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import {
   grantRecord,
+  grantedSpanDays,
   isActive,
   nextExpiry,
   normalizeNote,
@@ -63,12 +64,24 @@ function code(path: string): string {
 }
 
 const NOW = 1_700_000_000_000;
+
+/**
+ * A day in milliseconds, written out here rather than imported.
+ *
+ * Every date assertion in this file is built from *this* literal, never from
+ * the module's own constant. That is not pedantry: the product shipped a
+ * `DAY_MS` with a factor of sixty in it, every subscription came out sixty
+ * times too long, and the whole suite passed — because each test compared the
+ * code's arithmetic against the same wrong constant it was testing. A test that
+ * shares its subject's assumption cannot catch the subject being wrong.
+ */
+const MS_DAY = 86_400_000;
 const date = (timestamp: number) => new Date(timestamp).toISOString().slice(0, 10);
 
 const GRANTED: Subscription = {
   plan: "lunar",
   grantedAt: NOW,
-  expiresAt: NOW + 30 * DAY_MS,
+  expiresAt: NOW + 30 * MS_DAY,
   days: 30,
   note: "",
   announcementId: 1,
@@ -87,9 +100,29 @@ test("a grant is stored as one record with everything the dialog prints", () => 
   assert.equal(record.plan, "mini");
   assert.equal(record.days, 90);
   assert.equal(record.grantedAt, NOW);
-  assert.equal(record.expiresAt, NOW + 90 * DAY_MS);
+  assert.equal(record.expiresAt, NOW + 90 * MS_DAY);
   assert.equal(record.note, "DuitNow ref 8842");
   assert.equal(record.announcementId, 1);
+});
+
+test("a day is a day, and not a minute", () => {
+  // This is the assertion that was missing when a fourth `* 60` turned DAY_MS
+  // into a minute. A month of 30 days was running 1800.
+  assert.equal(DAY_MS, 86_400_000, "DAY_MS is milliseconds in one day");
+  assert.equal(DAY_MS, MS_DAY);
+  assert.equal(DAY_MS / MS_DAY, 1);
+  // And the whole point of it: a month is thirty days, a year is three hundred
+  // and sixty-five, measured the same way the product measures them.
+  assert.equal(30 * DAY_MS, 2_592_000_000);
+  assert.equal(365 * DAY_MS, 31_536_000_000);
+});
+
+test("a grant of N days ends exactly N days later", () => {
+  // Anchored on literals, so it fails the moment the constant drifts.
+  for (const days of [1, 7, 30, 45, 90, 365]) {
+    const record = grantRecord({ plan: "mini", days, now: NOW, previous: null });
+    assert.equal(record.expiresAt - NOW, days * MS_DAY, `${days} days`);
+  }
 });
 
 test("every span is a length of days, inside the bound the record enforces", () => {
@@ -127,7 +160,7 @@ test("a record written before durations existed keeps the time that was paid for
   const legacy = parseSubscription({
     plan: "mini",
     grantedAt: NOW,
-    expiresAt: NOW + 90 * DAY_MS,
+    expiresAt: NOW + 90 * MS_DAY,
     months: 3,
     announcementId: 2,
   });
@@ -144,13 +177,13 @@ test("a payment reference is trimmed and capped rather than truncated mid-word",
 test("a renewal adds to the time already paid for instead of replacing it", () => {
   // Re-granting the same tier a week before it runs out must not cost the buyer
   // the week they already bought.
-  const renewal = grantRecord({ plan: "lunar", days: 30, now: NOW + 7 * DAY_MS, previous: GRANTED });
-  assert.equal(renewal.expiresAt, GRANTED.expiresAt + 30 * DAY_MS);
+  const renewal = grantRecord({ plan: "lunar", days: 30, now: NOW + 7 * MS_DAY, previous: GRANTED });
+  assert.equal(renewal.expiresAt, GRANTED.expiresAt + 30 * MS_DAY);
 });
 
 test("a single day is a real length, not a rounding of a month", () => {
   const record = grantRecord({ plan: "mini", days: 1, now: NOW, previous: null });
-  assert.equal(record.expiresAt, NOW + DAY_MS);
+  assert.equal(record.expiresAt, NOW + MS_DAY);
 });
 
 test("switching tier starts from today, because there is no proration to invent", () => {
@@ -159,15 +192,15 @@ test("switching tier starts from today, because there is no proration to invent"
   const upgrade = grantRecord({
     plan: "lunar",
     days: 30,
-    now: NOW + 7 * DAY_MS,
+    now: NOW + 7 * MS_DAY,
     previous: { ...GRANTED, plan: "mini" },
   });
-  assert.equal(upgrade.expiresAt, NOW + 7 * DAY_MS + 30 * DAY_MS);
+  assert.equal(upgrade.expiresAt, NOW + 7 * MS_DAY + 30 * MS_DAY);
 });
 
 test("an expired plan renewed starts from the renewal, not from last month", () => {
   const lapsed: Subscription = { ...GRANTED, expiresAt: NOW - 1 };
-  assert.equal(nextExpiry(lapsed, "lunar", 30, NOW), NOW + 30 * DAY_MS);
+  assert.equal(nextExpiry(lapsed, "lunar", 30, NOW), NOW + 30 * MS_DAY);
 });
 
 test("each grant announces itself once and only once", () => {
@@ -191,7 +224,7 @@ test("a record that is not a plan is treated as no plan at all", () => {
 });
 
 test("a record whose end date precedes its start is repaired, not trusted", () => {
-  const parsed = parseSubscription({ ...GRANTED, expiresAt: NOW - 10 * DAY_MS });
+  const parsed = parseSubscription({ ...GRANTED, expiresAt: NOW - 10 * MS_DAY });
   assert.equal(parsed?.expiresAt, NOW, "a backwards expiry reads as ending immediately, not as forever");
 });
 
@@ -232,13 +265,13 @@ test("a later grant still gets through after the first was acknowledged", () => 
   const renewed = parseSubscriptionView({
     ...GRANTED,
     announcementId: 2,
-    grantedAt: NOW + 30 * DAY_MS,
-    expiresAt: NOW + 60 * DAY_MS,
+    grantedAt: NOW + 30 * MS_DAY,
+    expiresAt: NOW + 60 * MS_DAY,
     ack: { announcementId: 1 },
   });
-  assert.equal(shouldCelebrate(renewed, { now: NOW + 30 * DAY_MS })?.announcementId, 2);
+  assert.equal(shouldCelebrate(renewed, { now: NOW + 30 * MS_DAY })?.announcementId, 2);
   // And an old local acknowledgement is not allowed to swallow a new one.
-  assert.equal(shouldCelebrate(renewed, { local: 1, now: NOW + 30 * DAY_MS })?.announcementId, 2);
+  assert.equal(shouldCelebrate(renewed, { local: 1, now: NOW + 30 * MS_DAY })?.announcementId, 2);
 });
 
 test("a local acknowledgement beats a stale database copy, and vice versa", () => {
@@ -265,15 +298,51 @@ test("the receipt quotes the price for the length bought, not the monthly headli
   // Somebody who bought a year has to be told they bought a year, at the year's
   // price. Printing RM 15 next to "a year" would be a different number than the
   // one they paid, and it would be the buyer's word against the owner's.
-  const yearly = subscriptionDetails({ ...GRANTED, days: 365 }, date);
-  const price = yearly.find((row) => row.label === "Price")?.value;
-  assert.equal(price, "RM 150");
-  assert.equal(yearly.find((row) => row.label === "Paid for")?.value, "a year");
-  // A length that was never on the price list falls back rather than guessing.
-  assert.equal(
-    subscriptionDetails({ ...GRANTED, days: 45 }, date).find((row) => row.label === "Price")?.value,
-    "RM 15"
+  // A yearly record has to be a *year* in both the field and the dates. Stamping
+  // `days: 365` onto a record that ends in thirty days is exactly the kind of
+  // disagreement this fix exists to refuse, so it is refused.
+  const yearly = subscriptionDetails(
+    { ...GRANTED, days: 365, grantedAt: NOW, expiresAt: NOW + 365 * MS_DAY },
+    date
   );
+  assert.equal(yearly.find((row) => row.label === "Price")?.value, "RM 150");
+  assert.equal(yearly.find((row) => row.label === "Paid for")?.value, "a year");
+
+  const mismatched = subscriptionDetails({ ...GRANTED, days: 365 }, date);
+  assert.equal(
+    mismatched.find((row) => row.label === "Paid for")?.value,
+    "a month",
+    "the span between the dates wins over the field that claims otherwise"
+  );
+});
+
+test("a renewed plan is described by the time it really has, not by the last grant", () => {
+  // The bug this exists for. Granting to somebody whose plan is still running
+  // *adds* to the end date they already had, so the record carries `days: 30`
+  // and an expiry 1800 days out. Printing "a month" next to "1800 days left"
+  // was two contradictory numbers for one subscription on the same screen.
+  const stacked: Subscription = { ...GRANTED, days: 30, grantedAt: NOW, expiresAt: NOW + 1800 * MS_DAY };
+  assert.equal(grantedSpanDays(stacked), 1800);
+  const rows = subscriptionDetails(stacked, date);
+  assert.equal(rows.find((row) => row.label === "Paid for")?.value, "4 years and 11 months");
+
+  // No price is printed for a span that is not on the price list: RM 15 beside
+  // "5 years" is a number nobody charged.
+  assert.equal(
+    rows.find((row) => row.label === "Price"),
+    undefined,
+    "a length nobody was sold must not be given a price"
+  );
+
+  // And when the record is internally consistent, nothing changes.
+  assert.equal(grantedSpanDays(GRANTED), 30);
+});
+
+test("a record whose dates are nonsense falls back to what was granted", () => {
+  // An expiry at or before the start is not a very long plan; it is a broken
+  // one, and it must not be reported as "10 years".
+  const broken: Subscription = { ...GRANTED, days: 30, grantedAt: NOW, expiresAt: NOW };
+  assert.equal(grantedSpanDays(broken), 30);
 });
 
 test("a grant with no reference does not print an empty row", () => {

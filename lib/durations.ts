@@ -10,7 +10,16 @@
 // "months" instead would have made the day the buyer can now buy unrepresentable
 // the moment somebody used one.
 
-export const DAY_MS = 24 * 60 * 60 * 60 * 1000;
+/**
+ * Milliseconds in one day.
+ *
+ * Spelled out from first principles rather than written as a familiar number,
+ * because the fourth factor here is exactly the mistake that was made once: an
+ * extra `* 60` turns this into a minute count and silently makes every
+ * subscription sixty times too long. A month of 30 days would run 1800. The
+ * test file asserts the literal value so this cannot be edited back.
+ */
+export const DAY_MS = 24 * 60 * 60 * 1000;
 
 /** Shortest span anyone may buy or be granted. */
 export const MIN_DAYS = 1;

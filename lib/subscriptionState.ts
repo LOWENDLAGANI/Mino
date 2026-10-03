@@ -168,6 +168,25 @@ export function grantRecord(input: {
 
 // ── What the buyer is shown ──────────────────────────────────────────────────
 
+/**
+ * The span that was actually granted, measured from the record's own dates.
+ *
+ * `days` is what the grant *intended*; `expiresAt` is the boundary that is
+ * actually enforced. They are not the same thing, because granting to somebody
+ * who already has a running plan adds the new days to the end date they already
+ * have. Reading "Paid for" from `days` alone is how a receipt ends up claiming
+ * "a month" directly above "1800 days left" — two numbers for one subscription,
+ * disagreeing, on the same screen.
+ *
+ * So the span that gets *shown* is the span between the two dates the record
+ * carries. That is the truth about what somebody was given, and it cannot
+ * contradict the end date, because it is computed from it.
+ */
+export function grantedSpanDays(subscription: Subscription): number {
+  const span = Math.round((subscription.expiresAt - subscription.grantedAt) / DAY_MS);
+  return normalizeDays(span > 0 ? span : subscription.days);
+}
+
 /** True while the plan has not run out. An expired grant is treated as none. */
 export function isActive(subscription: Subscription | null | undefined, now: number): boolean {
   return Boolean(subscription) && (subscription as Subscription).expiresAt > now;
@@ -214,14 +233,20 @@ export function subscriptionDetails(
   formatDate: (timestamp: number) => string
 ): SubscriptionDetail[] {
   const plan = planById(subscription.plan);
-  // The price is the one for the length that was actually bought. Somebody who
-  // bought a year must not be shown the monthly headline for it, because that
-  // is a different number than the one they paid.
-  const term = termForDays(plan, subscription.days);
+  // Measured from the record, not from what the grant intended — see
+  // grantedSpanDays. Every row below is now derived from the same span, so the
+  // receipt cannot contradict itself.
+  const length = grantedSpanDays(subscription);
   const rows: SubscriptionDetail[] = [
     { label: "Plan", value: plan.name },
-    { label: "Paid for", value: describeDuration(subscription.days) },
-    { label: "Price", value: formatRinggit(term.ringgit) },
+    { label: "Paid for", value: describeDuration(length) },
+    // Only when the span is one this plan is actually sold at. Printing the
+    // monthly price beside "5 years" would be a number nobody charged, so a
+    // length that is not on the price list shows no price rather than a wrong
+    // one.
+    ...(plan.terms.some((term) => term.days === length)
+      ? [{ label: "Price", value: formatRinggit(termForDays(plan, length).ringgit) }]
+      : []),
     { label: "Activated", value: formatDate(subscription.grantedAt) },
     { label: "Active until", value: formatDate(subscription.expiresAt) },
   ];

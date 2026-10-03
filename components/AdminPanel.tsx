@@ -433,6 +433,7 @@ export default function AdminPanel({
                             note={grantNote}
                             busy={busy}
                             hasPlan={Boolean(grantingUser?.subscription)}
+                            currentExpiresAt={grantingUser?.subscription?.expiresAt ?? null}
                             onPlan={setGrantPlan}
                             onDays={setGrantDays}
                             onNote={setGrantNote}
@@ -596,6 +597,7 @@ function GrantPanel({
   onNote,
   onCancel,
   onGrant,
+  currentExpiresAt,
   onRevoke,
 }: {
   plan: PlanId;
@@ -603,6 +605,8 @@ function GrantPanel({
   note: string;
   busy: boolean;
   hasPlan: boolean;
+  /** When the plan they already hold ends, so the preview can be truthful. */
+  currentExpiresAt?: number | null;
   onPlan: (plan: PlanId) => void;
   onDays: (days: number) => void;
   onNote: (note: string) => void;
@@ -610,6 +614,16 @@ function GrantPanel({
   onGrant: () => void;
   onRevoke: () => void;
 }) {
+  // Where the plan will actually end up — not simply today plus the chosen
+  // days. Granting to somebody whose plan is still running *adds* to the date
+  // they already have, so a preview that ignored that is how a month of
+  // pressing ends up as five years nobody meant to sell.
+  const startsFrom = Math.max(Date.now(), currentExpiresAt ?? 0);
+  const adding = (currentExpiresAt ?? 0) > Date.now();
+  const resultingEnd = new Date(startsFrom + normalizeDays(days) * 86_400_000).toLocaleDateString(
+    undefined,
+    { dateStyle: "medium" }
+  );
   return (
     <div className="mt-1.5 rounded-[14px] border border-[#4da3ff]/20 bg-[#4da3ff]/[0.05] p-3">
       <p className="text-[10px] leading-relaxed text-white/45">
@@ -694,10 +708,8 @@ function GrantPanel({
           </button>
         </div>
         <p className="mt-1.5 text-[10px] text-white/35">
-          {describeDuration(days)} · runs to{" "}
-          {new Date(Date.now() + normalizeDays(days) * 86_400_000).toLocaleDateString(undefined, {
-            dateStyle: "medium",
-          })}
+          {describeDuration(days)} · {resultingEnd}
+          {adding ? " (added to the time already left)" : ""}
         </p>
       </div>
 
