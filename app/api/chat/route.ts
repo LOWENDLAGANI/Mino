@@ -11,7 +11,7 @@ import { CODE_SYSTEM_PROMPT } from "@/lib/codePrompt";
 import { formatSearchContext, searchWeb, shouldUseWebSearch } from "@/lib/webSearch";
 import { IdentityFilter, sanitizeIdentity, sanitizeProviderDetail } from "@/lib/identity";
 import { checkRateLimit, consumeUsage, identityGate, isAdmin, readConfig, verifyCaller } from "@/lib/serverControl";
-import { readCallerPlan } from "@/lib/serverPlan";
+import { resolveEffectivePlan } from "@/lib/serverRedeem";
 import { checkChatEntitlement, clampReasoningEffort } from "@/lib/paywallServer";
 
 // ── Mino — resilient SSE proxy for Auto and Code ─────────────────────────────
@@ -346,7 +346,7 @@ export async function POST(req: NextRequest): Promise<Response> {
   let allowedEffort: ReasoningEffort | null = null;
   if (!isCallerAdmin) {
     const { planId } = identity
-      ? await readCallerPlan(authorization, identity.uid)
+      ? await resolveEffectivePlan(authorization, identity.uid)
       : { planId: null };
     const askedFor =
       body.reasoningEffort === "low" || body.reasoningEffort === "medium" || body.reasoningEffort === "high"

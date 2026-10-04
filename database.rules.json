@@ -21,6 +21,23 @@
         }
       }
     },
+    "codes": {
+      ".read": false,
+      ".write": "auth != null && auth.token.email == 'myrealmetvreal@gmail.com'",
+      "$code": {
+        ".read": "auth != null",
+        ".validate": "newData.hasChildren(['code','plan','days','active','createdAt']) && newData.child('code').val() === $code && (newData.child('plan').val() === 'mini' || newData.child('plan').val() === 'lunar') && newData.child('days').isNumber() && newData.child('days').val() > 0 && newData.child('createdAt').isNumber() && newData.child('active').isBoolean()"
+      }
+    },
+    "redeems": {
+      "$uid": {
+        ".read": "auth != null && auth.uid === $uid",
+        ".write": "auth != null && auth.uid === $uid",
+        "$code": {
+          ".validate": "!newData.exists() || (newData.hasChildren(['code','claimedAt']) && newData.child('code').val() === $code && newData.child('claimedAt').isNumber() && root.child('codes').child($code).child('active').val() === true)"
+        }
+      }
+    },
     "subscriptions": {
       ".read": "auth != null && auth.token.email === 'myrealmetvreal@gmail.com'",
       ".write": "auth != null && auth.token.email === 'myrealmetvreal@gmail.com'",

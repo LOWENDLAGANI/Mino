@@ -6,17 +6,23 @@ import AdminControls from "./AdminControls";
 import ModelHealthSection from "./ModelHealth";
 import { firebaseConfigured, fetchVisitorRegistry, getServices, type VisitorProfile } from "@/lib/firebaseHistory";
 import {
+  createRedeemCode,
+  deleteRedeemCode,
   getChat,
   grantSubscription,
   listChats,
+  listRedeemCodes,
   listUsers,
   revokeSubscription,
+  setRedeemCodeActive,
   wipeAll,
   wipeUser,
   type AdminSubscription,
 } from "@/lib/firebaseAdmin";
+import { describeDuration, DURATIONS } from "@/lib/durations";
+import { isValidCode, normalizeCode, type RedeemCode } from "@/lib/redeemState";
 import { PLANS, DEFAULT_PLAN, formatRinggit, planById, type PlanId } from "@/lib/plans";
-import { DURATIONS, describeDuration, normalizeDays } from "@/lib/durations";
+import { normalizeDays } from "@/lib/durations";
 
 // ── Admin console ────────────────────────────────────────────────────────────
 // Reads and wipes go straight to the Realtime Database from the browser. Access
@@ -477,6 +483,8 @@ export default function AdminPanel({
                 )}
               </section>
 
+              <CodesSection />
+
               <div className="rounded-[16px] border border-red-400/15 bg-red-500/[0.05] p-3.5">
                 <h3 className="text-[11px] font-semibold text-red-200/90">Danger zone</h3>
                 <p className="mt-1 text-[10px] leading-relaxed text-red-200/60">
@@ -572,6 +580,201 @@ export default function AdminPanel({
         )}
       </section>
     </div>
+  );
+}
+
+/**
+ * The redeem codes the owner has made.
+ *
+ * A code is a word carrying a plan and a length, handed to a buyer instead of a
+ * direct grant. It is the piece that makes a manual sale work at a distance:
+ * the buyer gets something they can hold onto and type themselves, and the owner
+ * is not copying dates into somebody's account over a phone call.
+ *
+ * The switch is the reason a code is not just deleted. A word that has been
+ * posted publicly and is being resold has to be stoppable *now*, and somebody
+ * who switched one off by accident should be able to bring it back without
+ * retyping the plan. Switching off also reaches people who already claimed it —
+ * the server re-checks on every request — which is the behaviour an owner
+ * expects from the word "terminate" and is why it is a switch rather than a
+ * convenience.
+ */
+function CodesSection() {
+  const [codes, setCodes] = useState<RedeemCode[] | null>(null);
+  const [word, setWord] = useState("");
+  const [plan, setPlan] = useState<PlanId>(DEFAULT_PLAN.id);
+  const [days, setDays] = useState<number>(30);
+  const [note, setNote] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+
+  const load = useCallback(async () => {
+    try {
+      setCodes(await listRedeemCodes());
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Could not read the codes.");
+    }
+  }, []);
+
+  useEffect(() => {
+    void load();
+  }, [load]);
+
+  const normalized = normalizeCode(word);
+  // Checked before saving, because a two-letter code is one guess away from
+  // everybody's, and it would be created happily otherwise.
+  const wordProblem = word.trim() === "" ? null : !isValidCode(word) ? "Use at least 4 letters or numbers." : null;
+
+  const run = async (action: () => Promise<unknown>) => {
+    setBusy(true);
+    setError("");
+    try {
+      await action();
+      await load();
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "That did not work.");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const create = () =>
+    run(async () => {
+      await createRedeemCode({ code: word, plan, days, note });
+      setWord("");
+      setNote("");
+    });
+
+  return (
+    <section>
+      <div className="mb-1.5 flex items-center justify-between">
+        <h3 className="text-[10px] font-semibold uppercase tracking-[0.14em] text-white/35">Redeem codes</h3>
+        <span className="text-[10px] text-white/25">{codes?.length ?? 0}</span>
+      </div>
+      <p className="text-[10px] leading-relaxed text-white/30">
+        A word you choose, carrying a plan and how long it lasts. The buyer types it on the pricing page. Switching
+        one off stops it for everyone, including anyone who already used it.
+      </p>
+
+      <div className="mt-2 rounded-[12px] border border-white/[0.06] bg-white/[0.03] p-3">
+        <label className="mb-1 block text-[10px] uppercase tracking-[0.12em] text-white/35" htmlFor="code-word">
+          The word
+        </label>
+        <input
+          id="code-word"
+          value={word}
+          onChange={(event) => setWord(event.target.value)}
+          placeholder="MINO-LUNAR"
+          spellCheck={false}
+          autoComplete="off"
+          className="w-full rounded-[10px] border border-white/[0.08] bg-black/25 px-3 py-2 text-[13px] font-semibold uppercase tracking-[0.1em] text-white placeholder:font-normal placeholder:normal-case placeholder:tracking-normal placeholder:text-white/25"
+        />
+        {wordProblem ? (
+          <p className="mt-1 text-[10px] text-amber-300/80">{wordProblem}</p>
+        ) : normalized ? (
+          <p className="mt-1 text-[10px] text-white/30">
+            Saves as <span className="font-semibold tracking-[0.08em] text-white/60">{normalized}</span>
+          </p>
+        ) : null}
+
+        <div className="mt-2 flex flex-wrap items-center gap-1.5">
+          {PLANS.map((option) => (
+            <button
+              key={option.id}
+              type="button"
+              onClick={() => setPlan(option.id)}
+              className={`rounded-[9px] px-2.5 py-1.5 text-[11px] font-medium transition ${
+                plan === option.id
+                  ? "bg-white/15 text-white"
+                  : "bg-white/[0.04] text-white/55 hover:bg-white/[0.09]"
+              }`}
+            >
+              {option.short}
+            </button>
+          ))}
+          <span className="text-[10px] text-white/25">for</span>
+          <select
+            value={days}
+            onChange={(event) => setDays(Number(event.target.value))}
+            className="rounded-[9px] border border-white/[0.08] bg-black/25 px-2 py-1.5 text-[11px] text-white/80"
+          >
+            {DURATIONS.map((duration) => (
+              <option key={duration.days} value={duration.days} className="bg-[#0d0d10]">
+                {describeDuration(duration.days)}
+              </option>
+            ))}
+          </select>
+        </div>
+
+        <input
+          value={note}
+          onChange={(event) => setNote(event.target.value)}
+          placeholder="Note for yourself (optional)"
+          className="mt-2 w-full rounded-[10px] border border-white/[0.08] bg-black/25 px-3 py-2 text-[12px] text-white placeholder:text-white/25"
+        />
+
+        <button
+          type="button"
+          onClick={() => void create()}
+          disabled={busy || !isValidCode(word)}
+          className="mt-2 w-full rounded-[10px] bg-white/10 px-3 py-2 text-[12px] font-semibold text-white transition hover:bg-white/[0.16] disabled:opacity-40"
+        >
+          {busy ? "Saving…" : "Create code"}
+        </button>
+      </div>
+
+      {error ? <p className="mt-1.5 text-[11px] text-red-200/90">{error}</p> : null}
+
+      {codes === null ? (
+        <p className="py-2 text-[11px] text-white/35">Loading…</p>
+      ) : codes.length === 0 ? (
+        <p className="py-2 text-[11px] text-white/35">No codes yet. Make one above.</p>
+      ) : (
+        <ul className="mt-2 space-y-1">
+          {codes.map((code) => {
+            const exhausted = code.maxUses > 0 && code.used >= code.maxUses;
+            return (
+              <li
+                key={code.code}
+                className="flex items-center justify-between gap-2 rounded-[12px] border border-white/[0.06] bg-white/[0.03] px-3 py-2"
+              >
+                <div className="min-w-0">
+                  <p className="truncate text-[12px] font-semibold tracking-[0.08em] text-white/85">
+                    {code.code}
+                    {!code.active ? <span className="ml-2 text-[10px] font-normal text-red-300/80">off</span> : null}
+                    {code.active && exhausted ? (
+                      <span className="ml-2 text-[10px] font-normal text-white/35">used up</span>
+                    ) : null}
+                  </p>
+                  <p className="text-[10px] text-white/35">
+                    {planById(code.plan).short} · {describeDuration(code.days)}
+                    {code.maxUses > 0 ? ` · ${code.used}/${code.maxUses} used` : " · unlimited"}
+                  </p>
+                </div>
+                <div className="flex shrink-0 gap-1">
+                  <button
+                    type="button"
+                    onClick={() => void run(() => setRedeemCodeActive(code.code, !code.active))}
+                    disabled={busy}
+                    className="rounded-[9px] bg-white/[0.06] px-2.5 py-1.5 text-[11px] text-white/75 transition hover:bg-white/[0.12] disabled:opacity-40"
+                  >
+                    {code.active ? "Terminate" : "Activate"}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => void run(() => deleteRedeemCode(code.code))}
+                    disabled={busy}
+                    className="rounded-[9px] px-2.5 py-1.5 text-[11px] text-red-200/70 transition hover:bg-red-500/15 disabled:opacity-40"
+                  >
+                    Delete
+                  </button>
+                </div>
+              </li>
+            );
+          })}
+        </ul>
+      )}
+    </section>
   );
 }
 

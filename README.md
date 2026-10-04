@@ -206,6 +206,25 @@ The rule is that the server never believes the client about money:
 
 Refusals name what is missing and where to go, reusing the wording the lock badge already shows, so the sentence in the chat is the sentence on the pricing page. Reasoning is the one setting that is **clamped** rather than refused when it was not explicitly asked for: Code mode defaults one notch above plain chat, and a free user's default is lowered to what their plan allows instead of the request being turned away. An *explicit* request for a paid setting is refused outright.
 
+## Redeem codes
+
+**A code is a word the owner chooses, carrying a plan and a length.** It is the piece that makes a hand-checked sale work at a distance: the buyer gets something they can hold onto and type themselves, instead of the owner copying dates into somebody's account over a phone call. Codes are made in the console's **Redeem codes** section, switched on and off there, and redeemed on `/plus` under *Got a code?*.
+
+**The claim carries no plan.** This is the whole design. A claim node contains the code name and a timestamp and nothing else; the plan and the duration are read from the code record itself, by the server, at the moment the plan is enforced. If the claim said `plan: "lunar"` then anything able to write a claim could write itself a plan, and the enforcement above would be reading a value the visitor controls. So the visitor chooses a word and nothing more. `tests/redeem.test.ts` fails if `plan`, `days` or an expiry ever appear in a claim.
+
+**A code is a switch, not a deletion.** Switching one off stops it for everyone — *including somebody who already claimed it*, because the server re-checks `active` on every request rather than trusting the claim to have been made while the code was on. That is what makes the console's *Terminate* mean what an owner expects it to mean, and it is why termination is enforced in two places:
+
+- the rules refuse the **write** of a claim against a code that is off, so a modified client cannot claim one at all;
+- the server re-checks on **every request**, so a claim made before the switch stops counting too.
+
+One check without the other leaves a hole. Rules alone keep honouring claims made earlier; the server alone lets the claim be written and only refuses to honour it.
+
+**Codes cannot be listed.** `codes/$code` is readable only by somebody signed in, and only when they already know the word — the parent is not readable, so there is no way to enumerate them. Words are normalized to upper case with no spaces, so `mino-lunar` and `MINO LUNAR` are one code rather than two a buyer can be given by mistake, and a word shorter than four characters is refused before it can be created.
+
+**Limits.** A code is unlimited unless given a number of uses, which is `0` rather than `1` for "unlimited" because one word to one buyer is the ordinary case and should not need extra typing. A code does not expire on its own: its whole lifetime is the owner's switch.
+
+**Redeeming and paying stack.** A claimed code and a paid grant are combined rather than ranked against each other, and the **higher tier always wins** — somebody redeeming a Lunar code while holding Mini must not land back on Mini because Mini happens to run longer. Same tier takes the later end date, so a renewal adds to a buyer rather than replacing what they had.
+
 ## Visitor names
 
 **What the buyer sees.** The grant writes `subscriptions/{uid}` — the node their browser is already subscribed to — so a tab that is open shows **Payment received** the moment it is written, with the plan, what they paid, how long it was for, when it was activated, the exact date it ends, and the payment reference. If they were not on the site, it is waiting on their next visit. **It is shown exactly once**, and afterwards it never appears again for that grant; a renewal is a new grant and is announced once in turn.

@@ -5,6 +5,7 @@ import Link from "next/link";
 import MaintenanceGate from "@/components/MaintenanceGate";
 import PayQrDialog from "@/components/PayQrDialog";
 import SubscribeGate from "@/components/SubscribeGate";
+import RedeemCodeBox from "@/components/RedeemCodeBox";
 import { watchAccount } from "@/lib/account";
 import type { AccountView } from "@/lib/accountState";
 import { useSubscription } from "@/lib/useSubscription";
@@ -430,6 +431,10 @@ export default function MinoPlusPage() {
           onClose={closePay}
         />
       )}
+
+      {/* For somebody who was handed a word rather than asked to pay: the
+          owner's code is how a manual sale finishes at a distance. */}
+      <RedeemCodeBox />
 
       {/* In front of that, for anyone not signed in: a plan with no account
           behind it is a transfer nobody can be given. */}

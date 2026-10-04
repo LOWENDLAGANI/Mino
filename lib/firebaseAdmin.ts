@@ -18,6 +18,12 @@ import { firebaseConfigured, getServices } from "./firebaseHistory";
 import type { AppConfig } from "./appConfig";
 import type { PlanId } from "./plans";
 import { normalizeDays } from "./durations";
+import {
+  isValidCode,
+  normalizeCode,
+  parseRedeemCode,
+  type RedeemCode,
+} from "./redeemState";
 import { grantRecord, isActive, parseSubscription, type Subscription } from "./subscriptionState";
 
 /**
@@ -326,6 +332,80 @@ export async function grantSubscription(
 export async function revokeSubscription(uid: string): Promise<void> {
   const { database } = await requireAdmin();
   await remove(ref(database, `subscriptions/${uid}`)).catch(rethrow);
+}
+
+// ── Redeem codes ─────────────────────────────────────────────────────────────
+//
+// A word the owner picks, carrying a plan and a length, that a buyer types to
+// claim it. This exists because a manual grant needs a name: "your Mini is paid
+// for" has to be handed over somehow, and a code is a thing that survives a
+// phone call, a screenshot, and a lost message in a way a date does not.
+//
+// Codes are the owner's, not the buyer's: the plan and the days live in the
+// code, never in the claim. See lib/serverRedeem.ts.
+
+/** Writes a new code, replacing any that already had the same word. */
+export async function createRedeemCode(input: {
+  code: string;
+  plan: PlanId;
+  days: number;
+  maxUses?: number;
+  note?: string;
+}): Promise<RedeemCode> {
+  const { database } = await requireAdmin();
+  const code = normalizeCode(input.code);
+  if (!isValidCode(code)) throw new Error("A code needs at least 4 letters or numbers.");
+
+  const record: RedeemCode = {
+    code,
+    plan: input.plan,
+    days: normalizeDays(input.days),
+    active: true,
+    createdAt: Date.now(),
+    maxUses: input.maxUses && input.maxUses > 0 ? Math.floor(input.maxUses) : 0,
+    used: 0,
+    note: String(input.note ?? "").trim().slice(0, 120),
+  };
+  await set(ref(database, `codes/${code}`), record).catch(rethrow);
+  return record;
+}
+
+/** Every code the owner has made, newest first. */
+export async function listRedeemCodes(): Promise<RedeemCode[]> {
+  const { database } = await requireAdmin();
+  const snapshot = await get(ref(database, "codes")).catch(rethrow);
+  const value = (snapshot.val() ?? {}) as Record<string, unknown>;
+  return Object.values(value)
+    .map(parseRedeemCode)
+    .filter((code): code is RedeemCode => code !== null)
+    .sort((a, b) => b.createdAt - a.createdAt);
+}
+
+/**
+ * Switches a code on or off.
+ *
+ * Switching off is the urgent one: a word that has been posted publicly and is
+ * being resold can be stopped here immediately. A code that has already been
+ * claimed also stops being worth anything, because the server re-checks `active`
+ * on every request rather than trusting the claim to have been made while it was
+ * on. That is the reason a terminated code takes effect for people who already
+ * used it, not only for people who have not got round to it yet.
+ */
+export async function setRedeemCodeActive(code: string, active: boolean): Promise<void> {
+  const { database } = await requireAdmin();
+  const word = normalizeCode(code);
+  const snapshot = await get(ref(database, `codes/${word}`)).catch(rethrow);
+  const existing = parseRedeemCode(snapshot.val());
+  if (!existing) throw new Error("That code no longer exists.");
+  // Rewritten whole rather than patched, because the rules validate the record
+  // on every write and a partial update would arrive without its siblings.
+  await set(ref(database, `codes/${word}`), { ...existing, active }).catch(rethrow);
+}
+
+/** Deletes a code entirely. */
+export async function deleteRedeemCode(code: string): Promise<void> {
+  const { database } = await requireAdmin();
+  await remove(ref(database, `codes/${normalizeCode(code)}`)).catch(rethrow);
 }
 
 /**

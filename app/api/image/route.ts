@@ -1,6 +1,6 @@
 import { NextRequest } from "next/server";
 import { checkRateLimit, consumeUsage, identityGate, isAdmin, readConfig, verifyCaller } from "@/lib/serverControl";
-import { readCallerPlan } from "@/lib/serverPlan";
+import { resolveEffectivePlan } from "@/lib/serverRedeem";
 import { checkImageEntitlement } from "@/lib/paywallServer";
 import { optimizePrompt } from "@/lib/promptOptimizer";
 import { planPoster, type PosterPlan } from "@/lib/posterText";
@@ -222,7 +222,7 @@ export async function POST(req: NextRequest): Promise<Response> {
   // have; this is for images they may not.
   if (!isAdmin(identity)) {
     const { planId } = identity
-      ? await readCallerPlan(authorization, identity.uid)
+      ? await resolveEffectivePlan(authorization, identity.uid)
       : { planId: null };
     const entitlement = checkImageEntitlement(planId);
     if (!entitlement.allowed) {

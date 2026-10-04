@@ -214,7 +214,7 @@ for (const route of ["chat", "image"]) {
 for (const route of ["chat", "image"]) {
   const source = routeSource(route);
   assert.ok(
-    source.includes("readCallerPlan("),
+    source.includes("resolveEffectivePlan("),
     `${route} must resolve the plan server-side before enforcing anything`
   );
   assert.ok(
@@ -265,6 +265,23 @@ assert.ok(
 assert.ok(
   /return none/.test(planReader),
   "a failed plan read must resolve to no plan rather than failing open"
+);
+
+// A claimed code is worth whatever the *code* says, read at the moment it is
+// asked for. A resolver that trusted the claim, or that never re-checked
+// `active`, would hand out a plan the owner has since terminated.
+const resolver = code(join(process.cwd(), "lib", "serverRedeem.ts"));
+assert.ok(
+  resolver.includes("readCallerPlan("),
+  "the resolver must build on the subscription read, not replace it"
+);
+assert.ok(
+  resolver.includes("checkRedeemable("),
+  "every code must be re-checked for termination on each request"
+);
+assert.ok(
+  resolver.includes("?auth="),
+  "the code read must be made with the caller's token so the rules judge it"
 );
 
 // ── The client gate stays, and stays advisory ────────────────────────────────
