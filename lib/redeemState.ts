@@ -55,16 +55,6 @@ export interface RedeemCode {
    */
   active: boolean;
   createdAt: number;
-  /**
-   * How many times it may be redeemed. 0 means no limit.
-   *
-   * 0 rather than 1 as the "unlimited" value because 1 is the ordinary case —
-   * one word, one buyer — and a limit of 1 must not require extra typing to
-   * express.
-   */
-  maxUses: number;
-  /** How many times it has actually been redeemed. */
-  used: number;
   note: string;
 }
 
@@ -92,8 +82,6 @@ export function parseRedeemCode(raw: unknown): RedeemCode | null {
   const rawDays = Number(value.days);
   if (!Number.isFinite(rawDays) || rawDays <= 0) return null;
   const days = normalizeDays(rawDays);
-  const maxUses = Number(value.maxUses);
-  const used = Number(value.used);
 
   return {
     code,
@@ -104,8 +92,6 @@ export function parseRedeemCode(raw: unknown): RedeemCode | null {
     // whose field went missing.
     active: value.active === undefined ? true : value.active === true,
     createdAt,
-    maxUses: Number.isFinite(maxUses) && maxUses > 0 ? Math.floor(maxUses) : 0,
-    used: Number.isFinite(used) && used > 0 ? Math.floor(used) : 0,
     note: String(value.note ?? "").trim().slice(0, 120),
   };
 }
@@ -114,15 +100,22 @@ export function parseRedeemCode(raw: unknown): RedeemCode | null {
 
 export type RedeemStatus =
   | { ok: true; code: RedeemCode }
-  | { ok: false; reason: "unknown" | "terminated" | "used-up"; message: string };
+  | { ok: false; reason: "unknown" | "terminated"; message: string };
 
 /**
  * Whether this code can be redeemed by somebody, at this moment.
  *
  * The owner can terminate a code at any time and this is where that takes
- * effect. Terminated is checked before the use count so a code that is both off
- * and used up is reported as off — which is the state the owner actually did
- * something about, and the one they would want to see named.
+ * effect. There is no use count, and that is deliberate rather than an omission:
+ * counting redemptions needs a write to `codes/`, which the rules reserve for
+ * the administrator, and the deployment holds no service account to do it
+ * another way. A counter that stayed at zero while the console printed "0/1
+ * used" would be a control that looks real and does nothing, and a "used up"
+ * refusal that could never be reached is worse than no such state at all.
+ *
+ * So one code is one word, and how many people use it is bounded by the owner's
+ * switch rather than by a number: switch it off the moment a word is being
+ * resold, which is the moment that matters.
  */
 export function checkRedeemable(code: RedeemCode | null, now: number): RedeemStatus {
   if (!code) {
@@ -137,13 +130,6 @@ export function checkRedeemable(code: RedeemCode | null, now: number): RedeemSta
       ok: false,
       reason: "terminated",
       message: "That code has been switched off. Ask for a new one.",
-    };
-  }
-  if (code.maxUses > 0 && code.used >= code.maxUses) {
-    return {
-      ok: false,
-      reason: "used-up",
-      message: "That code has already been used. Ask for a new one.",
     };
   }
   // Nothing is checked against `now` here: a code does not expire on its own. It

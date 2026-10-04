@@ -349,7 +349,6 @@ export async function createRedeemCode(input: {
   code: string;
   plan: PlanId;
   days: number;
-  maxUses?: number;
   note?: string;
 }): Promise<RedeemCode> {
   const { database } = await requireAdmin();
@@ -362,8 +361,6 @@ export async function createRedeemCode(input: {
     days: normalizeDays(input.days),
     active: true,
     createdAt: Date.now(),
-    maxUses: input.maxUses && input.maxUses > 0 ? Math.floor(input.maxUses) : 0,
-    used: 0,
     note: String(input.note ?? "").trim().slice(0, 120),
   };
   await set(ref(database, `codes/${code}`), record).catch(rethrow);

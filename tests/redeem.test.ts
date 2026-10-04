@@ -33,8 +33,6 @@ function makeCode(over: Partial<RedeemCode> = {}): RedeemCode {
     days: 30,
     active: true,
     createdAt: NOW - 1000,
-    maxUses: 0,
-    used: 0,
     note: "",
     ...over,
   };
@@ -67,16 +65,12 @@ const parsed = parseRedeemCode({
   days: 30,
   active: true,
   createdAt: NOW,
-  maxUses: 5,
-  used: 2,
   note: "  paid by Ana  ",
 });
 assert.ok(parsed, "a well-formed code parses");
 assert.equal(parsed.plan, "mini");
 assert.equal(parsed.code, "MINO-MINI", "the stored word is normalized");
 assert.equal(parsed.note, "paid by Ana", "a note is trimmed");
-assert.equal(parsed.maxUses, 5);
-assert.equal(parsed.used, 2);
 
 // Anything malformed is no code at all, never a half-filled one. A code missing
 // its plan or its length cannot honestly be redeemed, and filling in the blanks
@@ -108,30 +102,30 @@ const off = checkRedeemable(makeCode({ active: false }), NOW);
 assert.equal(off.ok, false);
 assert.equal(off.ok === false && off.reason, "terminated", "an off code says so");
 
-const spent = checkRedeemable(makeCode({ maxUses: 1, used: 1 }), NOW);
-assert.equal(spent.ok, false);
-assert.equal(spent.ok === false && spent.reason, "used-up");
-
-// Both conditions at once reports the one the owner actually did something
-// about — they switched it off — rather than the incidental one.
-const both = checkRedeemable(makeCode({ active: false, maxUses: 1, used: 1 }), NOW);
-assert.equal(both.ok === false && both.reason, "terminated");
+// There is no use count, and that is a decision rather than an omission.
+// Counting redemptions needs a write to `codes/`, which the rules reserve for
+// the owner, and this deployment has no service account to do it another way. A
+// counter stuck at zero under a console that printed "0/1 used" would be a
+// control that looks real and does nothing — the same dishonesty as selling a
+// feature that does not exist. The owner's switch is what bounds a word.
+const counted = makeCode() as RedeemCode & { maxUses?: number; used?: number };
+assert.equal(counted.maxUses, undefined, "a code carries no use limit");
+assert.equal(counted.used, undefined, "and no use count to display");
 
 const unknown = checkRedeemable(null, NOW);
 assert.equal(unknown.ok, false, "an unknown word is not a code");
 assert.equal(unknown.ok === false && unknown.reason, "unknown");
 
-// Unlimited means unlimited. A code meant as a giveaway must not quietly stop at
-// one person, and `maxUses: 0` is what says that.
-const unlimited = makeCode({ maxUses: 0, used: 99 });
-assert.equal(checkRedeemable(unlimited, NOW).ok, true, "no limit is no limit");
+// Unlimited is the only behaviour: a code meant as a giveaway must not quietly
+// stop at one person.
+assert.equal(checkRedeemable(makeCode(), NOW).ok, true, "a code is redeemable by anybody who holds it");
 
 // A code does not expire on its own. Its whole lifetime is the owner's switch,
 // and inventing a deadline would invalidate a word mid-handover.
 assert.equal(checkRedeemable(makeCode(), NOW + 10 * 365 * DAY_MS).ok, true, "a code does not quietly expire");
 
 // Every refusal carries a sentence worth showing rather than a bare reason.
-for (const code of [null, makeCode({ active: false }), makeCode({ maxUses: 1, used: 1 })]) {
+for (const code of [null, makeCode({ active: false })]) {
   const status = checkRedeemable(code, NOW);
   assert.ok(
     status.ok === false && status.message.length > 10,

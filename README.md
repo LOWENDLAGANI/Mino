@@ -221,7 +221,7 @@ One check without the other leaves a hole. Rules alone keep honouring claims mad
 
 **Codes cannot be listed.** `codes/$code` is readable only by somebody signed in, and only when they already know the word — the parent is not readable, so there is no way to enumerate them. Words are normalized to upper case with no spaces, so `mino-lunar` and `MINO LUNAR` are one code rather than two a buyer can be given by mistake, and a word shorter than four characters is refused before it can be created.
 
-**Limits.** A code is unlimited unless given a number of uses, which is `0` rather than `1` for "unlimited" because one word to one buyer is the ordinary case and should not need extra typing. A code does not expire on its own: its whole lifetime is the owner's switch.
+**A code does not expire and is not counted.** Its whole lifetime is the owner's switch. There is deliberately no "redeemed N times" limit: counting would need a write to `codes/`, which the rules reserve for the administrator, and the deployment holds no service account to do it another way. A counter stuck at zero beside a console reading `0/1 used` would be a control that looks real and does nothing, and a "used up" refusal nothing could ever reach is worse than having no such state. One word, one shared plan, and **Terminate** the moment a word starts being resold — which is the moment that actually matters.
 
 **Redeeming and paying stack.** A claimed code and a paid grant are combined rather than ranked against each other, and the **higher tier always wins** — somebody redeeming a Lunar code while holding Mini must not land back on Mini because Mini happens to run longer. Same tier takes the later end date, so a renewal adds to a buyer rather than replacing what they had.
 

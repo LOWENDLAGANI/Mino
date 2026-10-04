@@ -732,7 +732,6 @@ function CodesSection() {
       ) : (
         <ul className="mt-2 space-y-1">
           {codes.map((code) => {
-            const exhausted = code.maxUses > 0 && code.used >= code.maxUses;
             return (
               <li
                 key={code.code}
@@ -742,13 +741,9 @@ function CodesSection() {
                   <p className="truncate text-[12px] font-semibold tracking-[0.08em] text-white/85">
                     {code.code}
                     {!code.active ? <span className="ml-2 text-[10px] font-normal text-red-300/80">off</span> : null}
-                    {code.active && exhausted ? (
-                      <span className="ml-2 text-[10px] font-normal text-white/35">used up</span>
-                    ) : null}
                   </p>
                   <p className="text-[10px] text-white/35">
                     {planById(code.plan).short} · {describeDuration(code.days)}
-                    {code.maxUses > 0 ? ` · ${code.used}/${code.maxUses} used` : " · unlimited"}
                   </p>
                 </div>
                 <div className="flex shrink-0 gap-1">
