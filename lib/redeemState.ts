@@ -172,11 +172,21 @@ export function redeemValue(code: RedeemCode, now: number): Redemption {
  * run longer, because that would mean paying more and receiving less.
  */
 export function bestPlan(
-  entries: readonly Redemption[]
+  entries: readonly Redemption[],
+  now: number
 ): Redemption | null {
   let best: Redemption | null = null;
   for (const entry of entries) {
     if (!Number.isFinite(entry.expiresAt) || entry.expiresAt <= 0) continue;
+    // Expired means expired, not merely non-zero.
+    //
+    // A redemption's end date is measured from when it was *claimed*, so an old
+    // claim produces a date in the past that is still a perfectly good positive
+    // number. Rejecting only `<= 0` therefore let a lapsed code win this
+    // comparison and go on granting its plan for ever — the exact "unlimited
+    // time" bug, reappearing through a different door once the clock was
+    // anchored correctly. Nothing that has run out is access.
+    if (entry.expiresAt <= now) continue;
     if (
       !best ||
       planRank(entry.plan) > planRank(best.plan) ||

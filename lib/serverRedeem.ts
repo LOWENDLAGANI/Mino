@@ -176,7 +176,7 @@ export async function resolveEffectivePlan(
     entries.push({ plan: subscription.planId, days: 0, expiresAt: subscription.expiresAt });
   }
 
-  const best = bestPlan(entries);
+  const best = bestPlan(entries, Date.now());
   if (!best) return { planId: null, expiresAt: 0 };
   return { planId: best.plan, expiresAt: best.expiresAt };
 }

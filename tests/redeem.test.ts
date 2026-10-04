@@ -187,27 +187,70 @@ assert.equal(
 // the resolver could get wrong: somebody redeeming Lunar while holding Mini must
 // not land back on Mini because Mini happens to run longer, because that is
 // paying more and receiving less.
-const best = bestPlan([
-  { plan: "mini", days: 0, expiresAt: NOW + 400 * DAY_MS },
-  { plan: "lunar", days: 30, expiresAt: NOW + 30 * DAY_MS },
-]);
+const best = bestPlan(
+  [
+    { plan: "mini", days: 0, expiresAt: NOW + 400 * DAY_MS },
+    { plan: "lunar", days: 30, expiresAt: NOW + 30 * DAY_MS },
+  ],
+  NOW
+);
 assert.equal(best?.plan, "lunar", "the dearer tier wins on tier, not on time left");
 assert.equal(planRank(best!.plan), 2);
 
 // Same tier: the one running longer is the better one, which is what makes a
 // renewal add to a buyer rather than replace what they had.
-const sameTier = bestPlan([
-  { plan: "mini", days: 0, expiresAt: NOW + 10 * DAY_MS },
-  { plan: "mini", days: 30, expiresAt: NOW + 40 * DAY_MS },
-]);
+const sameTier = bestPlan(
+  [
+    { plan: "mini", days: 0, expiresAt: NOW + 10 * DAY_MS },
+    { plan: "mini", days: 30, expiresAt: NOW + 40 * DAY_MS },
+  ],
+  NOW
+);
 assert.equal(sameTier?.expiresAt, NOW + 40 * DAY_MS, "the same tier takes the later end date");
 
-assert.equal(bestPlan([]), null, "nothing claimed and nothing granted is free");
-assert.equal(bestPlan([{ plan: "mini", days: 0, expiresAt: 0 }]), null, "an expiry in the past is not access");
+assert.equal(bestPlan([], NOW), null, "nothing claimed and nothing granted is free");
 assert.equal(
-  bestPlan([{ plan: "mini", days: 0, expiresAt: Number.NaN }]),
+  bestPlan([{ plan: "mini", days: 0, expiresAt: 0 }], NOW),
+  null,
+  "a missing expiry is not access"
+);
+assert.equal(
+  bestPlan([{ plan: "mini", days: 0, expiresAt: Number.NaN }], NOW),
   null,
   "an unreadable expiry is not access"
+);
+
+// A lapsed code is the interesting case, and it is the one that goes wrong
+// quietly. Because a redemption is measured from when it was CLAIMED, an old
+// claim carries an end date that is in the past but still a positive number —
+// so a check for "positive" alone would happily hand out a plan whose time ran
+// out months ago, for ever.
+assert.equal(
+  bestPlan([{ plan: "mini", days: 30, expiresAt: NOW - DAY_MS }], NOW),
+  null,
+  "a code whose time has run out grants nothing, however recent the claim was"
+);
+assert.equal(
+  bestPlan(
+    [
+      { plan: "lunar", days: 30, expiresAt: NOW - DAY_MS },
+      { plan: "mini", days: 0, expiresAt: NOW + 10 * DAY_MS },
+    ],
+    NOW
+  )?.plan,
+  "mini",
+  "an expired Lunar code must not outrank a live Mini one"
+);
+// The instant it stops counting is the end date itself, not the day after.
+assert.equal(
+  bestPlan([{ plan: "mini", days: 30, expiresAt: NOW }], NOW),
+  null,
+  "access ends at the end date"
+);
+assert.equal(
+  bestPlan([{ plan: "mini", days: 30, expiresAt: NOW + 1 }], NOW)?.plan,
+  "mini",
+  "and lasts right up to it"
 );
 
 // ── A claim carries no plan ──────────────────────────────────────────────────
