@@ -77,15 +77,32 @@ async function readCodeAsCaller(authorization: string | null, code: string): Pro
   return readAsCaller(authorization, `codes/${encodeURIComponent(code)}`);
 }
 
-/** The codes this caller has claimed, as code words. */
-export async function readClaimedCodes(authorization: string | null, uid: string): Promise<string[]> {
+/** One claim: which word, and when it was used. */
+export interface Claim {
+  code: string;
+  claimedAt: number;
+}
+
+/** The codes this caller has claimed, with the moment each was used. */
+export async function readClaimedCodes(authorization: string | null, uid: string): Promise<Claim[]> {
   const raw = (await readAsCaller(authorization, `redeems/${encodeURIComponent(uid)}`)) as
     | Record<string, unknown>
     | null;
   if (!raw || typeof raw !== "object") return [];
-  return Object.keys(raw)
-    .map(normalizeCode)
-    .filter((code) => code.length > 0);
+  const claims: Claim[] = [];
+  for (const [key, value] of Object.entries(raw)) {
+    const code = normalizeCode(key);
+    if (code.length === 0) continue;
+    const claimedAt = Number((value as { claimedAt?: unknown } | null)?.claimedAt);
+    claims.push({
+      code,
+      // A claim with no usable time is anchored to now rather than discarded:
+      // it is still a real claim, and discarding it would silently take away a
+      // plan somebody was given.
+      claimedAt: Number.isFinite(claimedAt) && claimedAt > 0 ? claimedAt : Date.now(),
+    });
+  }
+  return claims;
 }
 
 /**
@@ -100,15 +117,23 @@ export async function readRedemptions(
   authorization: string | null,
   uid: string
 ): Promise<Redemption[]> {
-  const words = await readClaimedCodes(authorization, uid);
-  if (words.length === 0) return [];
+  const claims = await readClaimedCodes(authorization, uid);
+  if (claims.length === 0) return [];
 
   const now = Date.now();
   const values = await Promise.all(
-    words.map(async (word) => {
-      const code = parseRedeemCode(await readCodeAsCaller(authorization, word));
+    claims.map(async (claim) => {
+      const code = parseRedeemCode(await readCodeAsCaller(authorization, claim.code));
       const status = checkRedeemable(code, now);
-      return status.ok ? redeemValue(status.code, now) : null;
+      // Measured from when the code was **claimed**, not from now.
+      //
+      // This is the difference between a code being worth a month and a code
+      // being worth a month forever. Anchoring to the current instant meant the
+      // expiry slid forward on every single request, so an unused claim was
+      // perpetually a full term away and redeeming the same word repeatedly
+      // granted infinite time. The claim's own `claimedAt` is the only timestamp
+      // here that does not move.
+      return status.ok ? redeemValue(status.code, claim.claimedAt) : null;
     })
   );
   return values.filter((value): value is Redemption => value !== null);

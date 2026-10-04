@@ -22,7 +22,7 @@
       }
     },
     "codes": {
-      ".read": false,
+      ".read": "auth != null && auth.token.email == 'myrealmetvreal@gmail.com'",
       ".write": "auth != null && auth.token.email == 'myrealmetvreal@gmail.com'",
       "$code": {
         ".read": "auth != null",
@@ -34,7 +34,7 @@
         ".read": "auth != null && auth.uid === $uid",
         ".write": "auth != null && auth.uid === $uid",
         "$code": {
-          ".validate": "!newData.exists() || (newData.hasChildren(['code','claimedAt']) && newData.child('code').val() === $code && newData.child('claimedAt').isNumber() && root.child('codes').child($code).child('active').val() === true)"
+          ".validate": "(!data.exists() || data.child('claimedAt').val() === newData.child('claimedAt').val()) && (!newData.exists() || (newData.hasChildren(['code','claimedAt']) && newData.child('code').val() === $code && newData.child('claimedAt').isNumber() && root.child('codes').child($code).child('active').val() === true))"
         }
       }
     },

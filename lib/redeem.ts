@@ -24,6 +24,14 @@ export interface ClaimResult {
   ok: boolean;
   /** The word as it was understood, for showing back to the caller. */
   code: string;
+  /**
+   * True when this code had already been claimed by this account.
+   *
+   * Reported rather than treated as an error: the plan is already theirs, and
+   * telling somebody their working code is "wrong" would be both untrue and the
+   * fastest way to make them ask you for a replacement.
+   */
+  alreadyClaimed?: boolean;
   /** Why it failed, in a sentence worth showing. */
   error?: string;
 }
@@ -57,10 +65,21 @@ export async function claimRedeemCode(rawCode: string): Promise<ClaimResult> {
 
   try {
     const uid = (await current.ensureUser()).uid;
-    await set(ref(current.database, `redeems/${uid}/${code}`), {
-      code,
-      claimedAt: Date.now(),
-    });
+    const claimRef = ref(current.database, `redeems/${uid}/${code}`);
+
+    // The moment this code was claimed, which never changes once it is set.
+    //
+    // The rules make a claim write-once: `claimedAt` cannot be moved, because a
+    // claim that can be rewritten is a claim whose window restarts every time it
+    // is typed — which is how one word becomes unlimited time. So this reads
+    // first, and only writes when there is genuinely nothing there.
+    const existing = await get(claimRef);
+    const previous = Number(existing.val()?.claimedAt);
+    if (Number.isFinite(previous) && previous > 0) {
+      return { ok: true, code, alreadyClaimed: true };
+    }
+
+    await set(claimRef, { code, claimedAt: Date.now() });
     return { ok: true, code };
   } catch (error) {
     const cause = error as { code?: string; message?: string } | null;

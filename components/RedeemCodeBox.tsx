@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { claimRedeemCode } from "@/lib/redeem";
+import { useSubscription } from "@/lib/useSubscription";
 
 // ── Claiming a code ──────────────────────────────────────────────────────────
 // The buyer's side of a manual sale. The owner hands over a word, and this is
@@ -17,6 +18,7 @@ import { claimRedeemCode } from "@/lib/redeem";
 // between them and the box would be a support message waiting to happen.
 
 export default function RedeemCodeBox() {
+  const { refresh } = useSubscription();
   const [open, setOpen] = useState(false);
   const [code, setCode] = useState("");
   const [busy, setBusy] = useState(false);
@@ -28,9 +30,16 @@ export default function RedeemCodeBox() {
     try {
       const claim = await claimRedeemCode(code);
       if (claim.ok) {
+        // Re-read the plan straight away. The claim is written, but nothing the
+        // page is watching has changed, so without this the buyer watches an
+        // unchanged screen that still says Free — which is exactly the "it said
+        // worked but nothing came" report this replaced.
+        await refresh();
         setResult({
           ok: true,
-          message: "Code accepted. Your plan is on its way — it will be here in a moment.",
+          message: claim.alreadyClaimed
+            ? "You have already used that code — it is on your account."
+            : "Code accepted. Your plan is now active.",
         });
         setCode("");
       } else {
