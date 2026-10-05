@@ -17,10 +17,13 @@
 const SPACE_ID = process.env.MINO_HF_SPACE?.trim() || "Minetallest/Mino";
 
 /**
- * The Space's only named endpoint, confirmed against its live API schema.
- * `/predict` does not exist on it and calling that name throws.
+ * The Space's only named endpoint, confirmed against its live API schema at
+ * `/gradio_api/info`. It takes one string named `prompt` and answers with one
+ * string. The name here must track the Space's `app.py`: posting to a name the
+ * Space no longer exposes is a 404, which the reader sees as a Space that could
+ * not be reached.
  */
-const ENDPOINT = "/generate_code";
+const ENDPOINT = "/generate_response";
 
 const HOST = `https://${SPACE_ID.toLowerCase().replace("/", "-")}.hf.space`;
 
