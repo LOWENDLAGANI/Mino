@@ -35,7 +35,16 @@ export function loadAppearance(): Appearance {
   return window.localStorage.getItem(APPEARANCE_KEY) === "light" ? "light" : "dark";
 }
 
+/** The colour of the browser's own chrome, which cannot follow a CSS class.
+    Without this the address bar stays deep green above a sheet of paper. */
+function applyThemeColor(value: Appearance): void {
+  const meta = document.querySelector('meta[name="theme-color"]');
+  if (!meta) return;
+  meta.setAttribute("content", value === "light" ? "#fbf9f2" : "#0b1310");
+}
+
 export function saveAppearance(value: Appearance): void {
   try { window.localStorage.setItem(APPEARANCE_KEY, value); } catch { /* optional preference */ }
   document.documentElement.classList.toggle("light", value === "light");
+  applyThemeColor(value);
 }

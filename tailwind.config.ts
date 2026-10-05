@@ -9,17 +9,21 @@ const config: Config = {
   theme: {
     extend: {
       colors: {
-        accent: "#1f4a33",
-        "accent-dim": "#173b28",
-        canvas: "#eceee7",
-        raised: "#ffffff",
-        hover: "#e3e7dc",
-        line: "rgba(28, 62, 43, 0.1)",
-        "line-strong": "rgba(28, 62, 43, 0.18)",
-        "text-hi": "#14291d",
-        "text-body": "#32463a",
-        "text-mid": "#6a7e71",
-        "text-low": "#9aa99e",
+        // Read from the CSS variables rather than hardcoded, so a colour used
+        // by both themes follows the appearance instead of staying light on a
+        // dark screen. Only opaque use of these is expected: an opacity
+        // modifier cannot be applied to a variable Tailwind cannot parse.
+        accent: "var(--accent)",
+        "accent-dim": "color-mix(in srgb, var(--accent) 80%, #000000)",
+        canvas: "var(--bg)",
+        raised: "var(--bg-raised)",
+        hover: "var(--bg-hover)",
+        line: "var(--line)",
+        "line-strong": "var(--line-strong)",
+        "text-hi": "var(--text-hi)",
+        "text-body": "var(--text)",
+        "text-mid": "var(--text-mid)",
+        "text-low": "var(--text-low)",
       },
       fontFamily: {
         sans: [
