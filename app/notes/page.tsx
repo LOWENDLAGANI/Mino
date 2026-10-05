@@ -20,7 +20,7 @@ export default function NotesPage() {
         ) : (
           <>
             {/* Category header — the count is derived, never typed in. */}
-            <section className="mt-8 flex items-center gap-4 rounded-[26px] bg-[#2f3f80] p-5">
+            <section className="mt-8 flex items-center gap-4 rounded-[26px] bg-[#1b3a2a] p-5">
               <span className="flex h-14 w-14 shrink-0 items-center justify-center rounded-full bg-white/[0.14] text-white/90">
                 <svg
                   width="26"

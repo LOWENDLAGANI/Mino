@@ -228,7 +228,7 @@ export default function ChatInput({ onSend, disabled, onStop, imageMode, onImage
         {/* Image mode indicator — a title is enough; no explanation needed. */}
         {imageMode && (
           <div className="mb-2 flex items-center gap-2 animate-rise">
-            <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-[#9ee7ff]/12 text-[#9ee7ff]">
+            <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-[#a9d8bb]/12 text-[#a9d8bb]">
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">
                 <rect x="3" y="4" width="18" height="16" rx="3.5" /><circle cx="8.75" cy="9.75" r="1.6" /><path d="M20.5 15.5 16 11l-9 9.5" />
               </svg>
@@ -285,7 +285,7 @@ export default function ChatInput({ onSend, disabled, onStop, imageMode, onImage
           <div className="mb-2 flex flex-wrap gap-2 animate-rise">
             {documents.map((document, i) => (
               <div key={`${document.name}-${i}`} className="flex max-w-full items-center gap-2 rounded-xl border border-line bg-white/[0.05] px-3 py-2">
-                <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-[#9ee7ff]/10 text-[#9ee7ff]">
+                <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-[#a9d8bb]/10 text-[#a9d8bb]">
                   <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round"><path d="M6 3.5h8l4 4V20.5H6z" /><path d="M14 3.5v4h4M9 12h6M9 15h6" /></svg>
                 </span>
                 <span className="min-w-0"><span className="block max-w-[150px] truncate text-[11px] text-white/75">{document.name}</span><span className="text-[9px] text-white/35">{formatBytes(document.size)}{document.truncated ? " · truncated" : ""}</span></span>
@@ -303,9 +303,9 @@ export default function ChatInput({ onSend, disabled, onStop, imageMode, onImage
           }}
           onDragLeave={() => setDragOver(false)}
           onDrop={handleDrop}
-          className={`flex min-h-16 items-end gap-1.5 rounded-[26px] border bg-[#202124]/95 p-2 pl-2 shadow-[0_18px_55px_rgba(0,0,0,0.38)] backdrop-blur-xl transition-all ${
+          className={`flex min-h-16 items-end gap-1.5 rounded-[26px] border bg-[#1a2620]/95 p-2 pl-2 shadow-[0_18px_55px_rgba(0,0,0,0.38)] backdrop-blur-xl transition-all ${
             dragOver
-              ? "border-[#8b7cf6]/60 shadow-[0_18px_60px_rgba(80,65,180,0.22)]"
+              ? "border-[#3f7d5c]/60 shadow-[0_18px_60px_rgba(47,107,72,0.22)]"
               : "border-white/[0.09] focus-within:border-white/[0.16]"
           }`}
         >
@@ -326,7 +326,7 @@ export default function ChatInput({ onSend, disabled, onStop, imageMode, onImage
               </svg>
             </button>
             {showTools && (
-              <div className="animate-pop absolute bottom-14 left-0 z-50 w-[286px] max-w-[calc(100vw-2rem)] rounded-[26px] border border-white/[0.08] bg-[#131316]/[0.98] p-1.5 shadow-2xl shadow-black/80 backdrop-blur-xl">
+              <div className="animate-pop absolute bottom-14 left-0 z-50 w-[286px] max-w-[calc(100vw-2rem)] rounded-[26px] border border-white/[0.08] bg-[#141f1a]/[0.98] p-1.5 shadow-2xl shadow-black/80 backdrop-blur-xl">
                 <button
                   type="button"
                   onClick={() => {
@@ -525,7 +525,7 @@ export default function ChatInput({ onSend, disabled, onStop, imageMode, onImage
               disabled={!canSend}
               className={`lift mb-1 flex h-12 w-12 shrink-0 items-center justify-center rounded-full transition-colors ${
                 canSend
-                  ? "bg-[#6f5bea] text-white shadow-[0_8px_24px_rgba(111,91,234,0.35)] hover:bg-[#7b67f0]"
+                  ? "bg-[#2a6142] text-white shadow-[0_8px_24px_rgba(63,125,92,0.35)] hover:bg-[#35744f]"
                   : "text-white/25 hover:bg-white/[0.05]"
               }`}
               aria-label="Send message"
@@ -575,7 +575,7 @@ export default function ChatInput({ onSend, disabled, onStop, imageMode, onImage
             role="dialog"
             aria-modal="true"
             aria-label="Remember something"
-            className="animate-pop w-full max-w-sm rounded-[26px] border border-white/[0.12] bg-[#111116]/[0.98] p-4 pb-3 shadow-2xl shadow-black/80 backdrop-blur-2xl"
+            className="animate-pop w-full max-w-sm rounded-[26px] border border-white/[0.12] bg-[#121c18]/[0.98] p-4 pb-3 shadow-2xl shadow-black/80 backdrop-blur-2xl"
           >
             <h3 className="text-[15px] font-semibold tracking-[-0.01em] text-white">
               What should Mino remember?
@@ -618,8 +618,8 @@ export default function ChatInput({ onSend, disabled, onStop, imageMode, onImage
                   // The panel reads Dexie live, so there is nothing to refresh.
                 }}
                 disabled={!rememberText.trim()}
-                className="flex-1 rounded-full px-4 py-2.5 text-[14px] font-semibold text-[#08080a] transition-opacity disabled:opacity-30"
-                style={{ background: "linear-gradient(180deg, #a9a4ff 0%, #7c7cf4 100%)" }}
+                className="flex-1 rounded-full px-4 py-2.5 text-[14px] font-semibold text-[#0a100d] transition-opacity disabled:opacity-30"
+                style={{ background: "linear-gradient(180deg, #a9d8bb 0%, #1f4a33 100%)" }}
               >
                 Remember
               </button>

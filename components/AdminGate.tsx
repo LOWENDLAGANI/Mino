@@ -158,7 +158,7 @@ export default function AdminGate({ open, onClose, onUnlocked }: AdminGateProps)
         role="dialog"
         aria-modal="true"
         aria-label="Mino administrator sign-in"
-        className="relative w-full max-w-sm rounded-t-[28px] border border-white/[0.09] bg-[#131316] p-5 shadow-2xl shadow-black/80 animate-rise sm:rounded-[28px]"
+        className="relative w-full max-w-sm rounded-t-[28px] border border-white/[0.09] bg-[#141f1a] p-5 shadow-2xl shadow-black/80 animate-rise sm:rounded-[28px]"
       >
         <h2 className="text-[15px] font-semibold text-white">Mino administrator</h2>
 

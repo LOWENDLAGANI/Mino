@@ -9,17 +9,17 @@ const config: Config = {
   theme: {
     extend: {
       colors: {
-        accent: "#7c7cf4",
-        "accent-dim": "#5d5dc4",
-        canvas: "#0a0a0b",
-        raised: "#101012",
-        hover: "#161618",
-        line: "rgba(255, 255, 255, 0.07)",
-        "line-strong": "rgba(255, 255, 255, 0.12)",
-        "text-hi": "#f4f4f5",
-        "text-body": "#d4d4d8",
-        "text-mid": "#8b8b92",
-        "text-low": "#57575e",
+        accent: "#1f4a33",
+        "accent-dim": "#173b28",
+        canvas: "#eceee7",
+        raised: "#ffffff",
+        hover: "#e3e7dc",
+        line: "rgba(28, 62, 43, 0.1)",
+        "line-strong": "rgba(28, 62, 43, 0.18)",
+        "text-hi": "#14291d",
+        "text-body": "#32463a",
+        "text-mid": "#6a7e71",
+        "text-low": "#9aa99e",
       },
       fontFamily: {
         sans: [

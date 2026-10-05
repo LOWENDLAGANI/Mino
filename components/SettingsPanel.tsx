@@ -89,7 +89,7 @@ export default function SettingsPanel({
         role="dialog"
         aria-modal="true"
         aria-label="Mino settings"
-        className="relative flex max-h-[92dvh] w-full max-w-md flex-col overflow-hidden rounded-t-[28px] border border-white/[0.09] bg-[#131316] shadow-2xl shadow-black/80 animate-rise sm:rounded-[28px]"
+        className="relative flex max-h-[92dvh] w-full max-w-md flex-col overflow-hidden rounded-t-[28px] border border-white/[0.09] bg-[#141f1a] shadow-2xl shadow-black/80 animate-rise sm:rounded-[28px]"
       >
         <header className="flex items-center justify-between gap-3 border-b border-white/[0.07] px-5 py-4">
           <h2 className="text-[17px] font-semibold tracking-[-0.02em] text-white">Settings</h2>

@@ -88,20 +88,20 @@ export function SubscriptionDialog({
           A small phone has no room for the whole card, and the one thing that
           must never be the part you have to scroll to find is the button that
           closes it. */}
-      <div className="animate-pop relative my-auto flex max-h-[92dvh] w-full max-w-md flex-col rounded-[28px] border border-[#4da3ff]/25 bg-[#101012] p-6 text-white shadow-[0_0_70px_-20px_rgba(77,163,255,0.9)] sm:p-7">
+      <div className="animate-pop relative my-auto flex max-h-[92dvh] w-full max-w-md flex-col rounded-[28px] border border-[#2f6b48]/25 bg-[#111a16] p-6 text-white shadow-[0_0_70px_-20px_rgba(47,107,72,0.9)] sm:p-7">
         <span
           aria-hidden
-          className="animate-halo pointer-events-none absolute left-1/2 top-2 h-24 w-24 -translate-x-1/2 rounded-full bg-[#4da3ff]/40 blur-2xl"
+          className="animate-halo pointer-events-none absolute left-1/2 top-2 h-24 w-24 -translate-x-1/2 rounded-full bg-[#2f6b48]/40 blur-2xl"
         />
 
         <div className="relative flex shrink-0 flex-col items-center text-center">
-          <span className="flex h-14 w-14 items-center justify-center rounded-full border border-[#4da3ff]/30 bg-[#4da3ff]/10">
+          <span className="flex h-14 w-14 items-center justify-center rounded-full border border-[#2f6b48]/30 bg-[#2f6b48]/10">
             <svg
               width="26"
               height="26"
               viewBox="0 0 24 24"
               fill="none"
-              stroke="#9ee7ff"
+              stroke="#a9d8bb"
               strokeWidth="2.4"
               strokeLinecap="round"
               strokeLinejoin="round"

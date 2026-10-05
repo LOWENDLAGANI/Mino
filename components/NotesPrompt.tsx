@@ -105,7 +105,7 @@ export default function NotesPrompt() {
         className="absolute inset-0 cursor-default bg-black/70 backdrop-blur-[3px]"
       />
 
-      <section className="animate-pop relative w-full max-w-md rounded-t-[26px] border border-white/[0.09] bg-[#15151a] p-5 shadow-2xl shadow-black/80 sm:rounded-[26px]">
+      <section className="animate-pop relative w-full max-w-md rounded-t-[26px] border border-white/[0.09] bg-[#16211c] p-5 shadow-2xl shadow-black/80 sm:rounded-[26px]">
         <div className="mb-4 flex items-center justify-between gap-3">
           <h1 className="text-[13px] font-semibold uppercase tracking-[0.14em] text-white/40">
             News from the developers

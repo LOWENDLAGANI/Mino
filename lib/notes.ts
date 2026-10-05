@@ -30,7 +30,7 @@ export const NOTE_BADGE_TONES: NoteBadgeTone[] = ["important", "info", "success"
 
 export const BADGE_TONE_CLASS: Record<NoteBadgeTone, string> = {
   important: "bg-red-500/85 text-white",
-  info: "bg-[#3b5bdb] text-white",
+  info: "bg-[#2f6b48] text-white",
   success: "bg-emerald-500/85 text-white",
   neutral: "bg-white/[0.14] text-white/85",
 };

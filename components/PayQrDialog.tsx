@@ -65,7 +65,7 @@ export default function PayQrDialog({
     >
       <div
         onClick={(event) => event.stopPropagation()}
-        className="animate-pop relative my-auto w-full max-w-md rounded-[28px] border border-[#4da3ff]/25 bg-[#101012] p-6 shadow-[0_0_60px_-20px_rgba(77,163,255,0.8)] sm:p-7"
+        className="animate-pop relative my-auto w-full max-w-md rounded-[28px] border border-[#2f6b48]/25 bg-[#111a16] p-6 shadow-[0_0_60px_-20px_rgba(47,107,72,0.8)] sm:p-7"
       >
         <button
           onClick={onClose}
@@ -136,18 +136,18 @@ export default function PayQrDialog({
 
         <ol className="mt-5 space-y-2.5 border-t border-white/[0.07] pt-4 text-left text-[13.5px] leading-snug text-white/60">
           <li className="flex gap-2.5">
-            <span className="shrink-0 font-semibold text-[#4da3ff]">1</span>
+            <span className="shrink-0 font-semibold text-[#2f6b48]">1</span>
             <span>Scan the code with your banking app.</span>
           </li>
           <li className="flex gap-2.5">
-            <span className="shrink-0 font-semibold text-[#4da3ff]">2</span>
+            <span className="shrink-0 font-semibold text-[#2f6b48]">2</span>
             <span>
               Enter <span className="font-medium text-white">{payable}</span> and confirm the
               payment.
             </span>
           </li>
           <li className="flex gap-2.5">
-            <span className="shrink-0 font-semibold text-[#4da3ff]">3</span>
+            <span className="shrink-0 font-semibold text-[#2f6b48]">3</span>
             <span>
               Your {plan.name} starts once the payment lands, and runs for {length}.
             </span>

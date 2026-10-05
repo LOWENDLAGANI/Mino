@@ -140,7 +140,7 @@ async function renderTextLayer(
               marginTop: Math.round(height * 0.02),
               fontSize: subSize,
               fontWeight: 600,
-              color: "#f2f2f7",
+              color: "#eef2ec",
               lineHeight: 1.25,
               textAlign: "center",
               textShadow: "0 1px 8px rgba(0,0,0,0.9)",

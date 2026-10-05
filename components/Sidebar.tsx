@@ -130,7 +130,7 @@ export default function Sidebar({ activeChatId, onSelectChat, onNewChat, open, o
       )}
 
       <aside
-        className={`hairline-r fixed inset-y-0 left-0 z-40 flex w-[292px] shrink-0 flex-col bg-[#050506] transition-transform duration-300 ease-out md:static md:translate-x-0 ${
+        className={`hairline-r fixed inset-y-0 left-0 z-40 flex w-[292px] shrink-0 flex-col bg-[#080d0a] transition-transform duration-300 ease-out md:static md:translate-x-0 ${
           open ? "translate-x-0" : "-translate-x-full"
         }`}
       >
@@ -201,14 +201,14 @@ export default function Sidebar({ activeChatId, onSelectChat, onNewChat, open, o
           <a
             href="/plus"
             aria-label={hasLunar ? "Your Mino Lunar plan" : "Mino Lunar — upgrade"}
-            className="group relative mt-1 flex w-full items-center gap-2 overflow-hidden rounded-2xl border border-[#4da3ff]/30 bg-gradient-to-r from-[#4da3ff]/[0.14] via-[#9ee7ff]/[0.07] to-transparent px-2 py-2 text-[14px] font-medium text-white shadow-[0_0_26px_-10px_rgba(77,163,255,0.85)] transition-shadow hover:shadow-[0_0_34px_-8px_rgba(77,163,255,1)]"
+            className="group relative mt-1 flex w-full items-center gap-2 overflow-hidden rounded-2xl border border-[#2f6b48]/30 bg-gradient-to-r from-[#2f6b48]/[0.14] via-[#a9d8bb]/[0.07] to-transparent px-2 py-2 text-[14px] font-medium text-white shadow-[0_0_26px_-10px_rgba(47,107,72,0.85)] transition-shadow hover:shadow-[0_0_34px_-8px_rgba(47,107,72,1)]"
           >
             {/* Slow sheen so the row reads as the live one without moving. */}
             <span
               aria-hidden
               className="animate-sheen pointer-events-none absolute inset-y-0 -left-1/2 w-1/3 bg-gradient-to-r from-transparent via-white/[0.14] to-transparent"
             />
-            <span className="relative flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-[#4da3ff]/15 text-[#9ee7ff] shadow-[0_0_16px_-4px_rgba(77,163,255,0.9)]">
+            <span className="relative flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-[#2f6b48]/15 text-[#a9d8bb] shadow-[0_0_16px_-4px_rgba(47,107,72,0.9)]">
               <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">
                 <path d="M4 18h16L14.4 8.6a1.4 1.4 0 0 0-2.4 0L9.6 12 6.8 6.6a1.2 1.2 0 0 0-2.2.5L4 18Z" />
                 <path d="M4 18h16" />
@@ -217,11 +217,11 @@ export default function Sidebar({ activeChatId, onSelectChat, onNewChat, open, o
             <span className="relative flex min-w-0 flex-1 items-center gap-1.5">
               <span className="truncate">Mino Lunar</span>
               {hasLunar ? (
-                <span className="shrink-0 rounded-full bg-[#4da3ff]/20 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-[#9ee7ff]">
+                <span className="shrink-0 rounded-full bg-[#2f6b48]/20 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-[#a9d8bb]">
                   ✓ Your plan
                 </span>
               ) : (
-                <span className="animate-breathe shrink-0 rounded-full bg-[#4da3ff]/20 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-[#9ee7ff]">
+                <span className="animate-breathe shrink-0 rounded-full bg-[#2f6b48]/20 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-[#a9d8bb]">
                   {subscription?.plan === "mini" ? "Upgrade" : "New"}
                 </span>
               )}
@@ -274,7 +274,7 @@ export default function Sidebar({ activeChatId, onSelectChat, onNewChat, open, o
               value={search}
               onChange={(event) => setSearch(event.target.value)}
               placeholder="Search your chats"
-              className="w-full rounded-xl border border-white/[0.08] bg-white/[0.05] px-3 py-2.5 text-[13px] text-white outline-none placeholder:text-white/30 focus:border-[#8b7cf6]/50"
+              className="w-full rounded-xl border border-white/[0.08] bg-white/[0.05] px-3 py-2.5 text-[13px] text-white outline-none placeholder:text-white/30 focus:border-[#3f7d5c]/50"
             />
           </div>
         )}
@@ -312,16 +312,16 @@ export default function Sidebar({ activeChatId, onSelectChat, onNewChat, open, o
                           if (title) void db.chats.update(chat.id, { title, updatedAt: Date.now() });
                           setEditingId(null);
                         }}
-                        className="min-w-0 flex-1 rounded-md border border-[#8b7cf6]/40 bg-black/20 px-1.5 py-1 text-[13px] text-white outline-none"
+                        className="min-w-0 flex-1 rounded-md border border-[#3f7d5c]/40 bg-black/20 px-1.5 py-1 text-[13px] text-white outline-none"
                       />
                     ) : (
                       <>
-                        {chat.pinned && <span className="shrink-0 text-[10px] text-[#9ee7ff]" title="Pinned">◆</span>}
+                        {chat.pinned && <span className="shrink-0 text-[10px] text-[#a9d8bb]" title="Pinned">◆</span>}
                         <span className="min-w-0 flex-1 truncate text-[14px] text-white/75">{chat.title}</span>
                         <span className={`shrink-0 text-[10px] text-white/25 transition-opacity ${active ? "opacity-100" : "opacity-0 group-hover:opacity-100"}`}>
                           {timeAgo(chat.updatedAt)}
                         </span>
-                        <button onClick={(event) => { event.stopPropagation(); void db.chats.update(chat.id, { pinned: !chat.pinned, updatedAt: Date.now() }); }} className="hidden shrink-0 rounded p-1 text-white/35 hover:text-[#9ee7ff] group-hover:block" aria-label={chat.pinned ? `Unpin ${chat.title}` : `Pin ${chat.title}`} title={chat.pinned ? "Unpin" : "Pin"}>◆</button>
+                        <button onClick={(event) => { event.stopPropagation(); void db.chats.update(chat.id, { pinned: !chat.pinned, updatedAt: Date.now() }); }} className="hidden shrink-0 rounded p-1 text-white/35 hover:text-[#a9d8bb] group-hover:block" aria-label={chat.pinned ? `Unpin ${chat.title}` : `Pin ${chat.title}`} title={chat.pinned ? "Unpin" : "Pin"}>◆</button>
                         <button onClick={(event) => { event.stopPropagation(); setEditingId(chat.id); setDraftTitle(chat.title); }} className="hidden shrink-0 rounded p-1 text-white/35 hover:text-white group-hover:block" aria-label={`Rename ${chat.title}`} title="Rename"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round"><path d="m4 16-.8 4.8L8 20l10.5-10.5a2.8 2.8 0 0 0-4-4L4 16Z" /><path d="m13.5 6.5 4 4" /></svg></button>
                         <button onClick={(event) => { event.stopPropagation(); markChatDeleted(chat.id); void syncChatDelete(chat.id); void deleteChat(chat.id); if (active) onNewChat(); }} className="hidden shrink-0 rounded p-1 text-white/35 hover:text-red-300 group-hover:block" aria-label={`Delete ${chat.title}`}><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round"><path d="M6 6l12 12M18 6L6 18" /></svg></button>
                       </>
@@ -357,7 +357,7 @@ export default function Sidebar({ activeChatId, onSelectChat, onNewChat, open, o
             }}
           />
           <div className="mt-4 flex items-center gap-2.5 border-t border-white/[0.06] pt-4">
-            <div className="flex h-8 w-8 items-center justify-center rounded-full bg-gradient-to-br from-[#b7f4ff] via-[#8c84ff] to-[#4640b6] text-[11px] font-bold text-black">{nameInitial(displayName)}</div>
+            <div className="flex h-8 w-8 items-center justify-center rounded-full bg-gradient-to-br from-[#c9e6d4] via-[#4a8a67] to-[#1f4a33] text-[11px] font-bold text-black">{nameInitial(displayName)}</div>
             <span className="min-w-0 flex-1 truncate text-[12px] text-white/55">{displayName || "Guest"}</span>
           </div>
         </div>

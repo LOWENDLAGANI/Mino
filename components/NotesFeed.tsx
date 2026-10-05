@@ -126,7 +126,7 @@ export function NotesShell({
   children: ReactNode;
 }) {
   return (
-    <main className="min-h-dvh bg-[#0a0a0b] px-5 pb-12 pt-[max(1rem,env(safe-area-inset-top))] text-white sm:px-8">
+    <main className="min-h-dvh bg-[#0b1310] px-5 pb-12 pt-[max(1rem,env(safe-area-inset-top))] text-white sm:px-8">
       <div className="mx-auto w-full max-w-2xl">
         <div className="flex items-center justify-between gap-3">
           <BackButton />

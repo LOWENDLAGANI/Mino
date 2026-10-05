@@ -83,7 +83,7 @@ export default function ModeSelector({ selected, onChange, available, planId }: 
       <div
         role="radiogroup"
         aria-label="Mino model"
-        className="absolute right-0 top-full z-50 mt-2 w-72 origin-top-right overflow-hidden rounded-2xl border border-white/[0.08] bg-[#111113]/95 p-1.5 shadow-2xl shadow-black/60 backdrop-blur-xl animate-rise"
+        className="absolute right-0 top-full z-50 mt-2 w-72 origin-top-right overflow-hidden rounded-2xl border border-white/[0.08] bg-[#121c18]/95 p-1.5 shadow-2xl shadow-black/60 backdrop-blur-xl animate-rise"
       >
         {MINO_MODES.map((mode) => {
           const active = selected === mode.id;
@@ -105,7 +105,7 @@ export default function ModeSelector({ selected, onChange, available, planId }: 
             >
               <span
                 className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-[11px] font-semibold transition-colors ${
-                  active ? "bg-[#6f5bea] text-white" : "bg-white/[0.06] text-white/55"
+                  active ? "bg-[#2a6142] text-white" : "bg-white/[0.06] text-white/55"
                 }`}
               >
                 {mode.display.replace("Mino ", "").slice(0, 1)}
@@ -136,7 +136,7 @@ export default function ModeSelector({ selected, onChange, available, planId }: 
                   {notice?.planName?.replace("Mino ", "") ?? "Upgrade"}
                 </span>
               ) : active ? (
-                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-[#9ee7ff]">
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-[#a9d8bb]">
                   <path d="m5 12 4 4L19 6" />
                 </svg>
               ) : null}

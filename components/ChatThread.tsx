@@ -46,7 +46,7 @@ function CopyMessageButton({ text }: { text: string }) {
       type="button"
     >
       {copied ? (
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" className="text-[#9ee7ff]" aria-hidden="true">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" className="text-[#a9d8bb]" aria-hidden="true">
           <path d="m4.5 12.5 5 5 10-11" />
         </svg>
       ) : (
@@ -62,8 +62,8 @@ function CopyMessageButton({ text }: { text: string }) {
 function SearchSources({ sources }: { sources: NonNullable<ChatMessage["sources"]> }) {
   if (sources.length === 0) return null;
   return (
-    <div className="mt-4 rounded-2xl border border-[#9ee7ff]/10 bg-[#9ee7ff]/[0.035] p-3">
-      <div className="mb-2 flex items-center gap-2 text-[10px] font-semibold uppercase tracking-[0.12em] text-[#9ee7ff]/70">
+    <div className="mt-4 rounded-2xl border border-[#a9d8bb]/10 bg-[#a9d8bb]/[0.035] p-3">
+      <div className="mb-2 flex items-center gap-2 text-[10px] font-semibold uppercase tracking-[0.12em] text-[#a9d8bb]/70">
         <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
           <circle cx="12" cy="12" r="8.5" /><path d="M3.8 12h16.4M12 3.5c2.1 2.3 3.2 5.1 3.2 8.5s-1.1 6.2-3.2 8.5c-2.1-2.3-3.2-5.1-3.2-8.5S9.9 5.8 12 3.5Z" />
         </svg>
@@ -163,9 +163,9 @@ function MessageRow({ msg, streaming, drawing, onRegenerate, onEditMessage }: {
             </div>
           )}
           {editing ? (
-            <div className="w-full rounded-2xl border border-[#8b7cf6]/40 bg-black/20 p-2">
+            <div className="w-full rounded-2xl border border-[#3f7d5c]/40 bg-black/20 p-2">
               <textarea value={draft} onChange={(event) => setDraft(event.target.value)} rows={3} className="w-full resize-none bg-transparent p-1 text-[14px] text-white outline-none" autoFocus />
-              <div className="flex justify-end gap-2 text-[11px]"><button type="button" onClick={() => { setEditing(false); setDraft(msg.content); }} className="px-2 py-1 text-white/40">Cancel</button><button type="button" onClick={() => onEditMessage(draft.trim())} className="rounded-lg bg-[#6f5bea] px-2.5 py-1 text-white">Edit & send</button></div>
+              <div className="flex justify-end gap-2 text-[11px]"><button type="button" onClick={() => { setEditing(false); setDraft(msg.content); }} className="px-2 py-1 text-white/40">Cancel</button><button type="button" onClick={() => onEditMessage(draft.trim())} className="rounded-lg bg-[#2a6142] px-2.5 py-1 text-white">Edit & send</button></div>
             </div>
           ) : (
             <button type="button" onClick={() => setEditing(true)} className="mt-1 self-end text-[10px] text-white/25 opacity-100 transition-opacity hover:text-white/70 md:opacity-0 md:group-hover:opacity-100">Edit</button>
@@ -270,7 +270,7 @@ function DrawingPlaceholder() {
     <div className="overflow-hidden rounded-2xl border border-white/10" role="status" aria-live="polite">
       <div className="flex aspect-[4/3] w-full max-w-md items-center justify-center bg-white/[0.03]">
         <span className="animate-breathe flex items-center gap-2 text-[12px] text-white/45">
-          <span className="h-4 w-4 animate-spin rounded-full border-2 border-[#9ee7ff]/40 border-t-transparent" />
+          <span className="h-4 w-4 animate-spin rounded-full border-2 border-[#a9d8bb]/40 border-t-transparent" />
           Drawing…
         </span>
       </div>
@@ -540,7 +540,7 @@ export default function ChatThread({  messages,
       <div className="flex min-h-0 flex-1 items-center justify-center px-5 pb-24 sm:pb-28">
         <div className="-translate-y-2 text-center sm:-translate-y-5">
           <div className="relative mx-auto mb-7 flex h-16 w-16 items-center justify-center sm:h-20 sm:w-20">
-            <div className="absolute inset-[-45%] rounded-full bg-[#7567e8]/20 blur-3xl" />
+            <div className="absolute inset-[-45%] rounded-full bg-[#2f6b48]/20 blur-3xl" />
             <MinoMark className="relative h-full w-full" />
           </div>
           <h1 className="text-balance text-[38px] font-normal leading-[1.08] tracking-[-0.045em] text-white sm:text-[54px] lg:text-[62px]">
@@ -559,7 +559,7 @@ export default function ChatThread({  messages,
           {allSources.length > 0 && <button type="button" onClick={() => setShowSourceHistory((value) => !value)} className="rounded-lg px-2 py-1.5 transition-colors hover:bg-white/[0.06] hover:text-white/70">Sources ({allSources.length})</button>}
           {showSourceHistory && <button type="button" onClick={() => void copySources()} className="rounded-lg px-2 py-1.5 transition-colors hover:bg-white/[0.06] hover:text-white/70">Copy links</button>}
         </div>
-        {showSourceHistory && <div className="mb-5 rounded-2xl border border-[#9ee7ff]/10 bg-[#9ee7ff]/[0.035] p-3 animate-rise"><div className="mb-2 text-[10px] font-semibold uppercase tracking-[0.12em] text-[#9ee7ff]/70">Source history</div><div className="space-y-1">{allSources.map((source, index) => <a key={`${source.url}-${index}`} href={source.url} target="_blank" rel="noreferrer" className="block truncate px-2 py-1 text-[11px] text-white/55 hover:text-white/85">{source.title} <span className="text-white/25">· {source.url}</span></a>)}</div></div>}
+        {showSourceHistory && <div className="mb-5 rounded-2xl border border-[#a9d8bb]/10 bg-[#a9d8bb]/[0.035] p-3 animate-rise"><div className="mb-2 text-[10px] font-semibold uppercase tracking-[0.12em] text-[#a9d8bb]/70">Source history</div><div className="space-y-1">{allSources.map((source, index) => <a key={`${source.url}-${index}`} href={source.url} target="_blank" rel="noreferrer" className="block truncate px-2 py-1 text-[11px] text-white/55 hover:text-white/85">{source.title} <span className="text-white/25">· {source.url}</span></a>)}</div></div>}
         <div className="flex flex-col gap-8">
           {messages.map((msg) => (
             <MessageRow

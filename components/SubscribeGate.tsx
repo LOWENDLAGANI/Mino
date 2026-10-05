@@ -65,7 +65,7 @@ export default function SubscribeGate({
       aria-labelledby="mino-subscribe-gate-title"
       className="fixed inset-0 z-50 flex items-end justify-center overflow-y-auto bg-black/85 p-4 backdrop-blur-sm sm:items-center sm:p-8"
     >
-      <div className="animate-pop relative my-auto w-full max-w-md rounded-[28px] border border-[#4da3ff]/25 bg-[#101012] p-6 text-white shadow-[0_0_60px_-20px_rgba(77,163,255,0.8)] sm:p-7">
+      <div className="animate-pop relative my-auto w-full max-w-md rounded-[28px] border border-[#2f6b48]/25 bg-[#111a16] p-6 text-white shadow-[0_0_60px_-20px_rgba(47,107,72,0.8)] sm:p-7">
         <button
           type="button"
           onClick={onClose}

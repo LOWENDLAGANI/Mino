@@ -175,7 +175,7 @@ export default function AccountSection({ displayName }: AccountSectionProps) {
           <p className="mt-2.5 text-[11px] leading-relaxed text-red-200/80">{error}</p>
         )}
         {notice && (
-          <p className="mt-2.5 text-[11px] leading-relaxed text-[#9ee7ff]/70">{notice}</p>
+          <p className="mt-2.5 text-[11px] leading-relaxed text-[#a9d8bb]/70">{notice}</p>
         )}
       </div>
     </section>

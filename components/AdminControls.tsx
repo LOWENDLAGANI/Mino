@@ -40,7 +40,7 @@ function Switch({
       <span className="text-[13px] font-medium text-white/90">{label}</span>
       <span
         className={`relative h-[22px] w-[38px] shrink-0 rounded-full transition-colors ${
-          checked ? "bg-[#6f5bea]" : "bg-white/15"
+          checked ? "bg-[#2a6142]" : "bg-white/15"
         }`}
       >
         <span

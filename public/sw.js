@@ -37,19 +37,19 @@ const OFFLINE_DOCUMENT = `<!doctype html>
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-    <meta name="theme-color" content="#0a0a0b" />
+    <meta name="theme-color" content="#0b1310" />
     <title>Mino</title>
     <style>
       html, body { height: 100%; margin: 0; }
       body {
-        background: #030304;
-        color: #8b8b92;
+        background: #060a08;
+        color: #8ba396;
         font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
         display: flex; align-items: center; justify-content: center;
         text-align: center; padding: 2rem; letter-spacing: -0.01em;
       }
       img { width: 64px; height: 64px; object-fit: contain; margin-bottom: 1.25rem; }
-      h1 { color: #f4f4f5; font-size: 1.05rem; font-weight: 600; margin: 0 0 0.5rem; }
+      h1 { color: #eef5f0; font-size: 1.05rem; font-weight: 600; margin: 0 0 0.5rem; }
       p { margin: 0; font-size: 0.875rem; line-height: 1.6; }
     </style>
   </head>

@@ -65,7 +65,7 @@ export default function NamePrompt({
         role="dialog"
         aria-modal="true"
         aria-label="Welcome to Mino"
-        className="relative w-full max-w-sm rounded-[26px] border border-white/[0.09] bg-[#131316] p-6 shadow-2xl shadow-black/80 animate-rise"
+        className="relative w-full max-w-sm rounded-[26px] border border-white/[0.09] bg-[#141f1a] p-6 shadow-2xl shadow-black/80 animate-rise"
       >
         <h2 className="text-[17px] font-semibold tracking-[-0.02em] text-white">Welcome to Mino</h2>
 
@@ -83,7 +83,7 @@ export default function NamePrompt({
             onChange={(event) => setName(event.target.value)}
             placeholder="Your name"
             aria-label="Your name"
-            className="w-full rounded-[14px] border border-white/[0.09] bg-white/[0.04] px-3.5 py-3 text-[15px] text-white outline-none placeholder:text-white/25 focus:border-[#8b7cf6]/60"
+            className="w-full rounded-[14px] border border-white/[0.09] bg-white/[0.04] px-3.5 py-3 text-[15px] text-white outline-none placeholder:text-white/25 focus:border-[#3f7d5c]/60"
           />
           <button
             type="submit"

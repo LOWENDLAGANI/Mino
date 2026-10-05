@@ -4,41 +4,41 @@
 
 :root {
   color-scheme: dark;
-  --bg: #0a0a0b;
-  --bg-raised: #101012;
-  --bg-hover: #161618;
-  --line: rgba(255, 255, 255, 0.07);
-  --line-strong: rgba(255, 255, 255, 0.12);
-  --text-hi: #f4f4f5;
-  --text: #d4d4d8;
-  --text-mid: #8b8b92;
-  --text-low: #57575e;
-  --accent: #7c7cf4;
+  --bg: #0b1310;
+  --bg-raised: #111a16;
+  --bg-hover: #17221c;
+  --line: rgba(233, 245, 236, 0.08);
+  --line-strong: rgba(233, 245, 236, 0.14);
+  --text-hi: #eef5f0;
+  --text: #cddfd4;
+  --text-mid: #8ba396;
+  --text-low: #5d7167;
+  --accent: #6ec294;
 }
 
 html.light {
   color-scheme: light;
-  --bg: #f6f6fa;
+  --bg: #eceee7;
   --bg-raised: #ffffff;
-  --bg-hover: #eeeef5;
-  --line: rgba(25, 25, 35, 0.1);
-  --line-strong: rgba(25, 25, 35, 0.16);
-  --text-hi: #18181b;
-  --text: #3f3f46;
-  --text-mid: #71717a;
-  --text-low: #a1a1aa;
-  --accent: #6758d8;
+  --bg-hover: #e3e7dc;
+  --line: rgba(28, 62, 43, 0.1);
+  --line-strong: rgba(28, 62, 43, 0.18);
+  --text-hi: #14291d;
+  --text: #32463a;
+  --text-mid: #6a7e71;
+  --text-low: #9aa99e;
+  --accent: #1f4a33;
 }
 
 html.light body { background: var(--bg); }
-html.light .app-surface { background: linear-gradient(180deg, #fbfbfe 0%, #f5f5fb 55%, #eef1ff 100%); }
-html.light .surface-glow { background: radial-gradient(circle at 50% 42%, rgba(124, 124, 244, 0.1), transparent 30%), radial-gradient(ellipse 70% 30% at 50% 100%, rgba(124, 124, 244, 0.1), transparent 72%); }
-html.light aside { background: #fbfbff !important; }
-html.light .text-white { color: #18181b !important; }
-html.light [class*="text-white/"] { color: rgba(63, 63, 70, 0.78) !important; }
-html.light [class*="bg-white/"] { background-color: rgba(35, 35, 55, 0.055) !important; }
-html.light [class*="border-white/"] { border-color: rgba(25, 25, 35, 0.12) !important; }
-html.light [class*="bg-black/"] { background-color: rgba(25, 25, 35, 0.06) !important; }
+html.light .app-surface { background: linear-gradient(180deg, #f8f9f3 0%, #eef1e7 55%, #e4ead9 100%); }
+html.light .surface-glow { background: radial-gradient(circle at 50% 42%, rgba(31, 74, 51, 0.07), transparent 30%), radial-gradient(ellipse 70% 30% at 50% 100%, rgba(31, 74, 51, 0.09), transparent 72%); }
+html.light aside { background: #fafbf6 !important; }
+html.light .text-white { color: #14291d !important; }
+html.light [class*="text-white/"] { color: rgba(50, 70, 58, 0.78) !important; }
+html.light [class*="bg-white/"] { background-color: rgba(28, 62, 43, 0.05) !important; }
+html.light [class*="border-white/"] { border-color: rgba(28, 62, 43, 0.14) !important; }
+html.light [class*="bg-black/"] { background-color: rgba(28, 62, 43, 0.06) !important; }
 
 html,
 body {
@@ -57,14 +57,14 @@ body {
 
 .app-surface {
   background:
-    radial-gradient(ellipse 80% 48% at 50% 100%, rgba(27, 55, 145, 0.52) 0%, rgba(8, 20, 67, 0.35) 34%, transparent 70%),
-    linear-gradient(180deg, #030304 0%, #05050a 55%, #050b27 100%);
+    radial-gradient(ellipse 80% 48% at 50% 100%, rgba(23, 74, 46, 0.5) 0%, rgba(11, 38, 25, 0.34) 34%, transparent 70%),
+    linear-gradient(180deg, #070c0a 0%, #0a120e 55%, #0a1a12 100%);
 }
 
 .surface-glow {
   background:
-    radial-gradient(circle at 50% 42%, rgba(112, 94, 255, 0.08), transparent 30%),
-    radial-gradient(ellipse 70% 30% at 50% 100%, rgba(32, 77, 216, 0.2), transparent 72%);
+    radial-gradient(circle at 50% 42%, rgba(110, 194, 148, 0.07), transparent 30%),
+    radial-gradient(ellipse 70% 30% at 50% 100%, rgba(47, 107, 72, 0.18), transparent 72%);
 }
 
 /* Neutralize iOS tap highlight + inputs */
@@ -138,14 +138,14 @@ button {
   color: var(--text-low);
 }
 .prose-chat a {
-  color: #a5a5f8;
+  color: #7fc9a0;
   text-decoration: underline;
-  text-decoration-color: rgba(165, 165, 248, 0.3);
+  text-decoration-color: rgba(127, 201, 160, 0.3);
   text-underline-offset: 3px;
   transition: text-decoration-color 0.15s;
 }
 .prose-chat a:hover {
-  text-decoration-color: rgba(165, 165, 248, 0.8);
+  text-decoration-color: rgba(127, 201, 160, 0.8);
 }
 .prose-chat blockquote {
   margin: 0.75rem 0;
@@ -182,7 +182,7 @@ button {
   padding: 0.15em 0.4em;
   border-radius: 5px;
   background: rgba(255, 255, 255, 0.06);
-  color: #d8d8fb;
+  color: #cfe8d8;
 }
 
 /* Code block: flat, quiet */
@@ -191,7 +191,7 @@ button {
   overflow: hidden;
   border-radius: 12px;
   border: 1px solid var(--line);
-  background: #0d0d0f;
+  background: #0e1613;
 }
 .code-block-header {
   display: flex;
@@ -243,8 +243,8 @@ button {
   margin-left: 3px;
   vertical-align: text-bottom;
   border-radius: 2px;
-  background: linear-gradient(180deg, #a5a5f8, var(--accent));
-  box-shadow: 0 0 10px rgba(124, 124, 244, 0.45);
+  background: linear-gradient(180deg, #9fd8bb, var(--accent));
+  box-shadow: 0 0 10px rgba(47, 107, 72, 0.45);
   animation: caret 1.1s ease-in-out infinite;
 }
 @keyframes caret {

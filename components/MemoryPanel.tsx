@@ -157,7 +157,7 @@ export default function MemoryPanel({ syncAvailable }: MemoryPanelProps) {
                   <button
                     type="button"
                     onClick={() => void saveEdit(memory.id)}
-                    className="shrink-0 rounded-md px-1.5 py-0.5 text-[11px] font-medium text-[#9ee7ff] hover:bg-white/[0.07]"
+                    className="shrink-0 rounded-md px-1.5 py-0.5 text-[11px] font-medium text-[#a9d8bb] hover:bg-white/[0.07]"
                   >
                     Save
                   </button>
@@ -217,8 +217,8 @@ export default function MemoryPanel({ syncAvailable }: MemoryPanelProps) {
           type="button"
           onClick={() => void submit()}
           disabled={full || !draft.trim()}
-          className="shrink-0 rounded-full px-3.5 py-2 text-[13px] font-semibold text-[#08080a] transition-opacity disabled:opacity-30"
-          style={{ background: "linear-gradient(180deg, #a9a4ff 0%, #7c7cf4 100%)" }}
+          className="shrink-0 rounded-full px-3.5 py-2 text-[13px] font-semibold text-[#0a100d] transition-opacity disabled:opacity-30"
+          style={{ background: "linear-gradient(180deg, #a9d8bb 0%, #1f4a33 100%)" }}
         >
           Add
         </button>
@@ -238,7 +238,7 @@ export default function MemoryPanel({ syncAvailable }: MemoryPanelProps) {
             setSuggestEnabled(event.target.checked);
             saveSuggestionEnabled(event.target.checked);
           }}
-          className="h-3.5 w-3.5 shrink-0 accent-[#9ee7ff]"
+          className="h-3.5 w-3.5 shrink-0 accent-[#a9d8bb]"
         />
         <span>Let Mino suggest things to remember</span>
       </label>

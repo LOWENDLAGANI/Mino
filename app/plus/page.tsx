@@ -54,7 +54,7 @@ function Mark({ on }: { on: boolean }) {
         strokeWidth="2.2"
         strokeLinecap="round"
         strokeLinejoin="round"
-        className="mx-auto text-[#4da3ff]"
+        className="mx-auto text-[#2f6b48]"
         aria-label="Included"
       >
         <path d="m4.5 12.5 5 5 10-11" />
@@ -74,15 +74,15 @@ function CurrentPlan({ subscription }: { subscription: Subscription }) {
   const daysLeft = Math.max(0, Math.ceil((subscription.expiresAt - Date.now()) / 86_400_000));
 
   return (
-    <section className="relative overflow-hidden rounded-[26px] border border-[#4da3ff]/30 bg-[#4da3ff]/[0.07] p-5 shadow-[0_0_50px_-20px_rgba(77,163,255,0.7)] sm:p-6">
+    <section className="relative overflow-hidden rounded-[26px] border border-[#2f6b48]/30 bg-[#2f6b48]/[0.07] p-5 shadow-[0_0_50px_-20px_rgba(47,107,72,0.7)] sm:p-6">
       <div className="flex items-start gap-3">
-        <span className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-[#4da3ff]">
+        <span className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-[#2f6b48]">
           <svg
             width="18"
             height="18"
             viewBox="0 0 24 24"
             fill="none"
-            stroke="#04070d"
+            stroke="#0a1611"
             strokeWidth="3"
             strokeLinecap="round"
             strokeLinejoin="round"
@@ -92,7 +92,7 @@ function CurrentPlan({ subscription }: { subscription: Subscription }) {
           </svg>
         </span>
         <div className="min-w-0">
-          <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-[#9ee7ff]/80">
+          <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-[#a9d8bb]/80">
             Your plan
           </p>
           <h2 className="mt-1 text-[22px] font-semibold leading-tight tracking-tight">
@@ -147,7 +147,7 @@ function UpgradeFor({ from, to }: { from: PlanId | null; to: PlanId }) {
               height="15"
               viewBox="0 0 24 24"
               fill="none"
-              stroke="#4da3ff"
+              stroke="#2f6b48"
               strokeWidth="2.4"
               strokeLinecap="round"
               strokeLinejoin="round"
@@ -218,7 +218,7 @@ export default function MinoPlusPage() {
 
   return (
     <MaintenanceGate>
-      <main className="min-h-dvh bg-[#0a0a0b] px-5 pb-10 pt-[max(1rem,env(safe-area-inset-top))] text-white sm:px-8">
+      <main className="min-h-dvh bg-[#0b1310] px-5 pb-10 pt-[max(1rem,env(safe-area-inset-top))] text-white sm:px-8">
         <div className="mx-auto w-full max-w-2xl lg:max-w-3xl">
           <Link
             href="/"
@@ -247,7 +247,7 @@ export default function MinoPlusPage() {
           {!subscription && (
             <h1 className="mt-7 text-[clamp(2.1rem,8vw,3.6rem)] font-semibold leading-[1.05] tracking-tight">
               Mino{" "}
-              <span className="bg-gradient-to-r from-[#4da3ff] via-[#9ee7ff] to-[#4da3ff] bg-clip-text text-transparent">
+              <span className="bg-gradient-to-r from-[#2f6b48] via-[#a9d8bb] to-[#2f6b48] bg-clip-text text-transparent">
                 {active.name.replace("Mino ", "")}
               </span>
             </h1>
@@ -272,7 +272,7 @@ export default function MinoPlusPage() {
                 onClick={() => setPlan(item.id)}
                 className={`relative overflow-hidden rounded-full px-3 py-3 text-[15px] font-medium transition-all ${
                   plan === item.id
-                    ? "bg-white/[0.14] text-white shadow-[0_0_22px_-4px_rgba(77,163,255,0.75),0_1px_0_rgba(255,255,255,0.1)_inset]"
+                    ? "bg-white/[0.14] text-white shadow-[0_0_22px_-4px_rgba(47,107,72,0.75),0_1px_0_rgba(255,255,255,0.1)_inset]"
                     : "text-white/50 hover:text-white/80"
                 }`}
               >
@@ -287,7 +287,7 @@ export default function MinoPlusPage() {
                   )}
                   {item.short}
                   {currentPlanId === item.id && (
-                    <span className="text-[#9ee7ff]" aria-label="your current plan">
+                    <span className="text-[#a9d8bb]" aria-label="your current plan">
                       ✓
                     </span>
                   )}
@@ -314,7 +314,7 @@ export default function MinoPlusPage() {
                   onClick={() => setTerm(id)}
                   className={`rounded-[16px] border px-2 py-3 text-center transition-colors ${
                     chosen
-                      ? "border-[#4da3ff]/60 bg-[#4da3ff]/15 text-white"
+                      ? "border-[#2f6b48]/60 bg-[#2f6b48]/15 text-white"
                       : "border-white/[0.09] bg-white/[0.03] text-white/55 hover:border-white/20 hover:text-white/80"
                   }`}
                 >
@@ -334,7 +334,7 @@ export default function MinoPlusPage() {
           </p>
 
           {/* Features */}
-          <section className="relative mt-5 overflow-hidden rounded-[26px] border border-[#4da3ff]/20 bg-white/[0.035] p-4 shadow-[0_0_50px_-18px_rgba(77,163,255,0.6)] sm:p-6">
+          <section className="relative mt-5 overflow-hidden rounded-[26px] border border-[#2f6b48]/20 bg-white/[0.035] p-4 shadow-[0_0_50px_-18px_rgba(47,107,72,0.6)] sm:p-6">
             <div className="grid grid-cols-[1fr_auto_auto_auto] items-center gap-x-2 sm:gap-x-8">
               <span className="text-[15px] text-white/50">Features</span>
               <span className="w-9 text-center text-[13px] text-white/50 sm:w-20 sm:text-[15px]">
@@ -343,7 +343,7 @@ export default function MinoPlusPage() {
               <span className="w-11 text-center text-[13px] text-white/50 sm:w-20 sm:text-[15px]">
                 Mini
               </span>
-              <span className="w-12 text-center text-[13px] font-medium text-[#4da3ff] sm:w-20 sm:text-[15px]">
+              <span className="w-12 text-center text-[13px] font-medium text-[#2f6b48] sm:w-20 sm:text-[15px]">
                 Lunar
               </span>
             </div>
@@ -378,7 +378,7 @@ export default function MinoPlusPage() {
             ))}
 
           {isCurrent ? (
-            <div className="mt-5 rounded-[20px] border border-[#4da3ff]/25 bg-[#4da3ff]/[0.08] px-5 py-4 text-center">
+            <div className="mt-5 rounded-[20px] border border-[#2f6b48]/25 bg-[#2f6b48]/[0.08] px-5 py-4 text-center">
               <p className="text-[14px] font-medium text-white/90">
                 {active.name} is the plan you have.
               </p>
@@ -394,13 +394,13 @@ export default function MinoPlusPage() {
                 clickable and the glow never shifts layout. */}
             <span
               aria-hidden
-              className="animate-halo pointer-events-none absolute -inset-3 rounded-full bg-[#4da3ff]/45 blur-2xl"
+              className="animate-halo pointer-events-none absolute -inset-3 rounded-full bg-[#2f6b48]/45 blur-2xl"
             />
             <span
               aria-hidden
               className="pointer-events-none absolute -inset-[3px] overflow-hidden rounded-full"
             >
-              <span className="animate-sheen absolute inset-y-0 -left-1/2 w-1/2 bg-[conic-gradient(from_90deg_at_50%_50%,transparent,rgba(158,231,255,0.9),transparent)] blur-[2px]" />
+              <span className="animate-sheen absolute inset-y-0 -left-1/2 w-1/2 bg-[conic-gradient(from_90deg_at_50%_50%,transparent,rgba(169,216,187,0.9),transparent)] blur-[2px]" />
             </span>
             <button
               onClick={() => beginPurchase({ plan: active.id, term })}

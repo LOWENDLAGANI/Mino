@@ -33,9 +33,9 @@ const STATE_STYLES = {
   },
   active: {
     label: "In progress",
-    chip: "bg-[#9ee7ff]/10 text-[#9ee7ff]",
-    ring: "text-[#9ee7ff] shadow-[0_0_14px_-2px_rgba(158,231,255,0.5)]",
-    arrow: "text-[#9ee7ff]",
+    chip: "bg-[#a9d8bb]/10 text-[#a9d8bb]",
+    ring: "text-[#a9d8bb] shadow-[0_0_14px_-2px_rgba(169,216,187,0.5)]",
+    arrow: "text-[#a9d8bb]",
   },
   next: {
     label: "Planned",
@@ -75,7 +75,7 @@ function AboutContent() {
 
         <header className="mt-10 flex flex-col items-center text-center">
           <div className="relative flex h-32 w-32 items-center justify-center sm:h-40 sm:w-40">
-            <div className="absolute inset-[-45%] rounded-full bg-[#7567e8]/20 blur-3xl" />
+            <div className="absolute inset-[-45%] rounded-full bg-[#2f6b48]/20 blur-3xl" />
             <AboutLogo className="relative h-full w-full" />
           </div>
           <h1 className="mt-7 text-balance text-[42px] font-normal leading-[1.05] tracking-[-0.05em] text-white sm:text-[58px]">
@@ -123,7 +123,7 @@ function AboutContent() {
               return (
                 <li key={item.label} className="relative flex items-center gap-3.5 py-2.5">
                   <span
-                    className={`relative z-10 flex h-[27px] w-[27px] shrink-0 items-center justify-center rounded-full border border-white/[0.08] bg-[#0a0a0f] ${style.ring}`}
+                    className={`relative z-10 flex h-[27px] w-[27px] shrink-0 items-center justify-center rounded-full border border-white/[0.08] bg-[#0b1312] ${style.ring}`}
                   >
                     <svg
                       width="12"

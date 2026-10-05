@@ -100,7 +100,7 @@ export default function SplashScreen() {
   return (
     <div
       aria-hidden
-      className="fixed inset-0 z-[200] bg-[#030304]"
+      className="fixed inset-0 z-[200] bg-[#060a08]"
       style={{
         opacity: phase === "fade" ? 0 : 1,
         filter: phase === "fade" ? "blur(18px)" : "blur(0px)",
@@ -154,7 +154,7 @@ export default function SplashScreen() {
         className="pointer-events-none absolute inset-0"
         style={{
           background:
-            "radial-gradient(ellipse 70% 50% at 50% 50%, transparent 40%, rgba(3,3,4,0.65) 100%)",
+            "radial-gradient(ellipse 70% 50% at 50% 50%, transparent 40%, rgba(6,10,8,0.65) 100%)",
         }}
       />
     </div>

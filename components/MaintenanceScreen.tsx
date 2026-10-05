@@ -21,19 +21,19 @@ export default function MaintenanceScreen({ message }: { message: string }) {
   const { registerTap } = useAdminTaps(() => setGateOpen(true));
 
   return (
-    <div className="fixed inset-0 z-[100] flex flex-col items-center justify-center overflow-y-auto bg-[#030304] px-6 text-center">
+    <div className="fixed inset-0 z-[100] flex flex-col items-center justify-center overflow-y-auto bg-[#060a08] px-6 text-center">
       <div
         className="pointer-events-none absolute inset-0"
         aria-hidden
         style={{
           background:
-            "radial-gradient(circle at 50% 40%, rgba(112,94,255,0.10), transparent 32%), radial-gradient(ellipse 70% 34% at 50% 100%, rgba(32,77,216,0.18), transparent 72%)",
+            "radial-gradient(circle at 50% 40%, rgba(63,125,92,0.10), transparent 32%), radial-gradient(ellipse 70% 34% at 50% 100%, rgba(47,107,72,0.18), transparent 72%)",
         }}
       />
 
       <div className="relative flex w-full max-w-md flex-col items-center py-10">
         <div className="relative flex h-24 w-24 items-center justify-center sm:h-28 sm:w-28">
-          <div className="absolute inset-[-40%] animate-breathe rounded-full bg-[#7567e8]/20 blur-3xl" />
+          <div className="absolute inset-[-40%] animate-breathe rounded-full bg-[#2f6b48]/20 blur-3xl" />
           <button
             type="button"
             onClick={() => registerTap()}

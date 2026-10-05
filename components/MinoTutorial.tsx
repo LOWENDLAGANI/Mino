@@ -206,20 +206,20 @@ export default function MinoTutorial({ sidebarOpen, onOpenSidebar, onFinished }:
       {spotlightStyle && (
         <div
           aria-hidden="true"
-          className="pointer-events-none fixed rounded-[22px] border border-[#9ee7ff]/80 shadow-[0_0_0_9999px_rgba(0,0,0,0.76),0_0_0_1px_rgba(158,231,255,0.25),0_0_32px_rgba(126,111,255,0.28)]"
+          className="pointer-events-none fixed rounded-[22px] border border-[#a9d8bb]/80 shadow-[0_0_0_9999px_rgba(0,0,0,0.76),0_0_0_1px_rgba(169,216,187,0.25),0_0_32px_rgba(63,125,92,0.28)]"
           style={spotlightStyle}
         />
       )}
 
       <div className="pointer-events-none absolute inset-0 flex items-start justify-center p-4 pt-8 sm:items-center sm:p-8">
-        <section className="pointer-events-auto w-full max-w-sm rounded-[26px] border border-white/[0.12] bg-[#111116]/[0.97] p-5 shadow-2xl shadow-black/70 backdrop-blur-2xl sm:p-6">
+        <section className="pointer-events-auto w-full max-w-sm rounded-[26px] border border-white/[0.12] bg-[#121c18]/[0.97] p-5 shadow-2xl shadow-black/70 backdrop-blur-2xl sm:p-6">
           <div className="flex items-start justify-between gap-4">
             <div className="flex items-center gap-3">
               <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-white/[0.07]">
                 <MinoMark className="h-7 w-7" />
               </div>
               <div>
-                <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-[#9ee7ff]/75">Mino quick tour</p>
+                <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-[#a9d8bb]/75">Mino quick tour</p>
                 <p className="mt-1 text-[12px] text-white/40">{stepIndex + 1} of {STEPS.length}</p>
               </div>
             </div>
@@ -234,7 +234,7 @@ export default function MinoTutorial({ sidebarOpen, onOpenSidebar, onFinished }:
           </div>
 
           <div className="mt-6">
-            <p className="text-[11px] font-medium tracking-[0.08em] text-[#a7a0ff]">{step.eyebrow}</p>
+            <p className="text-[11px] font-medium tracking-[0.08em] text-[#9fd0b3]">{step.eyebrow}</p>
             <h2 id="mino-tutorial-title" className="mt-2 text-[23px] font-semibold tracking-[-0.035em] text-white">
               {step.title}
             </h2>
@@ -246,14 +246,14 @@ export default function MinoTutorial({ sidebarOpen, onOpenSidebar, onFinished }:
               {STEPS.map((item, index) => (
                 <span
                   key={item.target + index}
-                  className={`h-1.5 rounded-full transition-all ${index === stepIndex ? "w-6 bg-[#9ee7ff]" : "w-1.5 bg-white/20"}`}
+                  className={`h-1.5 rounded-full transition-all ${index === stepIndex ? "w-6 bg-[#a9d8bb]" : "w-1.5 bg-white/20"}`}
                 />
               ))}
             </div>
             <button
               type="button"
               onClick={next}
-              className="flex items-center gap-2 rounded-full bg-white px-4 py-2.5 text-[13px] font-semibold text-[#111116] transition-transform hover:scale-[1.02] active:scale-[0.98]"
+              className="flex items-center gap-2 rounded-full bg-white px-4 py-2.5 text-[13px] font-semibold text-[#121c18] transition-transform hover:scale-[1.02] active:scale-[0.98]"
             >
               {stepIndex === STEPS.length - 1 ? "Start chatting" : "Next"}
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">

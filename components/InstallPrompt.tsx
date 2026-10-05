@@ -241,10 +241,10 @@ export default function InstallPrompt() {
         className="absolute inset-0 cursor-default bg-black/70 backdrop-blur-sm"
       />
 
-      <section className="animate-rise relative w-full max-w-sm overflow-hidden rounded-[28px] border border-white/[0.14] bg-[#111116]/[0.98] pb-2 shadow-2xl shadow-black/80 backdrop-blur-2xl">
+      <section className="animate-rise relative w-full max-w-sm overflow-hidden rounded-[28px] border border-white/[0.14] bg-[#121c18]/[0.98] pb-2 shadow-2xl shadow-black/80 backdrop-blur-2xl">
         <div
           aria-hidden
-          className="pointer-events-none absolute -top-24 left-1/2 h-48 w-64 -translate-x-1/2 rounded-full bg-[#7567e8]/25 blur-3xl"
+          className="pointer-events-none absolute -top-24 left-1/2 h-48 w-64 -translate-x-1/2 rounded-full bg-[#2f6b48]/25 blur-3xl"
         />
 
         <div className="relative p-5 pb-4">
@@ -253,12 +253,12 @@ export default function InstallPrompt() {
                 persuasive element here: it shows what lands on the home screen
                 rather than describing it. */}
             <div className="relative shrink-0">
-              <div className="absolute inset-[-18%] animate-breathe rounded-[20px] bg-[#7567e8]/25 blur-xl" />
+              <div className="absolute inset-[-18%] animate-breathe rounded-[20px] bg-[#2f6b48]/25 blur-xl" />
               <MinoMark className="relative h-16 w-16 rounded-[16px]" />
             </div>
 
             <div className="min-w-0 flex-1">
-              <p className="text-[11px] font-medium uppercase tracking-[0.14em] text-[#9ee7ff]/80">
+              <p className="text-[11px] font-medium uppercase tracking-[0.14em] text-[#a9d8bb]/80">
                 Keep Mino
               </p>
               <h2
@@ -323,8 +323,8 @@ export default function InstallPrompt() {
               <button
                 type="button"
                 onClick={install}
-                className="lift flex-1 rounded-full px-4 py-3 text-[14px] font-semibold text-[#08080a] transition-opacity hover:opacity-90 active:opacity-70"
-                style={{ background: "linear-gradient(180deg, #a9a4ff 0%, #7c7cf4 100%)" }}
+                className="lift flex-1 rounded-full px-4 py-3 text-[14px] font-semibold text-[#0a100d] transition-opacity hover:opacity-90 active:opacity-70"
+                style={{ background: "linear-gradient(180deg, #a9d8bb 0%, #1f4a33 100%)" }}
               >
                 Install Mino
               </button>
@@ -332,8 +332,8 @@ export default function InstallPrompt() {
             <button
               type="button"
               onClick={close}
-              className={showButton ? "shrink-0 rounded-full border border-white/[0.12] px-5 py-3 text-[14px] font-medium text-white/70 transition-colors hover:bg-white/[0.06] hover:text-white" : "w-full rounded-full px-4 py-3 text-[14px] font-semibold text-[#08080a] transition-opacity hover:opacity-90 active:opacity-70"}
-              style={showButton ? undefined : { background: "linear-gradient(180deg, #a9a4ff 0%, #7c7cf4 100%)" }}
+              className={showButton ? "shrink-0 rounded-full border border-white/[0.12] px-5 py-3 text-[14px] font-medium text-white/70 transition-colors hover:bg-white/[0.06] hover:text-white" : "w-full rounded-full px-4 py-3 text-[14px] font-semibold text-[#0a100d] transition-opacity hover:opacity-90 active:opacity-70"}
+              style={showButton ? undefined : { background: "linear-gradient(180deg, #a9d8bb 0%, #1f4a33 100%)" }}
             >
               {showButton ? "Not now" : ios ? "Got it" : "Done"}
             </button>

@@ -14,13 +14,13 @@ function SparkleMark({ className, title }: { className: string; title: string })
     <svg viewBox="0 0 48 48" className="h-full w-full overflow-visible" role="img" aria-label={title}>
       <defs>
         <linearGradient id="mino-mark" x1="8" y1="6" x2="40" y2="43" gradientUnits="userSpaceOnUse">
-          <stop stopColor="#9ee7ff" />
-          <stop offset="0.45" stopColor="#8b7cf6" />
-          <stop offset="1" stopColor="#5b4bd6" />
+          <stop stopColor="#bfe6cd" />
+          <stop offset="0.45" stopColor="#3f7d5c" />
+          <stop offset="1" stopColor="#1f4a33" />
         </linearGradient>
         <filter id="mino-mark-glow" x="-80%" y="-80%" width="260%" height="260%">
           <feGaussianBlur stdDeviation="3.2" result="blur" />
-          <feFlood floodColor="#7567e8" floodOpacity="0.45" />
+          <feFlood floodColor="#2f6b48" floodOpacity="0.45" />
           <feComposite in2="blur" operator="in" />
           <feMerge>
             <feMergeNode />
@@ -36,7 +36,7 @@ function SparkleMark({ className, title }: { className: string; title: string })
       <path
         d="M15.5 29.5V18l8.5 7 8.5-7v11.5"
         fill="none"
-        stroke="#09090b"
+        stroke="#0d1a13"
         strokeLinecap="round"
         strokeLinejoin="round"
         strokeWidth="3.2"

@@ -679,7 +679,7 @@ export default function HomePage() {
   // service, or one offline, is never stuck here.
   if (hydrated && resolvingAccount) {
     return (
-      <div className="flex h-[100dvh] items-center justify-center bg-[#030304] text-text-body">
+      <div className="flex h-[100dvh] items-center justify-center bg-[#060a08] text-text-body">
         <MinoMark className="h-8 w-8 animate-pulse" />
         <SplashScreen />
       </div>
@@ -690,7 +690,7 @@ export default function HomePage() {
   // is not usable until one is given. There is no skip out of this screen.
   if (!displayName) {
     return (
-      <div className="flex h-[100dvh] overflow-hidden bg-[#030304] text-text-body">
+      <div className="flex h-[100dvh] overflow-hidden bg-[#060a08] text-text-body">
         <NamePrompt
           open
           onSave={handleSaveName}
@@ -705,7 +705,7 @@ export default function HomePage() {
   }
 
   return (
-    <div className="flex h-[100dvh] overflow-hidden bg-[#030304] text-text-body">
+    <div className="flex h-[100dvh] overflow-hidden bg-[#060a08] text-text-body">
       <Sidebar
         activeChatId={activeChatId}
         onSelectChat={handleSelectChat}
@@ -756,7 +756,7 @@ export default function HomePage() {
         {appConfig?.announcement && (
           <div
             role="status"
-            className="animate-rise relative z-10 mx-4 mt-1 flex shrink-0 items-center justify-center self-center rounded-full border border-[#9ee7ff]/15 bg-[#9ee7ff]/[0.06] px-3.5 py-2 text-center text-[11px] leading-relaxed text-white/70 backdrop-blur-md md:max-w-xl"
+            className="animate-rise relative z-10 mx-4 mt-1 flex shrink-0 items-center justify-center self-center rounded-full border border-[#a9d8bb]/15 bg-[#a9d8bb]/[0.06] px-3.5 py-2 text-center text-[11px] leading-relaxed text-white/70 backdrop-blur-md md:max-w-xl"
           >
             {appConfig.announcement}
           </div>
@@ -767,7 +767,7 @@ export default function HomePage() {
             role="status"
             className="relative z-10 mx-4 mt-1 flex shrink-0 items-center justify-center gap-2 self-center rounded-full border border-white/[0.07] bg-white/[0.045] px-3.5 py-2 text-center text-[11px] leading-relaxed text-white/55 backdrop-blur-md md:max-w-xl"
           >
-            <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-[#9ee7ff]" />
+            <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-[#a9d8bb]" />
             <span>{modelNotice}</span>
           </div>
         )}

@@ -61,7 +61,7 @@ export default function MemorySuggestions({
   const pending = suggestions.filter((text) => !saved.includes(text));
 
   return (
-    <div className="animate-rise mx-4 mb-2 w-full self-center rounded-2xl border border-[#9ee7ff]/15 bg-[#9ee7ff]/[0.04] p-3 backdrop-blur-md md:max-w-xl">
+    <div className="animate-rise mx-4 mb-2 w-full self-center rounded-2xl border border-[#a9d8bb]/15 bg-[#a9d8bb]/[0.04] p-3 backdrop-blur-md md:max-w-xl">
       <div className="mb-2 flex items-baseline justify-between gap-2">
         <h3 className="text-[12px] font-semibold text-white/85">Worth remembering</h3>
         <button
@@ -93,7 +93,7 @@ export default function MemorySuggestions({
                 onClick={() => void remember(text)}
                 disabled={kept}
                 aria-label={`Remember: ${text}`}
-                className="shrink-0 rounded-md px-1.5 py-0.5 text-[11px] font-medium text-[#9ee7ff] transition-opacity hover:bg-white/[0.07] disabled:opacity-30"
+                className="shrink-0 rounded-md px-1.5 py-0.5 text-[11px] font-medium text-[#a9d8bb] transition-opacity hover:bg-white/[0.07] disabled:opacity-30"
               >
                 {kept ? "Kept" : "Remember"}
               </button>
@@ -106,7 +106,7 @@ export default function MemorySuggestions({
         <button
           type="button"
           onClick={() => void Promise.all(pending.map((text) => remember(text)))}
-          className="mt-2.5 text-[11.5px] font-medium text-[#9ee7ff] underline-offset-2 transition-opacity hover:opacity-75"
+          className="mt-2.5 text-[11.5px] font-medium text-[#a9d8bb] underline-offset-2 transition-opacity hover:opacity-75"
         >
           Remember all {pending.length}
         </button>

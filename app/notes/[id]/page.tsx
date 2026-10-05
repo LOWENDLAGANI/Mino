@@ -20,7 +20,7 @@ export default function NotePage() {
 
   return (
     <MaintenanceGate>
-      <main className="min-h-dvh bg-[#0a0a0b] px-5 pb-12 pt-[max(1rem,env(safe-area-inset-top))] text-white sm:px-8">
+      <main className="min-h-dvh bg-[#0b1310] px-5 pb-12 pt-[max(1rem,env(safe-area-inset-top))] text-white sm:px-8">
         <div className="mx-auto w-full max-w-2xl">
           <BackButton href="/notes" />
 

@@ -306,7 +306,7 @@ export default function AdminPanel({
         role="dialog"
         aria-modal="true"
         aria-label="Mino admin console"
-        className="relative flex max-h-[92dvh] w-full max-w-md flex-col overflow-hidden rounded-t-[28px] border border-white/[0.09] bg-[#131316] shadow-2xl shadow-black/80 animate-rise sm:rounded-[28px]"
+        className="relative flex max-h-[92dvh] w-full max-w-md flex-col overflow-hidden rounded-t-[28px] border border-white/[0.09] bg-[#141f1a] shadow-2xl shadow-black/80 animate-rise sm:rounded-[28px]"
       >
         <header className="flex items-center justify-between gap-3 border-b border-white/[0.07] px-5 py-4">
           <div className="flex min-w-0 items-center gap-1.5">
@@ -372,7 +372,7 @@ export default function AdminPanel({
                   onChange={(event) => setPeopleQuery(event.target.value)}
                   placeholder="Find a name to grant"
                   aria-label="Find a visitor by name"
-                  className="mb-2 w-full rounded-[10px] border border-white/[0.1] bg-[#0d0d0f] px-2.5 py-2 text-[11px] text-white/85 outline-none placeholder:text-white/25 focus:border-[#4da3ff]/50"
+                  className="mb-2 w-full rounded-[10px] border border-white/[0.1] bg-[#0e1613] px-2.5 py-2 text-[11px] text-white/85 outline-none placeholder:text-white/25 focus:border-[#2f6b48]/50"
                 />
                 <p className="mb-2 text-[10px] leading-relaxed text-white/30">
                   Press <span className="font-semibold text-white/60">Plan</span> beside whoever
@@ -406,7 +406,7 @@ export default function AdminPanel({
                             <button
                               type="button"
                               onClick={() => setGrantingUid(grantingUid === user.uid ? null : user.uid)}
-                              className="shrink-0 rounded-[10px] border border-[#4da3ff]/25 bg-[#4da3ff]/10 px-2 py-1.5 text-[10px] font-semibold text-[#9ee7ff]"
+                              className="shrink-0 rounded-[10px] border border-[#2f6b48]/25 bg-[#2f6b48]/10 px-2 py-1.5 text-[10px] font-semibold text-[#a9d8bb]"
                               aria-label={`${planById(user.subscription.plan).name} until ${new Date(user.subscription.expiresAt).toLocaleDateString()}`}
                             >
                               {planById(user.subscription.plan).short}
@@ -540,12 +540,12 @@ export default function AdminPanel({
                       key={`${message.createdAt}-${index}`}
                       className={`rounded-[14px] border px-3 py-2.5 ${
                         message.role === "user"
-                          ? "border-[#9ee7ff]/15 bg-[#9ee7ff]/[0.05]"
+                          ? "border-[#a9d8bb]/15 bg-[#a9d8bb]/[0.05]"
                           : "border-white/[0.07] bg-white/[0.03]"
                       }`}
                     >
                       <div className="mb-1 flex items-center gap-2">
-                        <span className={`text-[9px] font-semibold uppercase tracking-[0.12em] ${message.role === "user" ? "text-[#9ee7ff]/75" : "text-white/40"}`}>
+                        <span className={`text-[9px] font-semibold uppercase tracking-[0.12em] ${message.role === "user" ? "text-[#a9d8bb]/75" : "text-white/40"}`}>
                           {message.role === "user" ? "User" : "Mino"}
                         </span>
                         {message.role === "assistant" && message.model && (
@@ -699,7 +699,7 @@ function CodesSection() {
             className="rounded-[9px] border border-white/[0.08] bg-black/25 px-2 py-1.5 text-[11px] text-white/80"
           >
             {DURATIONS.map((duration) => (
-              <option key={duration.days} value={duration.days} className="bg-[#0d0d10]">
+              <option key={duration.days} value={duration.days} className="bg-[#0e1614]">
                 {describeDuration(duration.days)}
               </option>
             ))}
@@ -823,7 +823,7 @@ function GrantPanel({
     { dateStyle: "medium" }
   );
   return (
-    <div className="mt-1.5 rounded-[14px] border border-[#4da3ff]/20 bg-[#4da3ff]/[0.05] p-3">
+    <div className="mt-1.5 rounded-[14px] border border-[#2f6b48]/20 bg-[#2f6b48]/[0.05] p-3">
       <p className="text-[10px] leading-relaxed text-white/45">
         Payment received? Choose the tier they paid for.
       </p>
@@ -837,7 +837,7 @@ function GrantPanel({
             onClick={() => onPlan(item.id)}
             className={`rounded-[10px] border px-2.5 py-2 text-left transition-colors ${
               plan === item.id
-                ? "border-[#4da3ff]/60 bg-[#4da3ff]/15 text-white"
+                ? "border-[#2f6b48]/60 bg-[#2f6b48]/15 text-white"
                 : "border-white/[0.08] bg-white/[0.02] text-white/45 hover:border-white/20 hover:text-white/75"
             }`}
           >
@@ -862,7 +862,7 @@ function GrantPanel({
               onClick={() => onDays(span.days)}
               className={`rounded-full border px-2.5 py-1.5 text-[11px] transition-colors ${
                 days === span.days
-                  ? "border-[#4da3ff]/60 bg-[#4da3ff]/15 text-white"
+                  ? "border-[#2f6b48]/60 bg-[#2f6b48]/15 text-white"
                   : "border-white/[0.1] bg-white/[0.02] text-white/50 hover:border-white/20 hover:text-white/80"
               }`}
             >
@@ -891,7 +891,7 @@ function GrantPanel({
               max={3650}
               value={days}
               onChange={(event) => onDays(normalizeDays(event.target.value))}
-              className="w-full rounded-[9px] border border-white/[0.1] bg-[#0d0d0f] px-2 py-1.5 text-center text-[11px] text-white/85 outline-none focus:border-[#4da3ff]/50"
+              className="w-full rounded-[9px] border border-white/[0.1] bg-[#0e1613] px-2 py-1.5 text-center text-[11px] text-white/85 outline-none focus:border-[#2f6b48]/50"
             />
           </label>
           <button
@@ -917,7 +917,7 @@ function GrantPanel({
         placeholder="Payment reference (optional)"
         aria-label="Payment reference"
         maxLength={120}
-        className="mt-2 w-full rounded-[10px] border border-white/[0.1] bg-[#0d0d0f] px-2.5 py-2 text-[11px] text-white/85 outline-none placeholder:text-white/25 focus:border-[#4da3ff]/50"
+        className="mt-2 w-full rounded-[10px] border border-white/[0.1] bg-[#0e1613] px-2.5 py-2 text-[11px] text-white/85 outline-none placeholder:text-white/25 focus:border-[#2f6b48]/50"
       />
 
       <div className="mt-2.5 flex gap-1.5">
@@ -942,7 +942,7 @@ function GrantPanel({
           type="button"
           onClick={onGrant}
           disabled={busy}
-          className="ml-auto rounded-[10px] bg-[#4da3ff] px-3 py-2 text-[11px] font-semibold text-black disabled:opacity-50"
+          className="ml-auto rounded-[10px] bg-[#2f6b48] px-3 py-2 text-[11px] font-semibold text-black disabled:opacity-50"
         >
           {busy ? "Granting…" : `Grant ${planById(plan).short} · ${describeDuration(days)}`}
         </button>
