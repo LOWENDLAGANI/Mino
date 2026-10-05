@@ -19,9 +19,6 @@ import {
   db,
   createChat,
   addMessage,
-  updateMessageContent,
-  setMessageError,
-  setMessageUsage,
   maybeAutoTitle,
   loadSelectedMode,
   saveSelectedMode,
@@ -59,6 +56,12 @@ import {
   syncFirebaseHistory,
 } from "@/lib/firebaseHistory";
 import { subscribeAppConfig, type AppConfig } from "@/lib/appConfig";
+import { TempThread, type MessageInput } from "@/lib/tempChat";
+
+/** The chat id a temporary thread uses. It is never a row in the database — it
+    exists only so the send path has one variable to address either kind of
+    chat by, and it can never collide with a real id, which is a uuid. */
+const TEMP_CHAT_ID = "temporary";
 import { useMaintenance } from "@/lib/useMaintenance";
 import SplashScreen from "@/components/SplashScreen";
 import InstallPrompt from "@/components/InstallPrompt";
@@ -115,6 +118,42 @@ export default function HomePage() {
   const [appConfig, setAppConfig] = useState<AppConfig | null>(null);
   const maintenance = useMaintenance();
   const abortRef = useRef<AbortController | null>(null);
+  // ── Temporary chat ─────────────────────────────────────────────────────────
+  // A conversation that is never written down: not to IndexedDB, and therefore
+  // not to the account either, since everything uploaded to Firebase starts as
+  // a local row. The thread lives in this component and in this ref — nothing
+  // else is allowed to keep a copy.
+  const [temporary, setTemporary] = useState(false);
+  const tempThreadRef = useRef(new TempThread());
+  const [tempMessages, setTempMessages] = useState<ChatMessage[]>([]);
+
+  /** Publishes the thread to React after any change, so the screen follows a
+      message being written exactly as it follows one read from the database. */
+  const publishTemp = useCallback(() => {
+    setTempMessages(tempThreadRef.current.list());
+  }, []);
+
+  const endTemporary = useCallback(() => {
+    tempThreadRef.current.clear();
+    setTempMessages([]);
+    setTemporary(false);
+  }, []);
+
+  const startTemporary = useCallback(() => {
+    abortRef.current?.abort();
+    setStreamingId(null);
+    tempThreadRef.current.clear();
+    setTempMessages([]);
+    setActiveChatId(null);
+    setModelNotice(null);
+    setTemporary(true);
+    setSidebarOpen(false);
+  }, []);
+
+  const toggleTemporary = useCallback(() => {
+    if (temporary) endTemporary();
+    else startTemporary();
+  }, [endTemporary, startTemporary, temporary]);
   const historyTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const memoryRunRef = useRef(0);
 
@@ -360,7 +399,10 @@ export default function HomePage() {
     setActiveChatId(null);
     setSidebarOpen(false);
     setModelNotice(null);
-  }, []);
+    // A new chat is a chat you meant to keep, so a temporary thread ends here
+    // rather than silently turning into one that is written down.
+    if (temporary) endTemporary();
+  }, [endTemporary, temporary]);
 
   const handleSelectChat = useCallback((chatId: string) => {
     abortRef.current?.abort();
@@ -368,7 +410,8 @@ export default function HomePage() {
     setActiveChatId(chatId);
     setSidebarOpen(false);
     setModelNotice(null);
-  }, []);
+    if (temporary) endTemporary();
+  }, [endTemporary, temporary]);
 
   const stopStreaming = useCallback(() => {
     abortRef.current?.abort();
@@ -377,43 +420,124 @@ export default function HomePage() {
   const openSidebar = useCallback(() => setSidebarOpen(true), []);
   const finishTutorial = useCallback(() => setTutorialFinished(true), []);
 
+  // ── Where a message is written ─────────────────────────────────────────────
+  // One set of calls for both kinds of chat, so the send path below has no
+  // `if (temporary)` in it. A temporary message goes to the in-memory thread and
+  // nowhere else; a real one goes to Dexie, and the account sync picks it up
+  // there exactly as it always has.
+  const appendMessage = useCallback(
+    async (input: MessageInput): Promise<ChatMessage> => {
+      if (!temporary) return addMessage(input);
+      const message = tempThreadRef.current.append(input);
+      publishTemp();
+      return message;
+    },
+    [publishTemp, temporary]
+  );
+
+  const patchMessage = useCallback(
+    async (id: string, changes: Partial<ChatMessage>): Promise<void> => {
+      if (!temporary) {
+        await db.messages.update(id, changes);
+        return;
+      }
+      tempThreadRef.current.patch(id, changes);
+      publishTemp();
+    },
+    [publishTemp, temporary]
+  );
+
+  const writeContent = useCallback(
+    async (id: string, content: string): Promise<void> => patchMessage(id, { content }),
+    [patchMessage]
+  );
+  const markError = useCallback(
+    async (id: string, error: string): Promise<void> => patchMessage(id, { error }),
+    [patchMessage]
+  );
+  const writeUsage = useCallback(
+    async (
+      id: string,
+      usage: { prompt: number; completion: number; total: number }
+    ): Promise<void> => patchMessage(id, { usage }),
+    [patchMessage]
+  );
+
+  const readMessage = useCallback(
+    async (id: string): Promise<ChatMessage | undefined> =>
+      temporary ? tempThreadRef.current.get(id) : db.messages.get(id),
+    [temporary]
+  );
+
+  /** Throws away the turns after the one being edited or regenerated, which is
+      what both of those actions mean. */
+  const dropFromMessage = useCallback(
+    async (
+      chatId: string,
+      id: string,
+      createdAt: number,
+      inclusive: boolean
+    ): Promise<void> => {
+      if (!temporary) {
+        await db.messages
+          .where("chatId")
+          .equals(chatId)
+          .filter((message) => (inclusive ? message.createdAt >= createdAt : message.createdAt > createdAt))
+          .delete();
+        return;
+      }
+      tempThreadRef.current.dropFrom(id, inclusive);
+      publishTemp();
+    },
+    [publishTemp, temporary]
+  );
+
+  /** The conversation so far, in the order the model must read it. */
+  const threadHistory = useCallback(async (): Promise<ChatMessage[]> => {
+    if (temporary) return tempThreadRef.current.list();
+    if (!activeChatId) return [];
+    return db.messages.where("chatId").equals(activeChatId).sortBy("createdAt");
+  }, [activeChatId, temporary]);
+
   // ── Streaming send ─────────────────────────────────────────────────────────
   const sendMessage = useCallback(
     async (text: string, images: ImageAttachment[], documents: DocumentAttachment[] = [], options?: SendOptions) => {
       if (streamingId) return;
       if (!text && images.length === 0 && documents.length === 0 && !options) return;
 
-      let chatId = activeChatId;
+      let chatId: string | null = temporary ? TEMP_CHAT_ID : activeChatId;
       if (options?.editMessageId) {
-        const original = await db.messages.get(options.editMessageId);
+        const original = await readMessage(options.editMessageId);
         if (!original) return;
         chatId = original.chatId;
-        await db.messages.update(original.id, { content: text, images: images.length ? images : undefined, documents: documents.length ? documents : undefined });
-        await db.messages.where("chatId").equals(chatId).filter((message) => message.createdAt > original.createdAt).delete();
+        await patchMessage(original.id, { content: text, images: images.length ? images : undefined, documents: documents.length ? documents : undefined });
+        await dropFromMessage(chatId, original.id, original.createdAt, false);
       } else if (options?.regenerateAssistantId) {
-        const original = await db.messages.get(options.regenerateAssistantId);
+        const original = await readMessage(options.regenerateAssistantId);
         if (!original) return;
         chatId = original.chatId;
-        await db.messages.where("chatId").equals(chatId).filter((message) => message.createdAt >= original.createdAt).delete();
+        await dropFromMessage(chatId, original.id, original.createdAt, true);
       } else {
         if (!chatId) {
           const chat = await createChat();
           chatId = chat.id;
           setActiveChatId(chatId);
         }
-        await addMessage({
+        await appendMessage({
           chatId,
           role: "user",
           content: text,
           images: images.length > 0 ? images : undefined,
           documents: documents.length > 0 ? documents : undefined,
         });
-        await maybeAutoTitle(chatId, text || "Attachment conversation");
+        // A temporary thread has no row to carry a title, so there is nothing
+        // to name.
+        if (!temporary) await maybeAutoTitle(chatId, text || "Attachment conversation");
       }
       if (!chatId) return;
-      setActiveChatId(chatId);
+      if (!temporary) setActiveChatId(chatId);
 
-      const history = await db.messages.where("chatId").equals(chatId).sortBy("createdAt");
+      const history = await threadHistory();
       const apiMessages: ApiMessage[] = history.flatMap((message): ApiMessage[] => {
         if (message.error || (message.role !== "user" && message.role !== "assistant")) return [];
         if (message.role === "user" && (message.images?.length || message.documents?.length)) {
@@ -434,7 +558,7 @@ export default function HomePage() {
       setModelNotice(null);
       // The Mino name is stored rather than a provider id, so nothing vendor-
       // specific ends up in the local database or in an exported backup.
-      const assistantMsg = await addMessage({ chatId, role: "assistant", content: "", model: getMode(selectedMode).display });
+      const assistantMsg = await appendMessage({ chatId, role: "assistant", content: "", model: getMode(selectedMode).display });
       setStreamingId(assistantMsg.id);
 
       const controller = new AbortController();
@@ -507,27 +631,27 @@ export default function HomePage() {
           try {
             const evt = JSON.parse(data) as { content?: string; error?: string; model?: string; truncated?: boolean; usage?: SessionUsage; search?: { used: boolean; query?: string; sources?: SearchSource[] } };
             if (evt.model) {
-              await db.messages.update(assistantMsg.id, { model: evt.model });
+              await patchMessage(assistantMsg.id, { model: evt.model });
               if (evt.model !== getMode(selectedMode).display) setModelNotice("The model was changed automatically because the current model is experiencing a problem.");
             }
             if (evt.error) {
               sawError = true;
-              await setMessageError(assistantMsg.id, evt.error);
+              await markError(assistantMsg.id, evt.error);
               return;
             }
             if (evt.truncated) {
               // Recorded on the message so it survives a reload. Without it the
               // only trace that an answer was cut short is gone once the tab is
               // closed, and the half-file still looks finished.
-              await db.messages.update(assistantMsg.id, { truncated: true });
+              await patchMessage(assistantMsg.id, { truncated: true });
             }
             if (evt.content) {
               full += evt.content;
-              await updateMessageContent(assistantMsg.id, full);
+              await writeContent(assistantMsg.id, full);
             }
-            if (evt.usage) await setMessageUsage(assistantMsg.id, evt.usage);
+            if (evt.usage) await writeUsage(assistantMsg.id, evt.usage);
             if (evt.search) {
-              await db.messages.update(assistantMsg.id, { searchQuery: evt.search.query, sources: evt.search.sources ?? [] });
+              await patchMessage(assistantMsg.id, { searchQuery: evt.search.query, sources: evt.search.sources ?? [] });
               if (!evt.search.used && searchMode !== "off") setModelNotice("Mino checked the web but could not find a usable source.");
             }
           } catch (err) {
@@ -543,7 +667,7 @@ export default function HomePage() {
           for (const line of lines) await flushLine(line);
         }
         if (buffer.trim()) await flushLine(buffer);
-        if (!full.trim() && !sawError) await setMessageError(assistantMsg.id, "Mino returned an empty response. Try again.");
+        if (!full.trim() && !sawError) await markError(assistantMsg.id, "Mino returned an empty response. Try again.");
 
         // Whether anything here is worth remembering is decided after the
         // answer, on the user's machine, by a request they never wait for. It
@@ -552,17 +676,26 @@ export default function HomePage() {
 
       } catch (err) {
         const aborted = err instanceof DOMException && err.name === "AbortError";
-        if (!aborted) await setMessageError(assistantMsg.id, err instanceof Error ? err.message : "Something went wrong");
+        if (!aborted) await markError(assistantMsg.id, err instanceof Error ? err.message : "Something went wrong");
         if (aborted) {
-          const msg = await db.messages.get(assistantMsg.id);
-          if (msg && !msg.content) await db.messages.delete(assistantMsg.id);
+          // A cancelled answer that never wrote a word leaves an empty bubble
+          // behind, so it is taken out of whichever store holds it.
+          const msg = await readMessage(assistantMsg.id);
+          if (msg && !msg.content) {
+            if (temporary) {
+              tempThreadRef.current.drop(assistantMsg.id);
+              publishTemp();
+            } else {
+              await db.messages.delete(assistantMsg.id);
+            }
+          }
         }
       } finally {
         setStreamingId(null);
         abortRef.current = null;
       }
     },
-    [activeChatId, memorySnapshot, reasoningEffort, responseLength, searchMode, selectedMode, streamingId]
+    [activeChatId, appendMessage, dropFromMessage, markError, memorySnapshot, patchMessage, publishTemp, readMessage, reasoningEffort, responseLength, searchMode, selectedMode, streamingId, temporary, threadHistory, writeContent, writeUsage]
   );
 
   // ── Image generation ───────────────────────────────────────────────────────
@@ -575,24 +708,27 @@ export default function HomePage() {
       const clean = prompt.trim();
       if (!clean) return;
 
-      let chatId = activeChatId;
+      let chatId: string | null = temporary ? TEMP_CHAT_ID : activeChatId;
       if (!chatId) {
         const chat = await createChat();
         chatId = chat.id;
         setActiveChatId(chatId);
       }
       if (!chatId) return;
-      await addMessage({ chatId, role: "user", content: clean });
-      await maybeAutoTitle(chatId, clean);
+      await appendMessage({ chatId, role: "user", content: clean });
+      if (!temporary) {
+        await maybeAutoTitle(chatId, clean);
+        setActiveChatId(chatId);
+      }
 
-      const assistantMsg = await addMessage({ chatId, role: "assistant", content: "", model: IMAGE_ENGINE });
+      const assistantMsg = await appendMessage({ chatId, role: "assistant", content: "", model: IMAGE_ENGINE });
       setDrawingId(assistantMsg.id);
       setModelNotice(null);
       const controller = new AbortController();
       abortRef.current = controller;
       try {
         const image = await generateImage({ prompt: clean, signal: controller.signal });
-        await db.messages.update(assistantMsg.id, {
+        await patchMessage(assistantMsg.id, {
           content: "",
           generatedImages: [image],
           model: IMAGE_ENGINE,
@@ -601,14 +737,14 @@ export default function HomePage() {
       } catch (err) {
         const aborted = err instanceof DOMException && err.name === "AbortError";
         if (!aborted) {
-          await setMessageError(assistantMsg.id, err instanceof Error ? err.message : "Image generation failed");
+          await markError(assistantMsg.id, err instanceof Error ? err.message : "Image generation failed");
         }
       } finally {
         setDrawingId(null);
         abortRef.current = null;
       }
     },
-    [activeChatId, drawingId, imageAvailable]
+    [activeChatId, appendMessage, drawingId, imageAvailable, markError, patchMessage, temporary]
   );
 
   const handleSend = useCallback(
@@ -635,15 +771,19 @@ export default function HomePage() {
     void sendMessage(content, [], [], { editMessageId: messageId });
   }, [sendMessage]);
 
+  // The conversation on screen: a temporary thread has no database rows to read,
+  // so it is read from memory instead.
+  const threadMessages = temporary ? tempMessages : messages;
+
   const handleCopyConversation = useCallback(async () => {
-    const text = messages.map((message) => `${message.role === "user" ? "You" : "Mino"}: ${message.content}`).join("\n\n");
+    const text = threadMessages.map((message) => `${message.role === "user" ? "You" : "Mino"}: ${message.content}`).join("\n\n");
     try {
       await navigator.clipboard.writeText(text);
       setModelNotice("Conversation copied to your clipboard");
     } catch {
       setModelNotice("Clipboard access is unavailable in this browser");
     }
-  }, [messages]);
+  }, [threadMessages]);
 
   const isStreaming = streamingId !== null;
   // The message being drawn has no content yet, so it is kept explicitly to
@@ -652,7 +792,7 @@ export default function HomePage() {
   // `verification` — so it has to be admitted here explicitly. Without this the
   // panel renders correctly but is filtered out of the thread before it is ever
   // reached, which is exactly the kind of bug that survives a code review.
-  const visibleMessages = messages.filter(
+  const visibleMessages = threadMessages.filter(
     (m) => m.content || m.images || m.generatedImages || m.error || m.id === drawingId
   );
 
@@ -710,6 +850,8 @@ export default function HomePage() {
         activeChatId={activeChatId}
         onSelectChat={handleSelectChat}
         onNewChat={handleNewChat}
+        temporary={temporary}
+        onToggleTemporary={toggleTemporary}
         open={sidebarOpen}
         onClose={() => setSidebarOpen(false)}
         onOpenSettings={() => {
@@ -741,8 +883,20 @@ export default function HomePage() {
             title="Mino"
           >
             <MinoMark className="h-7 w-7" />
-            <span className="truncate text-[17px] font-medium tracking-[-0.02em] text-white">Mino</span>
+            <span className="truncate text-[17px] font-medium tracking-[-0.02em] text-white">
+              {temporary ? "Temporary chat" : "Mino"}
+            </span>
           </button>
+
+          {temporary && (
+            <span className="hidden shrink-0 items-center gap-1.5 rounded-full border border-white/[0.07] bg-white/[0.045] px-2.5 py-1 text-[11px] text-white/55 sm:inline-flex">
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                <circle cx="12" cy="12" r="9" />
+                <path d="M12 7v5l3 2" />
+              </svg>
+              Not saved
+            </span>
+          )}
 
           <div className="flex-1" />
           <ModeSelector

@@ -20,6 +20,8 @@ interface SidebarProps {
   activeChatId: string | null;
   onSelectChat: (id: string) => void;
   onNewChat: () => void;
+  temporary: boolean;
+  onToggleTemporary: () => void;
   open: boolean;
   onClose: () => void;
   onOpenSettings: () => void;
@@ -56,7 +58,7 @@ function UtilityIcon({ children }: { children: ReactNode }) {
   );
 }
 
-export default function Sidebar({ activeChatId, onSelectChat, onNewChat, open, onClose, onOpenSettings, displayName }: SidebarProps) {
+export default function Sidebar({ activeChatId, onSelectChat, onNewChat, temporary, onToggleTemporary, open, onClose, onOpenSettings, displayName }: SidebarProps) {
   const chats = useLiveQuery(
     () => db.chats.orderBy("updatedAt").reverse().toArray(),
     [],
@@ -169,6 +171,43 @@ export default function Sidebar({ activeChatId, onSelectChat, onNewChat, open, o
               <path d="M12 8v7M8.5 11.5h7" />
             </svg>
             New chat
+          </button>
+
+          {/* Temporary chat. A whole conversation that is never written down —
+              not to this device, not to the account — so it is a switch rather
+              than a chat of its own in the list below. */}
+          <button
+            onClick={onToggleTemporary}
+            aria-pressed={temporary}
+            title={temporary ? "Leave temporary chat" : "Start a temporary chat that is not saved"}
+            className={`mt-2 flex w-full items-center gap-3 rounded-2xl border px-4 py-3 text-[15px] font-medium transition-colors ${
+              temporary
+                ? "border-[#2f6b48]/40 bg-[#2f6b48]/[0.14] text-white"
+                : "border-white/[0.07] bg-white/[0.03] text-white/70 hover:bg-white/[0.06] hover:text-white"
+            }`}
+          >
+            <svg
+              width="19"
+              height="19"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="1.7"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              className={temporary ? "text-[#a9d8bb]" : "text-white/50"}
+            >
+              <circle cx="12" cy="12" r="9" />
+              <path d="M12 7v5l3 2" />
+            </svg>
+            <span className="flex-1 text-left">Temporary chat</span>
+            <span
+              className={`shrink-0 text-[10px] font-semibold uppercase tracking-wide ${
+                temporary ? "text-[#a9d8bb]" : "text-white/30"
+              }`}
+            >
+              {temporary ? "On" : "Not saved"}
+            </span>
           </button>
         </div>
 
