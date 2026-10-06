@@ -331,9 +331,11 @@ The token is only ever read inside `/api/image`; it never reaches the browser. L
 
 ## Admin controls
 
-The console can change how the live site behaves without a redeploy: **maintenance mode**, kill switches for chat, image generation and web search; an announcement banner shown to every visitor; daily per-device caps on messages and images; and banning a device outright.
+The console can change how the live site behaves without a redeploy: **maintenance mode**, kill switches for chat, image generation and web search; an announcement banner shown to every visitor; daily per-device caps on messages and images; and banning a device, with a reason and a length.
 
 **Maintenance mode** replaces every page with a notice carrying a reason you write, and the routes refuse every request, so it holds for a modified client as well as the page. The administrator is deliberately exempt — otherwise the switch would lock its own owner out and there would be no way back. To get in during maintenance: **tap the logo on the notice ten times** and sign in with Google; the console opens over the notice and the switch is turned off from there. The logo is the only thing on the screen that does anything, which is the point.
+
+**A ban is a record, not just a refusal.** Banning a device asks for a reason and a length — permanent, or a number of days that expires by itself — and keeps who banned it, when, and until when. The console shows all of it under **Banned**, expired entries kept as the history of what was decided rather than deleted the moment they lift. The visitor who is refused reads the same reason and the same end date, because a refusal nobody can interpret is how a mistaken ban turns into a support problem. The administrator is exempt from their own list, exactly as from maintenance mode. Bans made before reasons and lengths existed are read as permanent bans with no reason, so an existing deployment keeps every ban it had with no migration.
 
 **These are enforced on the server, not in the browser.** `/api/chat` and `/api/image` read the settings on every request and refuse before any provider is called, so the switches hold even for someone running a modified bundle. That works without giving the deployment a service account:
 
@@ -345,7 +347,7 @@ After changing the rules in `database.rules.json`, **publish them in the Firebas
 
 Two limits worth knowing:
 
-- **Configuring a ban or a cap makes identity mandatory.** The identity checks read `if (identity && ...)`, which on its own would mean a caller who simply omits the `Authorization` header has no identity, skips every check, and is waved through — turning both controls into decoration removable with one header. So once either is configured, a caller that cannot be identified is refused. With no ban list and no cap set, anonymous callers are allowed as before.
+- **Configuring a ban or a cap makes identity mandatory.** The identity checks read `if (identity && ...)`, which on its own would mean a caller who simply omits the `Authorization` header has no identity, skips every check, and is waved through — turning both controls into decoration removable with one header. So once either is configured, a caller that cannot be identified is refused. With no ban in force and no cap set, anonymous callers are allowed as before. Only bans still in force count: one that has expired stops enforcing and stops demanding identification, and the administrator is exempt from the ban list, derived from the verified identity like every other decision here.
 - **Caps are approximate.** Each request reads the counter and writes it back, which two simultaneous requests can race on, so a burst can exceed the cap slightly. Closing that needs a transaction the REST API cannot express, and an approximate cap is a better trade than no cap.
 - **A cap is per device, not per person.** It follows the anonymous Firebase identity in that browser, so clearing site data or using a private window starts a new allowance.
 - **Today's counters are shown in the console**, per visitor and in total. They are the numbers the caps are counted against, so they are also the quickest way to see that the caps are counting at all rather than silently doing nothing.

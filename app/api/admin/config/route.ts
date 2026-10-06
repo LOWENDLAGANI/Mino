@@ -64,6 +64,15 @@ export async function PUT(req: NextRequest): Promise<Response> {
   // Normalise before writing so a bad value is corrected rather than stored and
   // then trusted by the enforcement path.
   const next: AppConfig = { ...normalizeConfig(body), updatedAt: Date.now() };
+  // The console knows what it meant to ban; the server records who actually
+  // did it and when, from the token it just verified. The metadata in the ban
+  // list is therefore the server's, not a stale or edited client value.
+  const now = Date.now();
+  next.bans = next.bans.map((ban) => ({
+    ...ban,
+    bannedAt: ban.bannedAt > 0 ? ban.bannedAt : now,
+    bannedBy: ban.bannedBy || admin.identity.email || "unknown",
+  }));
   const written = await writeAsCaller(authorization, CONFIG_PATH, next);
   if (!written) {
     return Response.json(

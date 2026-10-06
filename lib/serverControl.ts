@@ -1,4 +1,4 @@
-import { normalizeConfig, DEFAULT_CONFIG, type AppConfig } from "./appConfig";
+import { isBanActive, normalizeConfig, DEFAULT_CONFIG, type AppConfig, type BanRecord } from "./appConfig";
 
 // ── Server-side enforcement of the administrator's controls ─────────────────
 // The deployment holds no service account, so this module does exactly two
@@ -128,7 +128,7 @@ export function isAdmin(identity: CallerIdentity | null): boolean {
   return Boolean(identity && adminEmail && identity.email === adminEmail);
 }
 
-export type AdminCheck = { allowed: true } | { allowed: false; status: number; error: string };
+export type AdminCheck = { allowed: true; identity: CallerIdentity } | { allowed: false; status: number; error: string };
 
 /**
  * The one administrator gate, shared by every admin-only route.
@@ -167,7 +167,7 @@ export async function requireAdmin(headers: Headers): Promise<AdminCheck> {
         : "This session is still anonymous. Sign in with Google inside the console before using the controls.",
     };
   }
-  return { allowed: true };
+  return { allowed: true, identity };
 }
 
 /**
@@ -239,9 +239,39 @@ export function checkRateLimit(
   }
   return { allowed: true, remaining: max - bucket.count, retryAfterSeconds: 0 };
 }
+/** The bans still in force at `now`. Expired ones lift by themselves. */
+export function activeBans(config: AppConfig, now = Date.now()): BanRecord[] {
+  return config.bans.filter((ban) => isBanActive(ban, now));
+}
+
 /** Whether the administrator has configured anything that needs an identity. */
-export function identityControlsActive(config: AppConfig, cap: number): boolean {
-  return config.bannedUids.length > 0 || cap > 0;
+export function identityControlsActive(config: AppConfig, cap: number, now = Date.now()): boolean {
+  // Only bans still in force count. A ban that expired months ago must not
+  // keep forcing identification on every visitor who never had one.
+  return activeBans(config, now).length > 0 || cap > 0;
+}
+
+/** Today's date as `2026-03-12`, in UTC, for the refusal a visitor reads. */
+function formatBanDate(ms: number): string {
+  return new Date(ms).toISOString().slice(0, 10);
+}
+
+/**
+ * The one sentence a banned visitor receives.
+ *
+ * It carries the reason and the end date when they exist, because a refusal
+ * nobody can interpret is how a mistaken ban turns into a support problem: the
+ * visitor should be able to read why this happened and whether it lifts. Both
+ * are the administrator's own words, verbatim — nothing is invented here.
+ */
+export function banMessage(ban: BanRecord): string {
+  const until = ban.expiresAt !== null ? ` until ${formatBanDate(ban.expiresAt)}` : "";
+  const base = ban.expiresAt !== null
+    ? `This device is blocked from Mino${until}.`
+    : "This device is not allowed to use Mino.";
+  const reason = ban.reason.trim().replace(/\.+$/, "");
+  if (!reason) return base;
+  return `${base} Reason: ${reason}. If you believe this is a mistake, contact the administrator.`;
 }
 
 /**
@@ -260,16 +290,22 @@ export function identityGate(
   config: AppConfig,
   cap: number
 ): { allowed: boolean; error?: string } {
-  if (!identityControlsActive(config, cap)) return { allowed: true };
+  const now = Date.now();
+  const bans = activeBans(config, now);
+  if (bans.length === 0 && cap <= 0) return { allowed: true };
+  // The administrator is exempt, like they are from maintenance mode. A ban
+  // must never be able to lock the person who grants plans out of the product
+  // they run — an accidental self-ban with no way back is exactly the kind of
+  // lockout this control exists to prevent in others.
+  if (identity && isAdmin(identity)) return { allowed: true };
   if (!identity) {
     return {
       allowed: false,
       error: "Mino needs to identify this device before it can answer. Reload the page and try again.",
     };
   }
-  if (config.bannedUids.includes(identity.uid)) {
-    return { allowed: false, error: "This device is not allowed to use Mino." };
-  }
+  const ban = bans.find((entry) => entry.uid === identity.uid);
+  if (ban) return { allowed: false, error: banMessage(ban) };
   return { allowed: true };
 }
 
