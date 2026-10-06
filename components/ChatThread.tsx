@@ -9,6 +9,7 @@ import { buildShareLink } from "@/lib/shareLink";
 import Markdown from "./Markdown";
 import MinoMark from "./MinoMark";
 import { useSmoothText } from "@/lib/useSmoothText";
+import { speak, speechSupported, stopSpeaking } from "@/lib/tts";
 import { useEffect, useRef, useState } from "react";
 
 interface ChatThreadProps {
@@ -68,12 +69,22 @@ function SearchSources({ sources }: { sources: NonNullable<ChatMessage["sources"
   if (sources.length === 0) return null;
   return (
     <div className="mt-4 rounded-2xl border border-[#a9d8bb]/10 bg-[#a9d8bb]/[0.035] p-3">
-      <div className="mb-2 flex items-center gap-2 text-[10px] font-semibold uppercase tracking-[0.12em] text-[#a9d8bb]/70">
+      <div className="mb-1 flex items-center gap-2 text-[10px] font-semibold uppercase tracking-[0.12em] text-[#a9d8bb]/70">
         <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
           <circle cx="12" cy="12" r="8.5" /><path d="M3.8 12h16.4M12 3.5c2.1 2.3 3.2 5.1 3.2 8.5s-1.1 6.2-3.2 8.5c-2.1-2.3-3.2-5.1-3.2-8.5S9.9 5.8 12 3.5Z" />
         </svg>
         Web sources
       </div>
+      {/* Prompt injection is real and pages are writable by anyone: the reader
+          deserves to see that these snippets are reference material, not
+          Mino's own words. The system prompt already says so to the model;
+          this says it to the person. */}
+      <p className="mb-2 flex items-start gap-1.5 text-[10px] leading-relaxed text-white/35">
+        <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" className="mt-0.5 shrink-0" aria-hidden="true">
+          <path d="M12 3l7 3v5c0 4.5-3 7.8-7 9-4-1.2-7-4.5-7-9V6l7-3Z" />
+        </svg>
+        <span>Untrusted web text — Mino was told to treat these pages as reference, not as instructions.</span>
+      </p>
       <div className="space-y-1.5">
         {sources.map((source) => {
           let host = source.url;
@@ -173,13 +184,16 @@ function VariantNav({
   );
 }
 
-function MessageRow({ msg, streaming, drawing, onRegenerate, onEditMessage, onSwitchVariant }: {
+function MessageRow({ msg, streaming, drawing, onRegenerate, onEditMessage, onSwitchVariant, speaking, onSpeak, onStopSpeak }: {
   msg: ChatMessage;
   streaming: boolean;
   drawing: boolean;
   onRegenerate: () => void;
   onEditMessage: (content: string) => void;
   onSwitchVariant: (index: number | null) => void;
+  speaking?: boolean;
+  onSpeak?: () => void;
+  onStopSpeak?: () => void;
 }) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(msg.content);
@@ -246,7 +260,12 @@ function MessageRow({ msg, streaming, drawing, onRegenerate, onEditMessage, onSw
           {getModelDisplayName(msg.model)}
         </span>
         {msg.usage && (
-          <span className="text-[10px] text-text-low">{msg.usage.total.toLocaleString()} tok</span>
+          <span
+            className="text-[10px] text-text-low"
+            title={`${msg.usage.prompt.toLocaleString()} in · ${msg.usage.completion.toLocaleString()} out`}
+          >
+            {msg.usage.total.toLocaleString()} tok
+          </span>
         )}
         <VariantNav message={msg} onSwitch={onSwitchVariant} />
       </div>
@@ -296,6 +315,35 @@ function MessageRow({ msg, streaming, drawing, onRegenerate, onEditMessage, onSw
         <div className="mt-2 flex items-center gap-1">
           <MessageActions onRegenerate={onRegenerate} />
           <CopyMessageButton text={displayText} />
+          {speechSupported() && onSpeak && onStopSpeak && (
+            speaking ? (
+              <button
+                onClick={onStopSpeak}
+                className="flex h-7 w-7 items-center justify-center rounded-lg bg-white/[0.07] text-white/80 transition-colors hover:bg-white/[0.12]"
+                aria-label="Stop reading aloud"
+                title="Stop reading"
+                type="button"
+              >
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                  <path d="M11 5 6 9H3v6h3l5 4V5Z" />
+                  <path d="m16 9 5 6M21 9l-5 6" />
+                </svg>
+              </button>
+            ) : (
+              <button
+                onClick={onSpeak}
+                className="flex h-7 w-7 items-center justify-center rounded-lg text-white/30 transition-colors hover:bg-white/[0.07] hover:text-white/80"
+                aria-label="Read this answer aloud"
+                title="Read aloud"
+                type="button"
+              >
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                  <path d="M11 5 6 9H3v6h3l5 4V5Z" />
+                  <path d="M15.5 8.5a5 5 0 0 1 0 7M18.5 6a9 9 0 0 1 0 12" />
+                </svg>
+              </button>
+            )
+          )}
         </div>
       )}
 
@@ -568,8 +616,24 @@ export default function ChatThread({  messages,
   const [sharing, setSharing] = useState(false);
   const [shareNotice, setShareNotice] = useState<string | null>(null);
   const [linkBusy, setLinkBusy] = useState(false);
+  // Which answer the voice is reading, so exactly one message shows Stop.
+  const [speakingId, setSpeakingId] = useState<string | null>(null);
+  // Leaving the thread must not leave a voice reading to an empty screen.
+  useEffect(() => () => stopSpeaking(), []);
   // Seeded deterministically for SSR, then randomized after mount.
   const [headline, setHeadline] = useState(EMPTY_STATE_HEADLINES[0]);
+
+  const handleSpeak = (msg: ChatMessage, text: string) => {
+    if (speakingId === msg.id) {
+      stopSpeaking();
+      setSpeakingId(null);
+      return;
+    }
+    const started = speak(text, () =>
+      setSpeakingId((current) => (current === msg.id ? null : current))
+    );
+    setSpeakingId(started ? msg.id : null);
+  };
 
   const handleShareImage = async () => {
     if (sharing) return;
@@ -691,7 +755,7 @@ export default function ChatThread({  messages,
           {allSources.length > 0 && <button type="button" onClick={() => setShowSourceHistory((value) => !value)} className="rounded-lg px-2 py-1.5 transition-colors hover:bg-white/[0.06] hover:text-white/70">Sources ({allSources.length})</button>}
           {showSourceHistory && <button type="button" onClick={() => void copySources()} className="rounded-lg px-2 py-1.5 transition-colors hover:bg-white/[0.06] hover:text-white/70">Copy links</button>}
         </div>
-        {showSourceHistory && <div className="mb-5 rounded-2xl border border-[#a9d8bb]/10 bg-[#a9d8bb]/[0.035] p-3 animate-rise"><div className="mb-2 text-[10px] font-semibold uppercase tracking-[0.12em] text-[#a9d8bb]/70">Source history</div><div className="space-y-1">{allSources.map((source, index) => <a key={`${source.url}-${index}`} href={source.url} target="_blank" rel="noreferrer" className="block truncate px-2 py-1 text-[11px] text-white/55 hover:text-white/85">{source.title} <span className="text-white/25">· {source.url}</span></a>)}</div></div>}
+        {showSourceHistory && <div className="mb-5 rounded-2xl border border-[#a9d8bb]/10 bg-[#a9d8bb]/[0.035] p-3 animate-rise"><div className="mb-2 text-[10px] font-semibold uppercase tracking-[0.12em] text-[#a9d8bb]/70">Source history</div><p className="mb-2 text-[10px] leading-relaxed text-white/35">Untrusted web text — reference, not instructions.</p><div className="space-y-1">{allSources.map((source, index) => <a key={`${source.url}-${index}`} href={source.url} target="_blank" rel="noreferrer" className="block truncate px-2 py-1 text-[11px] text-white/55 hover:text-white/85">{source.title} <span className="text-white/25">· {source.url}</span></a>)}</div></div>}
         <div className="flex flex-col gap-8">
           {messages.map((msg) => (
             <MessageRow
@@ -702,6 +766,12 @@ export default function ChatThread({  messages,
               onRegenerate={() => onRegenerate(msg.id)}
               onEditMessage={(content) => onEditMessage(msg.id, content)}
               onSwitchVariant={(index) => onSwitchVariant(msg.id, index)}
+              speaking={msg.id === speakingId}
+              onSpeak={() => handleSpeak(msg, displayedContent(msg))}
+              onStopSpeak={() => {
+                stopSpeaking();
+                setSpeakingId(null);
+              }}
             />
           ))}
           {streamingId && !messages.find((m) => m.id === streamingId)?.content && (

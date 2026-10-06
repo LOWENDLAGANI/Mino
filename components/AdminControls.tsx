@@ -3,6 +3,8 @@
 import { useCallback, useEffect, useState } from "react";
 import { DEFAULT_CONFIG, isBanActive, subscribeAppConfig, type AppConfig, type BanRecord } from "@/lib/appConfig";
 import { endAdminSession, listUsage, saveAppConfig, type AdminUsage, type AdminUser } from "@/lib/firebaseAdmin";
+import { getServices } from "@/lib/firebaseHistory";
+import { broadcastPush } from "@/lib/push";
 import AdminNotes from "./AdminNotes";
 
 // ── Runtime controls ────────────────────────────────────────────────────────
@@ -100,6 +102,8 @@ export default function AdminControls({ users, onError }: AdminControlsProps) {
   const [usage, setUsage] = useState<AdminUsage[] | null>(null);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
+  const [pushBusy, setPushBusy] = useState(false);
+  const [pushNotice, setPushNotice] = useState<string | null>(null);
   const [banFormUid, setBanFormUid] = useState<string | null>(null);
   const [banReason, setBanReason] = useState("");
   const [banDays, setBanDays] = useState<number | "permanent" | "custom">("permanent");
@@ -166,6 +170,45 @@ export default function AdminControls({ users, onError }: AdminControlsProps) {
   };
 
   const commitAnnouncement = () => void save({ ...config, announcement: announcement.slice(0, 200) });
+
+  /**
+   * Sends the current announcement as a push to every subscribed device.
+   *
+   * The route verifies this console's own token and refuses anyone who is not
+   * the administrator, so a reachable button gains a caller nothing — and a
+   * deployment without push keys or republished rules reports that plainly
+   * rather than pretending the notification went out.
+   */
+  const handlePush = async () => {
+    const text = announcement.trim().slice(0, 200);
+    if (!text || pushBusy) return;
+    setPushBusy(true);
+    onError(null);
+    setPushNotice(null);
+    try {
+      const current = await getServices();
+      const token = await current?.auth.currentUser?.getIdToken(true);
+      if (!token) throw new Error("Sign in with Google again, then send the push.");
+      const result = await broadcastPush({ title: "Mino", body: text });
+      if (!result.ok) {
+        throw new Error(
+          result.error === "missing-keys"
+            ? "This deployment has no push keys — see Settings → Notifications for the three names."
+            : "Could not send the push. Check that database.rules.json has been republished with the push/subscriptions rules."
+        );
+      }
+      const count = result.sent ?? 0;
+      setPushNotice(
+        count === 0
+          ? "No subscribed devices yet — nobody would receive it."
+          : `Push sent to ${count} device${count === 1 ? "" : "s"}.`
+      );
+    } catch (error) {
+      onError(error instanceof Error ? error.message : "Could not send the push");
+    } finally {
+      setPushBusy(false);
+    }
+  };
 
   const openBanForm = (uid: string) => {
     setBanFormUid(banFormUid === uid ? null : uid);
@@ -272,7 +315,25 @@ export default function AdminControls({ users, onError }: AdminControlsProps) {
           >
             Set
           </button>
+          <button
+            type="button"
+            onClick={() => void handlePush()}
+            disabled={pushBusy || !announcement.trim()}
+            title="Send the announcement as a notification to every subscribed device"
+            className="flex shrink-0 items-center gap-1.5 rounded-[10px] border border-[#2f6b48]/40 bg-[#2f6b48]/15 px-3 py-2 text-[11px] font-semibold text-[#c9e6d4] transition-colors hover:bg-[#2f6b48]/30 disabled:cursor-not-allowed disabled:opacity-40"
+          >
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+              <path d="M18 8a6 6 0 1 0-12 0c0 6-2.5 7-2.5 7h17S18 14 18 8Z" />
+              <path d="M10.3 20a2 2 0 0 0 3.4 0" />
+            </svg>
+            {pushBusy ? "Sending…" : "Push"}
+          </button>
         </div>
+        {pushNotice && (
+          <p role="status" className="animate-rise mt-1.5 text-[10px] leading-relaxed text-[#a9d8bb]/80">
+            {pushNotice}
+          </p>
+        )}
       </div>
 
       {/* Notes get their own component because it is a composer rather than a

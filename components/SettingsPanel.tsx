@@ -8,6 +8,7 @@ import { isUnlocked } from "@/lib/paywallState";
 import { useSubscription } from "@/lib/useSubscription";
 import { useEffect } from "react";
 import AccountSection from "@/components/AccountSection";
+import DataControls from "@/components/DataControls";
 import MemoryPanel from "@/components/MemoryPanel";
 import PushSettings from "@/components/PushSettings";
 
@@ -108,6 +109,10 @@ export default function SettingsPanel({
 
         <div className="min-h-0 flex-1 space-y-7 overflow-y-auto px-5 py-5">
           <AccountSection displayName={displayName} />
+
+          {/* Data controls sit under the account section for everyone — the
+              eraser matters most to the visitor with no account at all. */}
+          <DataControls />
 
           {/* Memory sits directly under the account because it follows the
               account, and it is the first thing worth changing after a visitor

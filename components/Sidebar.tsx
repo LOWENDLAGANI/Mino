@@ -7,19 +7,20 @@ import {
   createFolder,
   deleteFolder,
   setChatFolder,
-  deleteChat,
   clearAllData,
   exportBackup,
   importBackup,
-  searchMessages,
   type BackupPayload,
-  type MessageSearchHit,
 } from "@/lib/db";
+import { moveChatToTrash } from "@/lib/trash";
 import type { Chat, ChatFolder } from "@/lib/types";
 import { markChatDeleted, syncChatDelete, syncChatWipe } from "@/lib/firebaseHistory";
 import { nameInitial } from "@/lib/visitorName";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import MinoMark from "@/components/MinoMark";
+import SearchOverlay from "@/components/SearchOverlay";
+import TrashOverlay from "@/components/TrashOverlay";
+import GalleryOverlay from "@/components/GalleryOverlay";
 
 interface SidebarProps {
   activeChatId: string | null;
@@ -55,15 +56,54 @@ function timeAgo(ts: number): string {
   return new Date(ts).toLocaleDateString(undefined, { month: "short", day: "numeric" });
 }
 
-function UtilityIcon({ children }: { children: ReactNode }) {
+/**
+ * One icon in the utility toolbar.
+ *
+ * Icons rather than labelled rows: this strip is the app's control surface the
+ * way a browser tab strip is — always visible, never costing the chat list its
+ * vertical space — and every one of them carries both an aria-label and a
+ * title, so nothing here is learned by guessing.
+ */
+function ToolbarButton({
+  label,
+  onClick,
+  badge,
+  children,
+}: {
+  label: string;
+  onClick: () => void;
+  badge?: number;
+  children: ReactNode;
+}) {
   return (
-    <span className="flex h-8 w-8 shrink-0 items-center justify-center text-white/55">
+    <button
+      type="button"
+      onClick={onClick}
+      aria-label={label}
+      title={label}
+      className="relative flex h-10 w-10 items-center justify-center rounded-xl text-white/55 transition-colors hover:bg-white/[0.07] hover:text-white"
+    >
       {children}
-    </span>
+      {badge !== undefined && badge > 0 && (
+        <span className="pointer-events-none absolute right-1 top-1 flex h-3.5 min-w-3.5 items-center justify-center rounded-full bg-[#2f6b48] px-1 text-[8px] font-bold text-white">
+          {badge > 99 ? "99+" : badge}
+        </span>
+      )}
+    </button>
   );
 }
 
-export default function Sidebar({ activeChatId, onSelectChat, onNewChat, temporary, onToggleTemporary, open, onClose, onOpenSettings, displayName }: SidebarProps) {
+export default function Sidebar({
+  activeChatId,
+  onSelectChat,
+  onNewChat,
+  temporary,
+  onToggleTemporary,
+  open,
+  onClose,
+  onOpenSettings,
+  displayName,
+}: SidebarProps) {
   const chats = useLiveQuery(
     () => db.chats.orderBy("updatedAt").reverse().toArray(),
     [],
@@ -74,6 +114,10 @@ export default function Sidebar({ activeChatId, onSelectChat, onNewChat, tempora
     [],
     [] as ChatFolder[]
   );
+  // The two queues the toolbar badges read: how many chats are in the trash
+  // and how many messages are waiting for their scheduled moment.
+  const trashCount = useLiveQuery(() => db.trash.count(), [], 0);
+  const scheduledCount = useLiveQuery(() => db.scheduled.count(), [], 0);
 
   // What this visitor has paid for. The promotion at the bottom of the sidebar
   // changes shape entirely once they have: selling Mino Lunar to somebody who
@@ -83,9 +127,11 @@ export default function Sidebar({ activeChatId, onSelectChat, onNewChat, tempora
   const hasLunar = subscription?.plan === "lunar";
 
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const [confirmClear, setConfirmClear] = useState(false);  const [notice, setNotice] = useState<string | null>(null);
-  const [showSearch, setShowSearch] = useState(false);
-  const [search, setSearch] = useState("");
+  const [confirmClear, setConfirmClear] = useState(false);
+  const [notice, setNotice] = useState<string | null>(null);
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [trashOpen, setTrashOpen] = useState(false);
+  const [galleryOpen, setGalleryOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [draftTitle, setDraftTitle] = useState("");
   // Folders: which one the list is filtered to, whether the new-folder input
@@ -96,6 +142,19 @@ export default function Sidebar({ activeChatId, onSelectChat, onNewChat, tempora
   const [newFolderName, setNewFolderName] = useState("");
   const [fileChatId, setFileChatId] = useState<string | null>(null);
   const [pendingChatId, setPendingChatId] = useState<string | null>(null);
+
+  // Ctrl/Cmd+K opens search from anywhere in the app — the shortcut people
+  // expect since every other tool they use has one.
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") {
+        event.preventDefault();
+        setSearchOpen(true);
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
 
   const closeFolderComposer = () => {
     setCreatingFolder(false);
@@ -124,26 +183,12 @@ export default function Sidebar({ activeChatId, onSelectChat, onNewChat, tempora
     if (folderFilter === id) setFolderFilter(null);
   };
 
-  // Full-text hits for the search box: local, bounded, and only asked once
-  // there is something to search for. It sits below the state it reads — the
-  // search box is declared above — rather than at the top with the other
-  // queries, where it would read a value that does not exist yet.
-  const messageHits = useLiveQuery(
-    () => searchMessages(search),
-    [search],
-    [] as MessageSearchHit[]
-  );
-
-  // One filter, applied once: folder first (cheap, indexed), then the title
-  // search. Pinned chats still float to the top of whatever survives it.
+  // One filter, applied once: folder first (cheap, indexed). Pinned chats
+  // still float to the top of whatever survives it. Title search moved to the
+  // overlay, so this list is never squeezed by a half-typed query.
   const visibleChats = (chats ?? [])
-    .filter(
-      (chat) =>
-        (!folderFilter || chat.folder === folderFilter) &&
-        chat.title.toLowerCase().includes(search.toLowerCase())
-    )
+    .filter((chat) => !folderFilter || chat.folder === folderFilter)
     .sort((a, b) => Number(Boolean(b.pinned)) - Number(Boolean(a.pinned)));
-  const hasMessageHits = search.trim().length >= 2 && (messageHits?.length ?? 0) > 0;
 
   useEffect(() => {
     if (!notice) return;
@@ -186,6 +231,23 @@ export default function Sidebar({ activeChatId, onSelectChat, onNewChat, tempora
     onNewChat();
   };
 
+  /** Deleting parks the chat in the trash first; the sync marker still goes
+   *  down so the account does not hand it back on another device. */
+  const handleDeleteChat = (chatId: string, active: boolean) => {
+    markChatDeleted(chatId);
+    void syncChatDelete(chatId);
+    void moveChatToTrash(chatId);
+    if (active) onNewChat();
+  };
+
+  const chooseChat = (chatId: string) => {
+    setFileChatId(null);
+    setSearchOpen(false);
+    setTrashOpen(false);
+    setGalleryOpen(false);
+    onSelectChat(chatId);
+  };
+
   return (
     <>
       {open && (
@@ -202,22 +264,24 @@ export default function Sidebar({ activeChatId, onSelectChat, onNewChat, tempora
           open ? "translate-x-0" : "-translate-x-full"
         }`}
       >
-        <div className="safe-top flex items-center justify-between px-5 pb-5 pt-6">
+        <div className="safe-top flex items-center justify-between px-5 pb-4 pt-6">
           <button
             onClick={onNewChat}
-            className="flex items-center gap-3 text-left"
+            className="flex min-w-0 items-center gap-3 text-left"
             aria-label="Start a new Mino chat"
             title="Mino"
           >
-            <MinoMark className="h-10 w-10" />
-            <span>
-              <span className="block text-[25px] font-semibold leading-none tracking-[-0.045em] text-white">Mino</span>
-              <span className="mt-1 block text-[11px] text-white/35">by Minetallest</span>
+            <MinoMark className="h-9 w-9 shrink-0" />
+            <span className="min-w-0">
+              <span className="block truncate text-[23px] font-semibold leading-none tracking-[-0.045em] text-white">
+                Mino
+              </span>
+              <span className="mt-1 block text-[10px] text-white/35">by Minetallest</span>
             </span>
           </button>
           <button
             onClick={onClose}
-            className="flex h-9 w-9 items-center justify-center rounded-full text-white/55 transition-colors hover:bg-white/[0.07] hover:text-white md:hidden"
+            className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-white/55 transition-colors hover:bg-white/[0.07] hover:text-white md:hidden"
             aria-label="Close menu"
           >
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round">
@@ -230,9 +294,9 @@ export default function Sidebar({ activeChatId, onSelectChat, onNewChat, tempora
           <button
             onClick={onNewChat}
             data-tutorial="sidebar-new-chat"
-            className="flex w-full items-center gap-3 rounded-2xl bg-white/[0.075] px-4 py-3.5 text-[15px] font-medium text-white transition-colors hover:bg-white/[0.11]"
+            className="flex w-full items-center gap-3 rounded-2xl bg-white/[0.075] px-4 py-3 text-[14px] font-medium text-white transition-colors hover:bg-white/[0.11]"
           >
-            <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">
               <path d="M20 11.5a7.5 7.5 0 0 1-8 7.5 8.5 8.5 0 0 1-3.6-.8L4 20l1.5-3.7A7.2 7.2 0 0 1 4 11.5 7.5 7.5 0 0 1 12 4a7.5 7.5 0 0 1 8 7.5Z" />
               <path d="M12 8v7M8.5 11.5h7" />
             </svg>
@@ -246,15 +310,15 @@ export default function Sidebar({ activeChatId, onSelectChat, onNewChat, tempora
             onClick={onToggleTemporary}
             aria-pressed={temporary}
             title={temporary ? "Leave temporary chat" : "Start a temporary chat that is not saved"}
-            className={`mt-2 flex w-full items-center gap-3 rounded-2xl border px-4 py-3 text-[15px] font-medium transition-colors ${
+            className={`mt-2 flex w-full items-center gap-3 rounded-2xl border px-4 py-2.5 text-[14px] font-medium transition-colors ${
               temporary
                 ? "border-[#2f6b48]/40 bg-[#2f6b48]/[0.14] text-white"
                 : "border-white/[0.07] bg-white/[0.03] text-white/70 hover:bg-white/[0.06] hover:text-white"
             }`}
           >
             <svg
-              width="19"
-              height="19"
+              width="18"
+              height="18"
               viewBox="0 0 24 24"
               fill="none"
               stroke="currentColor"
@@ -268,7 +332,7 @@ export default function Sidebar({ activeChatId, onSelectChat, onNewChat, tempora
             </svg>
             <span className="flex-1 text-left">Temporary chat</span>
             <span
-              className={`shrink-0 text-[10px] font-semibold uppercase tracking-wide ${
+              className={`shrink-0 text-[9px] font-semibold uppercase tracking-wide ${
                 temporary ? "text-[#a9d8bb]" : "text-white/30"
               }`}
             >
@@ -277,44 +341,61 @@ export default function Sidebar({ activeChatId, onSelectChat, onNewChat, tempora
           </button>
         </div>
 
-        <nav className="mt-5 space-y-1 px-4" aria-label="Mino utilities" data-tutorial="sidebar-utilities">
-          <button className="flex w-full items-center gap-2 rounded-xl px-2 py-2 text-left text-[14px] text-white/60 transition-colors hover:bg-white/[0.05] hover:text-white" onClick={() => setShowSearch((value) => !value)}>
-            <UtilityIcon>
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round">
-                <circle cx="10.8" cy="10.8" r="6.3" /><path d="m16 16 4 4" />
-              </svg>
-            </UtilityIcon>
-            Search chats
-          </button>
-          <button className="flex w-full items-center gap-2 rounded-xl px-2 py-2 text-left text-[14px] text-white/60 transition-colors hover:bg-white/[0.05] hover:text-white" onClick={() => fileInputRef.current?.click()}>
-            <UtilityIcon>
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinejoin="round">
-                <path d="M5 5.5A2.5 2.5 0 0 1 7.5 3H20v15H7.5A2.5 2.5 0 0 0 5 20.5v-15Z" /><path d="M5 20.5A2.5 2.5 0 0 1 7.5 18H20M9 7h6M9 10h6" />
-              </svg>
-            </UtilityIcon>
-            Library
-          </button>
-          <button className="flex w-full items-center gap-2 rounded-xl px-2 py-2 text-left text-[14px] text-white/60 transition-colors hover:bg-white/[0.05] hover:text-white" onClick={onOpenSettings}>
-            <UtilityIcon>
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
-                <circle cx="12" cy="12" r="3" />
-                <path d="M19.4 15a1.6 1.6 0 0 0 .32 1.77l.06.06a1.9 1.9 0 1 1-2.7 2.7l-.05-.06a1.6 1.6 0 0 0-1.78-.32 1.6 1.6 0 0 0-.97 1.47V21a1.9 1.9 0 1 1-3.8 0v-.1A1.6 1.6 0 0 0 9.4 19.4a1.6 1.6 0 0 0-1.77.32l-.06.06a1.9 1.9 0 1 1-2.7-2.7l.06-.06a1.6 1.6 0 0 0 .32-1.77 1.6 1.6 0 0 0-1.47-.97H3a1.9 1.9 0 1 1 0-3.8h.1A1.6 1.6 0 0 0 4.6 9.4a1.6 1.6 0 0 0-.32-1.77l-.06-.06a1.9 1.9 0 1 1 2.7-2.7l.06.06a1.6 1.6 0 0 0 1.77.32H9a1.6 1.6 0 0 0 .97-1.47V3a1.9 1.9 0 1 1 3.8 0v.1a1.6 1.6 0 0 0 .97 1.47 1.6 1.6 0 0 0 1.78-.32l.05-.06a1.9 1.9 0 1 1 2.7 2.7l-.06.06a1.6 1.6 0 0 0-.32 1.77V9a1.6 1.6 0 0 0 1.47.97H21a1.9 1.9 0 1 1 0 3.8h-.1a1.6 1.6 0 0 0-1.47.97Z" />
-              </svg>
-            </UtilityIcon>
-            Settings
-          </button>
+        {/* The control strip: search, images, trash, library, settings. Icons
+            only — these are the app's permanent controls, and labelled rows
+            would eat the space the conversation list needs to breathe. */}
+        <div
+          className="mt-4 flex items-center justify-between px-4"
+          role="toolbar"
+          aria-label="Mino tools"
+          data-tutorial="sidebar-utilities"
+        >
+          <ToolbarButton label="Search chats and messages (Ctrl+K)" onClick={() => setSearchOpen(true)}>
+            <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round">
+              <circle cx="10.8" cy="10.8" r="6.3" />
+              <path d="m16 16 4 4" />
+            </svg>
+          </ToolbarButton>
+          <ToolbarButton label="Image gallery" onClick={() => setGalleryOpen(true)}>
+            <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
+              <rect x="3.5" y="4.5" width="17" height="15" rx="3" />
+              <circle cx="9" cy="10" r="1.5" />
+              <path d="M20 15.5 15.5 11 6 19.5" />
+            </svg>
+          </ToolbarButton>
+          <ToolbarButton label="Trash — restore deleted chats" onClick={() => setTrashOpen(true)} badge={trashCount}>
+            <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M4.5 7h15M9.5 7V5.5A1.5 1.5 0 0 1 11 4h2a1.5 1.5 0 0 1 1.5 1.5V7M6.5 7l1 12a1.5 1.5 0 0 0 1.5 1.4h6a1.5 1.5 0 0 0 1.5-1.4l1-12" />
+              <path d="M10 11v5.5M14 11v5.5" />
+            </svg>
+          </ToolbarButton>
+          <ToolbarButton label="Library — import a backup" onClick={() => fileInputRef.current?.click()}>
+            <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M5 5.5A2.5 2.5 0 0 1 7.5 3H20v15H7.5A2.5 2.5 0 0 0 5 20.5v-15Z" />
+              <path d="M5 20.5A2.5 2.5 0 0 1 7.5 18H20M9 7h6M9 10h6" />
+            </svg>
+          </ToolbarButton>
+          <ToolbarButton label="Settings" onClick={onOpenSettings}>
+            <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
+              <circle cx="12" cy="12" r="3" />
+              <path d="M19.4 15a1.6 1.6 0 0 0 .32 1.77l.06.06a1.9 1.9 0 1 1-2.7 2.7l-.05-.06a1.6 1.6 0 0 0-1.78-.32 1.6 1.6 0 0 0-.97 1.47V21a1.9 1.9 0 1 1-3.8 0v-.1A1.6 1.6 0 0 0 9.4 19.4a1.6 1.6 0 0 0-1.77.32l-.06.06a1.9 1.9 0 1 1-2.7-2.7l.06-.06a1.6 1.6 0 0 0 .32-1.77 1.6 1.6 0 0 0-1.47-.97H3a1.9 1.9 0 1 1 0-3.8h.1A1.6 1.6 0 0 0 4.6 9.4a1.6 1.6 0 0 0-.32-1.77l-.06-.06a1.9 1.9 0 1 1 2.7-2.7l.06.06a1.6 1.6 0 0 0 1.77.32H9a1.6 1.6 0 0 0 .97-1.47V3a1.9 1.9 0 1 1 3.8 0v.1a1.6 1.6 0 0 0 .97 1.47 1.6 1.6 0 0 0 1.78-.32l.05-.06a1.9 1.9 0 1 1 2.7 2.7l-.06.06a1.6 1.6 0 0 0-.32 1.77V9a1.6 1.6 0 0 0 1.47.97H21a1.9 1.9 0 1 1 0 3.8h-.1a1.6 1.6 0 0 0-1.47.97Z" />
+            </svg>
+          </ToolbarButton>
+        </div>
+
+        <div className="mt-3 space-y-1 px-4">
           <a
             href="/plus"
             aria-label={hasLunar ? "Your Mino Lunar plan" : "Mino Lunar — upgrade"}
-            className="group relative mt-1 flex w-full items-center gap-2 overflow-hidden rounded-2xl border border-[#2f6b48]/30 bg-gradient-to-r from-[#2f6b48]/[0.14] via-[#a9d8bb]/[0.07] to-transparent px-2 py-2 text-[14px] font-medium text-white shadow-[0_0_26px_-10px_rgba(47,107,72,0.85)] transition-shadow hover:shadow-[0_0_34px_-8px_rgba(47,107,72,1)]"
+            className="group relative flex w-full items-center gap-2 overflow-hidden rounded-2xl border border-[#2f6b48]/30 bg-gradient-to-r from-[#2f6b48]/[0.14] via-[#a9d8bb]/[0.07] to-transparent px-2.5 py-2 text-[13px] font-medium text-white shadow-[0_0_26px_-10px_rgba(47,107,72,0.85)] transition-shadow hover:shadow-[0_0_34px_-8px_rgba(47,107,72,1)]"
           >
             {/* Slow sheen so the row reads as the live one without moving. */}
             <span
               aria-hidden
               className="animate-sheen pointer-events-none absolute inset-y-0 -left-1/2 w-1/3 bg-gradient-to-r from-transparent via-white/[0.14] to-transparent"
             />
-            <span className="relative flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-[#2f6b48]/15 text-[#a9d8bb] shadow-[0_0_16px_-4px_rgba(47,107,72,0.9)]">
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">
+            <span className="relative flex h-7 w-7 shrink-0 items-center justify-center rounded-xl bg-[#2f6b48]/15 text-[#a9d8bb] shadow-[0_0_16px_-4px_rgba(47,107,72,0.9)]">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">
                 <path d="M4 18h16L14.4 8.6a1.4 1.4 0 0 0-2.4 0L9.6 12 6.8 6.6a1.2 1.2 0 0 0-2.2.5L4 18Z" />
                 <path d="M4 18h16" />
               </svg>
@@ -322,67 +403,32 @@ export default function Sidebar({ activeChatId, onSelectChat, onNewChat, tempora
             <span className="relative flex min-w-0 flex-1 items-center gap-1.5">
               <span className="truncate">Mino Lunar</span>
               {hasLunar ? (
-                <span className="shrink-0 rounded-full bg-[#2f6b48]/20 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-[#a9d8bb]">
+                <span className="shrink-0 rounded-full bg-[#2f6b48]/20 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-[#a9d8bb]">
                   ✓ Your plan
                 </span>
               ) : (
-                <span className="animate-breathe shrink-0 rounded-full bg-[#2f6b48]/20 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-[#a9d8bb]">
+                <span className="animate-breathe shrink-0 rounded-full bg-[#2f6b48]/20 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-[#a9d8bb]">
                   {subscription?.plan === "mini" ? "Upgrade" : "New"}
                 </span>
               )}
             </span>
           </a>
           <a
-            href="/notes"
-            className="flex w-full items-center gap-2 rounded-xl px-2 py-2 text-[14px] text-white/60 transition-colors hover:bg-white/[0.05] hover:text-white"
-          >
-            <UtilityIcon>
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
-                <rect x="4" y="5" width="16" height="16" rx="2.5" />
-                <path d="M4 9.5h16M8 3.5V6M16 3.5V6M8 13.5h4M8 17h7" />
-              </svg>
-            </UtilityIcon>
-            News
-          </a>
-          <a
             href="/donate"
-            className="group relative mt-1 flex w-full items-center gap-2 overflow-hidden rounded-2xl border border-rose-300/20 bg-gradient-to-r from-rose-400/[0.13] via-rose-300/[0.06] to-transparent px-2 py-2 text-[14px] font-medium text-white shadow-[0_0_26px_-12px_rgba(251,113,133,0.9)] transition-shadow hover:shadow-[0_0_30px_-8px_rgba(251,113,133,1)]"
+            className="group relative flex w-full items-center gap-2 overflow-hidden rounded-2xl border border-rose-300/20 bg-gradient-to-r from-rose-400/[0.13] via-rose-300/[0.06] to-transparent px-2.5 py-2 text-[13px] font-medium text-white shadow-[0_0_26px_-12px_rgba(251,113,133,0.9)] transition-shadow hover:shadow-[0_0_30px_-8px_rgba(251,113,133,1)]"
           >
             <span
               aria-hidden
               className="animate-sheen pointer-events-none absolute inset-y-0 -left-1/2 w-1/3 bg-gradient-to-r from-transparent via-white/[0.12] to-transparent"
             />
-            <span className="relative flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-rose-400/15 text-rose-200 shadow-[0_0_16px_-4px_rgba(251,113,133,0.9)]">
-              <svg width="17" height="17" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+            <span className="relative flex h-7 w-7 shrink-0 items-center justify-center rounded-xl bg-rose-400/15 text-rose-200 shadow-[0_0_16px_-4px_rgba(251,113,133,0.9)]">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
                 <path d="M12 20.7s-7.6-4.7-7.6-10A4.5 4.5 0 0 1 12 7.9a4.5 4.5 0 0 1 7.6 2.8c0 5.3-7.6 10-7.6 10Z" />
               </svg>
             </span>
             <span className="relative truncate">Support Mino</span>
           </a>
-          <a
-            href="/about"
-            className="flex w-full items-center gap-2 rounded-xl px-2 py-2 text-[14px] text-white/60 transition-colors hover:bg-white/[0.05] hover:text-white"
-          >
-            <UtilityIcon>
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
-                <circle cx="12" cy="12" r="9" /><path d="M12 11v5.5M12 7.6v.6" />
-              </svg>
-            </UtilityIcon>
-            About
-          </a>
-        </nav>
-
-        {showSearch && (
-          <div className="px-4 pt-4">
-            <input
-              autoFocus
-              value={search}
-              onChange={(event) => setSearch(event.target.value)}
-              placeholder="Search chats and messages"
-              className="w-full rounded-xl border border-white/[0.08] bg-white/[0.05] px-3 py-2.5 text-[13px] text-white outline-none placeholder:text-white/30 focus:border-[#3f7d5c]/50"
-            />
-          </div>
-        )}
+        </div>
 
         {(folders?.length ?? 0) > 0 && (
           <div className="flex flex-wrap gap-1.5 px-4 pt-3" role="group" aria-label="Chat folders">
@@ -431,24 +477,38 @@ export default function Sidebar({ activeChatId, onSelectChat, onNewChat, tempora
           </div>
         )}
 
-        <div className="mt-6 min-h-0 flex-1 overflow-y-auto px-4" data-tutorial="sidebar-recent">
-          <div className="mb-2 flex items-center justify-between px-2">
-            <span className="text-[11px] font-medium uppercase tracking-[0.12em] text-white/30">
+        <div className="mt-4 min-h-0 flex-1 overflow-y-auto px-4" data-tutorial="sidebar-recent">
+          <div className="mb-2 flex items-center justify-between gap-2 px-2">
+            <span className="truncate text-[11px] font-medium uppercase tracking-[0.12em] text-white/30">
               {folderFilter
                 ? folders?.find((folder) => folder.id === folderFilter)?.name ?? "Recent"
                 : "Recent"}
             </span>
-            <button
-              type="button"
-              onClick={() => {
-                setPendingChatId(null);
-                setNewFolderName("");
-                setCreatingFolder(true);
-              }}
-              className="text-[10px] text-white/30 transition-colors hover:text-white/70"
-            >
-              + Folder
-            </button>
+            <span className="flex shrink-0 items-center gap-2">
+              {scheduledCount > 0 && (
+                <span
+                  className="flex items-center gap-1 rounded-full bg-[#2f6b48]/15 px-1.5 py-0.5 text-[9px] font-semibold text-[#a9d8bb]"
+                  title={`${scheduledCount} message${scheduledCount === 1 ? "" : "s"} waiting to be sent`}
+                >
+                  <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+                    <circle cx="12" cy="12" r="9" />
+                    <path d="M12 7v5l3 2" />
+                  </svg>
+                  {scheduledCount}
+                </span>
+              )}
+              <button
+                type="button"
+                onClick={() => {
+                  setPendingChatId(null);
+                  setNewFolderName("");
+                  setCreatingFolder(true);
+                }}
+                className="text-[10px] text-white/30 transition-colors hover:text-white/70"
+              >
+                + Folder
+              </button>
+            </span>
           </div>
 
           {creatingFolder && (
@@ -490,12 +550,9 @@ export default function Sidebar({ activeChatId, onSelectChat, onNewChat, tempora
                   <div
                     role="button"
                     tabIndex={0}
-                    onClick={() => {
-                      setFileChatId(null);
-                      onSelectChat(chat.id);
-                    }}
-                    onKeyDown={(e) => e.key === "Enter" && onSelectChat(chat.id)}
-                    className={`group flex cursor-pointer items-center gap-2 rounded-xl px-3 py-3 transition-colors ${active ? "bg-white/[0.09]" : "hover:bg-white/[0.05]"}`}
+                    onClick={() => chooseChat(chat.id)}
+                    onKeyDown={(e) => e.key === "Enter" && chooseChat(chat.id)}
+                    className={`group flex cursor-pointer items-center gap-2 rounded-xl px-3 py-2.5 transition-colors ${active ? "bg-white/[0.09]" : "hover:bg-white/[0.05]"}`}
                   >
                     {editingId === chat.id ? (
                       <input
@@ -521,7 +578,7 @@ export default function Sidebar({ activeChatId, onSelectChat, onNewChat, tempora
                     ) : (
                       <>
                         {chat.pinned && <span className="shrink-0 text-[10px] text-[#a9d8bb]" title="Pinned">◆</span>}
-                        <span className="min-w-0 flex-1 truncate text-[14px] text-white/75">{chat.title}</span>
+                        <span className="min-w-0 flex-1 truncate text-[13px] text-white/75">{chat.title}</span>
                         <span className={`shrink-0 text-[10px] text-white/25 transition-opacity ${active ? "opacity-100" : "opacity-0 group-hover:opacity-100"}`}>
                           {timeAgo(chat.updatedAt)}
                         </span>
@@ -541,7 +598,7 @@ export default function Sidebar({ activeChatId, onSelectChat, onNewChat, tempora
                           </svg>
                         </button>
                         <button onClick={(event) => { event.stopPropagation(); setEditingId(chat.id); setDraftTitle(chat.title); }} className="hidden shrink-0 rounded p-1 text-white/35 hover:text-white group-hover:block" aria-label={`Rename ${chat.title}`} title="Rename"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round"><path d="m4 16-.8 4.8L8 20l10.5-10.5a2.8 2.8 0 0 0-4-4L4 16Z" /><path d="m13.5 6.5 4 4" /></svg></button>
-                        <button onClick={(event) => { event.stopPropagation(); markChatDeleted(chat.id); void syncChatDelete(chat.id); void deleteChat(chat.id); if (active) onNewChat(); }} className="hidden shrink-0 rounded p-1 text-white/35 hover:text-red-300 group-hover:block" aria-label={`Delete ${chat.title}`}><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round"><path d="M6 6l12 12M18 6L6 18" /></svg></button>
+                        <button onClick={(event) => { event.stopPropagation(); handleDeleteChat(chat.id, active); }} className="hidden shrink-0 rounded p-1 text-white/35 hover:text-red-300 group-hover:block" aria-label={`Delete ${chat.title}`} title="Delete — goes to the trash"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round"><path d="M6 6l12 12M18 6L6 18" /></svg></button>
                       </>
                     )}
                   </div>
@@ -586,41 +643,12 @@ export default function Sidebar({ activeChatId, onSelectChat, onNewChat, tempora
             })}
           </ul>
 
-          {visibleChats.length === 0 && !hasMessageHits && (
+          {visibleChats.length === 0 && (
             <p className="px-2 py-2 text-[12px] leading-relaxed text-white/30">
-              {search
-                ? "No matching chats or messages."
-                : folderFilter
-                  ? "Nothing in this folder yet. Hover a chat and press the folder icon."
-                  : "Your conversations will appear here."}
+              {folderFilter
+                ? "Nothing in this folder yet. Hover a chat and press the folder icon."
+                : "Your conversations will appear here."}
             </p>
-          )}
-
-          {hasMessageHits && (
-            <div className="mt-4 animate-rise">
-              <div className="mb-1.5 px-2 text-[11px] font-medium uppercase tracking-[0.12em] text-white/30">
-                Messages
-              </div>
-              <ul className="space-y-1">
-                {messageHits?.map((hit) => (
-                  <li key={hit.messageId}>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setFileChatId(null);
-                        onSelectChat(hit.chatId);
-                      }}
-                      className="w-full rounded-xl px-3 py-2 text-left transition-colors hover:bg-white/[0.05]"
-                    >
-                      <span className="block truncate text-[12px] text-white/70">{hit.title}</span>
-                      <span className="mt-0.5 block truncate text-[11px] text-white/35">
-                        {hit.snippet}
-                      </span>
-                    </button>
-                  </li>
-                ))}
-              </ul>
-            </div>
           )}
         </div>
 
@@ -644,12 +672,27 @@ export default function Sidebar({ activeChatId, onSelectChat, onNewChat, tempora
               e.target.value = "";
             }}
           />
-          <div className="mt-4 flex items-center gap-2.5 border-t border-white/[0.06] pt-4">
-            <div className="flex h-8 w-8 items-center justify-center rounded-full bg-gradient-to-br from-[#c9e6d4] via-[#4a8a67] to-[#1f4a33] text-[11px] font-bold text-black">{nameInitial(displayName)}</div>
+          <div className="mt-3 flex items-center gap-2.5 border-t border-white/[0.06] pt-3">
+            <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-[#c9e6d4] via-[#4a8a67] to-[#1f4a33] text-[11px] font-bold text-black">{nameInitial(displayName)}</div>
             <span className="min-w-0 flex-1 truncate text-[12px] text-white/55">{displayName || "Guest"}</span>
+            <span className="flex shrink-0 items-center gap-1">
+              <a href="/notes" className="rounded-lg px-1.5 py-1 text-[10px] text-white/35 transition-colors hover:bg-white/[0.06] hover:text-white" title="News from the developers">News</a>
+              <a href="/about" className="rounded-lg px-1.5 py-1 text-[10px] text-white/35 transition-colors hover:bg-white/[0.06] hover:text-white" title="About Mino">About</a>
+            </span>
           </div>
         </div>
       </aside>
+
+      <SearchOverlay open={searchOpen} onClose={() => setSearchOpen(false)} onSelectChat={chooseChat} />
+      <TrashOverlay
+        open={trashOpen}
+        onClose={() => setTrashOpen(false)}
+        onRestored={(chatId) => {
+          setNotice("Chat restored");
+          chooseChat(chatId);
+        }}
+      />
+      <GalleryOverlay open={galleryOpen} onClose={() => setGalleryOpen(false)} onSelectChat={chooseChat} />
     </>
   );
 }

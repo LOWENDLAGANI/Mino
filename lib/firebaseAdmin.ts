@@ -452,6 +452,47 @@ export async function endAdminSession(): Promise<void> {
   await signOutAdmin();
 }
 
+// ── Usage history ────────────────────────────────────────────────────────────
+// Every day's counters, per visitor, as raw rows. The console aggregates these
+// into the DAU/WAU chart (lib/usageStats.ts keeps that arithmetic pure and
+// tested); this function's only job is to read the tree without losing a day.
+
+export interface UsageHistoryDay {
+  day: string;
+  uids: string[];
+  chat: number;
+  image: number;
+  auto: number;
+  code: number;
+  self: number;
+}
+
+export async function listUsageHistory(limitDays = 60): Promise<UsageHistoryDay[]> {
+  const { database } = await requireAdmin();
+  const snapshot = await get(ref(database, "usage")).catch(rethrow);
+  const value = (snapshot.val() ?? {}) as Record<
+    string,
+    Record<string, { chat?: number; image?: number; auto?: number; code?: number; self?: number }>
+  >;
+  const byDay = new Map<string, UsageHistoryDay>();
+  for (const [uid, days] of Object.entries(value)) {
+    for (const [day, entry] of Object.entries(days ?? {})) {
+      let row = byDay.get(day);
+      if (!row) {
+        row = { day, uids: [], chat: 0, image: 0, auto: 0, code: 0, self: 0 };
+        byDay.set(day, row);
+      }
+      row.uids.push(uid);
+      row.chat += entry?.chat ?? 0;
+      row.image += entry?.image ?? 0;
+      row.auto += entry?.auto ?? 0;
+      row.code += entry?.code ?? 0;
+      row.self += entry?.self ?? 0;
+    }
+  }
+  return [...byDay.values()].sort((a, b) => a.day.localeCompare(b.day)).slice(-limitDays);
+}
+
 export async function saveAppConfig(config: AppConfig): Promise<void> {
   const current = await requireAdmin();
   const user = current.auth.currentUser;

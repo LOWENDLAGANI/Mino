@@ -19,6 +19,15 @@ Built with **Next.js 15 (App Router)**, **React 19**, **TypeScript**, **Tailwind
 - **Web search** — Mino stays off for general knowledge questions and searches when you explicitly request it or say an answer may be wrong, with source links shown in the response; the composer supports Auto, On, and Off modes
 - **Markdown + code** — syntax-highlighted code blocks (Prism) with per-block copy button
 - **Chat management** — pin and rename chats, retry/edit-and-resend, copy chats, source history, voice input, and text/code file attachments
+- **Send later** — the composer's clock queues a message (five minutes, thirty, an hour, tomorrow morning, or any datetime) and this open tab fires it when the time comes, oldest first, under the mode and search setting it was written with; queued messages sit as cancellable chips above the composer
+- **Rate limits you can see** — a server refusal is parsed for the wait it names and becomes a live countdown in the composer; *Queue until then* holds the message behind the wait and sends it when the wait lifts
+- **Read aloud** — every finished answer has a speaker button that reads it in the browser's own voice; code blocks are announced rather than spelled out, link targets are dropped, and moving away stops the speech
+- **Trash** — deleting a chat parks it for thirty days on the device (never synced), restorable or permanently deleted from the sidebar's toolbar, with expired entries dropped on start
+- **Image gallery** — every image made or sent, in one grid behind the sidebar's icon, each jumping back to its conversation
+- **Palette search** — the sidebar's search is an icon (or Ctrl/Cmd+K) opening a palette across chat titles and messages, instead of a section that takes over the rail
+- **Token counts per message** — each answer shows what it cost, with the prompt/completion split on hover
+- **Your data** — Settings → *Your data* exports a backup and erases everything — local tables, logged chats, usage, push subscriptions — behind a two-tap button that deliberately keeps the plan
+- **Web push that survives a reload** — notification subscriptions are stored under the account rather than the tab, deduplicated by endpoint, and the console's **Push** button broadcasts to every persisted subscriber
 - **Memory** — up to 20 short facts about you, sent with every request, written by you from the `+` menu or **offered** by Mino under the chat for you to approve. Always visible in Settings, always editable, and never extended by the model on its own (see [Memory](#memory))
 - **Settings** — a single panel in the sidebar for web search mode, response length, reasoning effort (low/medium/high, default low), and dark/light appearance; the composer's `+` menu stays limited to per-message tools
 
@@ -111,7 +120,7 @@ To enable automatic logging:
 
 ### Admin console
 
-Clicking the Mino logo **on the About page** ten times within a couple of seconds opens a sign-in prompt. Signing in with the administrator's Google account opens a read-only console showing which providers are configured, local chat/message counts, storage used, the signed-in identity, and the list of visitors who have given Mino a name.
+Clicking the Mino logo **on the About page** ten times within a couple of seconds opens a sign-in prompt. Signing in with the administrator's Google account opens a read-only console showing which providers are configured, local chat/message counts, storage used, the signed-in identity, and the list of visitors who have given Mino a name. It also draws the **DAU/WAU trend chart** from the per-visitor daily counters (`usage/`), with the message and image totals and the mode breakdown beside it, and a **Push** button that broadcasts an announcement to every persisted web-push subscriber.
 
 **There is no PIN and no service account.** Access is granted by the Realtime Database rules themselves, which name a single Firebase Auth UID:
 
@@ -358,9 +367,13 @@ If `config/` cannot be read, every default is permissive: the app keeps working 
 
 Both routes are limited per minute — 30 messages, 8 images — keyed by the verified uid where there is one and by the forwarded client address otherwise. This is the backstop for the case the per-device caps cannot cover: with no ban list and no cap configured, anyone can post and spend the deployment's provider quota, and the attacker controls their own device, so a device-scoped control would not help. It is in-process and therefore per instance, which is enough to blunt a casual flood and not enough to stop a determined one; making it exact needs a shared store this project does not have.
 
+**The client counts it down.** The composer reads the wait out of the server's own refusal message ("Please wait 12s and try again") and shows it as seconds ticking down, holding the send button until the wait expires; *Queue until then* files the message behind the wait and sends it when it lifts. The number is never guessed locally — an error with no named wait in it starts no countdown at all.
+
 ### Untrusted content
 
 Search excerpts are third-party text and are injected into the system prompt, so the prompt labels them as untrusted reference material and instructs the model to report on instructions found in a page rather than follow them. This reduces the risk of prompt injection; it does not eliminate it, because no prompt-level defence is a guarantee.
+
+**The reader is told which part came from the web.** An answer built on search sources carries a visible notice that page text is untrusted input — shown under the sources in the thread and again in the source history — so nobody has to take the prompt's word for which sentences arrived from somebody else's page.
 
 ## Memory
 
@@ -438,6 +451,8 @@ database.rules.json    # Realtime Database rules for anonymous-user isolation an
 ## Privacy
 
 Conversations and attachments are loaded only from the current browser’s IndexedDB. If Firebase logging is configured, chat text and metadata are also written to the signed-in anonymous device identity, but the database is not read by the app. No account or email is required. When web search is enabled, the current question is sent to the search service to retrieve source context for that request.
+
+**The eraser is in Settings → *Your data*.** It clears everything the browser holds — chats, messages, folders, memories, queued schedules, trash — and removes this identity's nodes from the database (chat history, visitor registry, usage counters, push subscriptions) with the visitor's own token, so no credential and no administrator are involved. One thing it deliberately keeps: the subscription, because a paid plan belongs to the person rather than to the chat history. Ordinary deletions are gentler: a deleted chat goes to **Trash** first and stays recoverable on that device for thirty days.
 
 ## Dependency hygiene
 

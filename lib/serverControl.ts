@@ -344,6 +344,10 @@ export function usageDay(now = Date.now()): string {
 }
 
 export type UsageKind = "chat" | "image";
+/** Which model mode a chat message used, recorded for the console's breakdown. */
+export type UsageMode = "auto" | "code" | "self";
+
+export type UsageCounters = Partial<Record<UsageKind | UsageMode, number>>;
 
 /**
  * Reads today's counters for a visitor, then adds one and writes the result.
@@ -352,27 +356,35 @@ export type UsageKind = "chat" | "image";
  * on. A cap can therefore be exceeded by a small margin under a burst. Closing
  * that gap needs a transaction the REST API cannot express, and the honest
  * trade is a cap that is approximate rather than a control that is exact.
+ *
+ * Chat messages also bump the mode counter, which is what the console's usage
+ * breakdown reads. The whole record is rewritten rather than patched so a
+ * single day is always one node with one shape.
  */
 export async function consumeUsage(
   authorization: string | null,
   uid: string,
-  kind: UsageKind
+  kind: UsageKind,
+  mode?: UsageMode
 ): Promise<{ used: number; allowed: boolean }> {
   const day = usageDay();
   const path = `usage/${uid}/${day}`;
   const current = await readUsage(authorization, path);
   const used = (current[kind] ?? 0) + 1;
-  const written = await writeAsCaller(authorization, path, {
+  const next: UsageCounters = {
+    ...current,
     chat: kind === "chat" ? used : current.chat ?? 0,
     image: kind === "image" ? used : current.image ?? 0,
-  });
+  };
+  if (kind === "chat" && mode) next[mode] = (next[mode] ?? 0) + 1;
+  const written = await writeAsCaller(authorization, path, next);
   // A refused write means the caller is not who they claim; the caller's route
   // treats that as unauthenticated rather than silently trusting the counter.
   if (!written) return { used, allowed: false };
   return { used, allowed: true };
 }
 
-async function readUsage(authorization: string | null, path: string): Promise<Partial<Record<UsageKind, number>>> {
+async function readUsage(authorization: string | null, path: string): Promise<UsageCounters> {
   const token = authorization?.replace(/^Bearer\s+/i, "").trim();
   const base = restBase();
   if (!token || !base) return {};
@@ -383,10 +395,12 @@ async function readUsage(authorization: string | null, path: string): Promise<Pa
     });
     if (!response.ok) return {};
     const value = (await response.json()) as Record<string, unknown> | null;
-    return {
-      chat: typeof value?.chat === "number" ? value.chat : 0,
-      image: typeof value?.image === "number" ? value.image : 0,
-    };
+    const counters: UsageCounters = {};
+    if (!value) return counters;
+    for (const key of ["chat", "image", "auto", "code", "self"] as const) {
+      if (typeof value[key] === "number" && value[key] >= 0) counters[key] = value[key];
+    }
+    return counters;
   } catch {
     return {};
   }

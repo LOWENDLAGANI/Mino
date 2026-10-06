@@ -15,6 +15,8 @@
 // `GET /api/push` reports configured: false and the Settings section says so
 // instead of pretending.
 
+import { authHeader } from "./firebaseHistory";
+
 export function pushSupported(): boolean {
   return (
     typeof window !== "undefined" &&
@@ -58,15 +60,28 @@ function urlBase64ToUint8Array(base64: string): Uint8Array<ArrayBuffer> {
   return output;
 }
 
-async function postPush(body: Record<string, unknown>): Promise<{ ok: boolean; error?: string }> {
+async function postPush(body: Record<string, unknown>): Promise<{ ok: boolean; error?: string; persisted?: boolean; sent?: number }> {
   try {
+    // The visitor's own token rides along so the route can persist the
+    // subscription under their uid — without it the route can only keep its
+    // in-process fallback, which a restart forgets.
     const response = await fetch("/api/push", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: { "Content-Type": "application/json", ...(await authHeader()) },
       body: JSON.stringify(body),
     });
-    const data = (await response.json().catch(() => null)) as { ok?: boolean; error?: string } | null;
-    return { ok: response.ok && data?.ok !== false, error: data?.error };
+    const data = (await response.json().catch(() => null)) as {
+      ok?: boolean;
+      error?: string;
+      persisted?: boolean;
+      sent?: number;
+    } | null;
+    return {
+      ok: response.ok && data?.ok !== false,
+      error: data?.error,
+      persisted: data?.persisted,
+      sent: data?.sent,
+    };
   } catch {
     return { ok: false, error: "network" };
   }
@@ -154,4 +169,19 @@ export async function disablePush(): Promise<{ ok: boolean }> {
 /** Sends a notification to this device only, as the proof that it works. */
 export async function sendTestPush(): Promise<{ ok: boolean; error?: string }> {
   return postPush({ action: "test", deviceId: pushDeviceId() });
+}
+
+/**
+ * Sends the announcement as a push to every subscribed device.
+ *
+ * Called from the admin console with its own fresh token; the route verifies
+ * that token and refuses anyone who is not the administrator, so this being
+ * reachable from the client gains a caller nothing.
+ */
+export async function broadcastPush(input: {
+  title: string;
+  body: string;
+}): Promise<{ ok: boolean; error?: string; sent?: number }> {
+  const result = await postPush({ action: "broadcast", ...input, url: "/" });
+  return { ok: result.ok, error: result.error, sent: result.sent };
 }

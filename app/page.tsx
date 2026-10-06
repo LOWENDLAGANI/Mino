@@ -58,6 +58,9 @@ import {
 import { subscribeAppConfig, type AppConfig } from "@/lib/appConfig";
 import { displayedContent, retireCurrentAnswer } from "@/lib/variants";
 import { TempThread, type MessageInput } from "@/lib/tempChat";
+import { dueFirst, isDue, type ScheduledMessage } from "@/lib/scheduler";
+import { purgeTrash } from "@/lib/trash";
+import { parseRetrySeconds } from "@/lib/rateLimit";
 
 /** The chat id a temporary thread uses. It is never a row in the database — it
     exists only so the send path has one variable to address either kind of
@@ -87,6 +90,15 @@ interface SessionUsage {
 interface SendOptions {
   editMessageId?: string;
   regenerateAssistantId?: string;
+  /** A queued message fires into the chat it was written from, whatever is
+      on screen at the time. */
+  chatId?: string;
+  /** The mode and search setting it was scheduled under, so an answer queued
+      from Code mode is still answered by Code mode. */
+  mode?: ModeId;
+  searchMode?: SearchMode;
+  /** The queue row to consume once the send is actually under way. */
+  scheduledId?: string;
 }
 
 export default function HomePage() {
@@ -116,6 +128,9 @@ export default function HomePage() {
   const [reasoningEffort, setReasoningEffort] = useState<ReasoningEffort>("low");
   const [appearance, setAppearance] = useState<Appearance>("dark");
   const [loggingError, setLoggingError] = useState(false);
+  // Epoch ms until the server has asked the composer to hold off, set from the
+  // wait the server itself names in a 429 — never guessed locally.
+  const [rateLimitUntil, setRateLimitUntil] = useState<number | null>(null);
   const [appConfig, setAppConfig] = useState<AppConfig | null>(null);
   const maintenance = useMaintenance();
   const abortRef = useRef<AbortController | null>(null);
@@ -168,6 +183,14 @@ export default function HomePage() {
   );
 
   const chats = useLiveQuery(() => db.chats.orderBy("updatedAt").reverse().toArray(), [], []);
+
+  // The send-later queue, read live so chips appear and vanish exactly as the
+  // rows do. Oldest appointment first — that is also the order they fire in.
+  const scheduled = useLiveQuery(
+    () => db.scheduled.orderBy("sendAt").toArray(),
+    [],
+    [] as ScheduledMessage[]
+  );
 
   // Memories ride along with every request, so this is read live from Dexie
   // rather than copied into state: a second browser writing to the same
@@ -418,6 +441,66 @@ export default function HomePage() {
     abortRef.current?.abort();
   }, []);
 
+  // ── Send later ─────────────────────────────────────────────────────────────
+  const handleSchedule = useCallback(
+    (text: string, images: ImageAttachment[], documents: DocumentAttachment[], sendAt: number) => {
+      const item: ScheduledMessage = {
+        id: crypto.randomUUID(),
+        // A temporary thread is never written down, so there is no chat to
+        // come back to; the message fires into a fresh one instead.
+        chatId: temporary ? null : activeChatId,
+        content: text,
+        images: images.length > 0 ? images : undefined,
+        documents: documents.length > 0 ? documents : undefined,
+        mode: selectedMode,
+        searchMode,
+        sendAt,
+        createdAt: Date.now(),
+      };
+      void db.scheduled.add(item).catch((error: unknown) => {
+        console.error("[Mino] Could not queue the message", error);
+      });
+    },
+    [activeChatId, searchMode, selectedMode, temporary]
+  );
+
+  const handleCancelScheduled = useCallback((id: string) => {
+    void db.scheduled.delete(id);
+  }, []);
+
+  // Turning the server's own refusal into a countdown the composer can show.
+  // Anything without a named wait in it is a plain error and changes nothing.
+  const noteRateLimit = useCallback((message: string) => {
+    const seconds = parseRetrySeconds(message);
+    if (seconds) setRateLimitUntil(Date.now() + seconds * 1000);
+  }, []);
+
+  // The countdown ends by clearing itself, so the composer's one-second tick
+  // stops with it instead of running for the rest of the session.
+  useEffect(() => {
+    if (!rateLimitUntil) return;
+    if (rateLimitUntil <= Date.now()) {
+      setRateLimitUntil(null);
+      return;
+    }
+    const timer = setTimeout(() => setRateLimitUntil(null), rateLimitUntil - Date.now() + 300);
+    return () => clearTimeout(timer);
+  }, [rateLimitUntil]);
+
+  // Expired trash is dropped on arrival, so thirty-day-old conversations do
+  // not sit in the Trash overlay waiting to be noticed.
+  useEffect(() => {
+    void purgeTrash().catch(() => undefined);
+  }, []);
+
+  // Settings → Your data wiped everything while this page was open; the view
+  // follows the data back to an empty thread.
+  useEffect(() => {
+    const onWiped = () => handleNewChat();
+    window.addEventListener("mino:data-wiped", onWiped);
+    return () => window.removeEventListener("mino:data-wiped", onWiped);
+  }, [handleNewChat]);
+
   const openSidebar = useCallback(() => setSidebarOpen(true), []);
   const finishTutorial = useCallback(() => setTutorialFinished(true), []);
 
@@ -545,7 +628,19 @@ export default function HomePage() {
       if (streamingId) return;
       if (!text && images.length === 0 && documents.length === 0 && !options) return;
 
+      // A queued message is consumed only now, once the send is committed:
+      // a schedule that could not fire (a busy tab) stays in the queue rather
+      // than silently disappearing with it.
+      if (options?.scheduledId) await db.scheduled.delete(options.scheduledId);
+
+      // A schedule carries the settings it was written under, so it fires as
+      // the person who queued it meant it — not as whoever is on screen now.
+      const activeMode = options?.mode ?? selectedMode;
+      const activeSearch = options?.searchMode ?? searchMode;
+
       let chatId: string | null = temporary ? TEMP_CHAT_ID : activeChatId;
+      // The chat to fire into is the one the schedule was made from.
+      if (options?.chatId) chatId = options.chatId;
       // The row the new answer streams into. Normally a fresh message; when a
       // retry or an edit turns the old reply into a branch point, it is that
       // reply — emptied above, with the previous answer kept beside it.
@@ -624,7 +719,7 @@ export default function HomePage() {
       // specific ends up in the local database or in an exported backup.
       const assistantMsg: ChatMessage =
         (reuseId ? await readMessage(reuseId) : undefined) ??
-        (await appendMessage({ chatId, role: "assistant", content: "", model: getMode(selectedMode).display }));
+        (await appendMessage({ chatId, role: "assistant", content: "", model: getMode(activeMode).display }));
       setStreamingId(assistantMsg.id);
 
       const controller = new AbortController();
@@ -673,8 +768,8 @@ export default function HomePage() {
             // Sent with every request because memory applies to every answer.
             // The server re-validates this rather than trusting the page.
             memories: memorySnapshot,
-            mode: selectedMode,
-            searchMode,
+            mode: activeMode,
+            searchMode: activeSearch,
             responseLength,
             reasoningEffort,
           }),
@@ -682,7 +777,9 @@ export default function HomePage() {
         });
         if (!res.ok) {
           const payload = (await res.json().catch(() => null)) as { error?: string } | null;
-          throw new Error(payload?.error || `Mino request failed (HTTP ${res.status})`);
+          const message = payload?.error || `Mino request failed (HTTP ${res.status})`;
+          noteRateLimit(message);
+          throw new Error(message);
         }
         const reader = res.body?.getReader();
         if (!reader) throw new Error("No response stream");
@@ -698,9 +795,12 @@ export default function HomePage() {
             const evt = JSON.parse(data) as { content?: string; error?: string; model?: string; truncated?: boolean; usage?: SessionUsage; search?: { used: boolean; query?: string; sources?: SearchSource[] } };
             if (evt.model) {
               await patchMessage(assistantMsg.id, { model: evt.model });
-              if (evt.model !== getMode(selectedMode).display) setModelNotice("The model was changed automatically because the current model is experiencing a problem.");
+              if (evt.model !== getMode(activeMode).display) setModelNotice("The model was changed automatically because the current model is experiencing a problem.");
             }
             if (evt.error) {
+              // The server refuses inside the stream as well as before it, so
+              // the countdown is read from both places.
+              noteRateLimit(evt.error);
               sawError = true;
               await markError(assistantMsg.id, evt.error);
               return;
@@ -718,7 +818,7 @@ export default function HomePage() {
             if (evt.usage) await writeUsage(assistantMsg.id, evt.usage);
             if (evt.search) {
               await patchMessage(assistantMsg.id, { searchQuery: evt.search.query, sources: evt.search.sources ?? [] });
-              if (!evt.search.used && searchMode !== "off") setModelNotice("Mino checked the web but could not find a usable source.");
+              if (!evt.search.used && activeSearch !== "off") setModelNotice("Mino checked the web but could not find a usable source.");
             }
           } catch (err) {
             if (err instanceof Error && err.message !== "Stream interrupted") throw err;
@@ -761,7 +861,7 @@ export default function HomePage() {
         abortRef.current = null;
       }
     },
-    [activeChatId, appendMessage, branchAnswer, dropFromMessage, markError, memorySnapshot, patchMessage, publishTemp, readMessage, reasoningEffort, responseLength, searchMode, selectedMode, streamingId, temporary, threadHistory, writeContent, writeUsage]
+    [activeChatId, appendMessage, branchAnswer, dropFromMessage, markError, memorySnapshot, noteRateLimit, patchMessage, publishTemp, readMessage, reasoningEffort, responseLength, searchMode, selectedMode, streamingId, temporary, threadHistory, writeContent, writeUsage]
   );
 
   // ── Image generation ───────────────────────────────────────────────────────
@@ -803,15 +903,66 @@ export default function HomePage() {
       } catch (err) {
         const aborted = err instanceof DOMException && err.name === "AbortError";
         if (!aborted) {
-          await markError(assistantMsg.id, err instanceof Error ? err.message : "Image generation failed");
+          const message = err instanceof Error ? err.message : "Image generation failed";
+          noteRateLimit(message);
+          await markError(assistantMsg.id, message);
         }
       } finally {
         setDrawingId(null);
         abortRef.current = null;
       }
     },
-    [activeChatId, appendMessage, drawingId, imageAvailable, markError, patchMessage, temporary]
+    [activeChatId, appendMessage, drawingId, imageAvailable, markError, noteRateLimit, patchMessage, temporary]
   );
+
+  // ── The queue firing ──────────────────────────────────────────────────────
+  // This tab is the sender: the effect wakes at the earliest appointment and
+  // fires the oldest due message, one answer at a time. The row is consumed by
+  // sendMessage itself once the send is under way, so a schedule that could not
+  // fire is retried on the next tick instead of being lost.
+  const scheduleFiringRef = useRef(false);
+  const firedScheduleRef = useRef<Set<string>>(new Set());
+  const [scheduleTick, setScheduleTick] = useState(0);
+
+  useEffect(() => {
+    if (scheduled.length === 0) return;
+    const nowMs = Date.now();
+    const due = scheduled
+      .filter((item) => isDue(item, nowMs) && !firedScheduleRef.current.has(item.id))
+      .sort(dueFirst);
+    if (due.length === 0) {
+      // Sleep until the earliest appointment, capped so a clock that moved
+      // backwards still gets re-checked within the minute.
+      const wait = Math.max(500, Math.min(scheduled[0].sendAt - nowMs + 100, 60_000));
+      const timer = setTimeout(() => setScheduleTick((n) => n + 1), wait);
+      return () => clearTimeout(timer);
+    }
+    // One answer at a time: the queue waits for whatever is on screen, and for
+    // a temporary thread to end first — a scheduled message is always written
+    // down, which a temporary chat never is.
+    if (streamingId || drawingId || scheduleFiringRef.current) return;
+    if (temporary) {
+      endTemporary();
+      return;
+    }
+    const item = due[0];
+    firedScheduleRef.current.add(item.id);
+    if (firedScheduleRef.current.size > 50) {
+      firedScheduleRef.current = new Set([...firedScheduleRef.current].slice(-50));
+    }
+    scheduleFiringRef.current = true;
+    void sendMessage(item.content, item.images ?? [], item.documents ?? [], {
+      chatId: item.chatId ?? undefined,
+      mode: item.mode,
+      searchMode: item.searchMode,
+      scheduledId: item.id,
+    })
+      .catch(() => undefined)
+      .finally(() => {
+        scheduleFiringRef.current = false;
+        setScheduleTick((n) => n + 1);
+      });
+  }, [scheduled, scheduleTick, streamingId, drawingId, temporary, endTemporary, sendMessage]);
 
   const handleSend = useCallback(
     (text: string, images: ImageAttachment[], documents?: DocumentAttachment[]) => {
@@ -1040,6 +1191,10 @@ export default function HomePage() {
               onImageModeChange={setImageMode}
               imageAvailable={imageAvailable}
               syncAvailable={firebaseConfigured}
+              onSchedule={handleSchedule}
+              scheduled={scheduled}
+              onCancelScheduled={handleCancelScheduled}
+              rateLimitUntil={rateLimitUntil}
             />
           </div>
 

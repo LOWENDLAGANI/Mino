@@ -367,7 +367,9 @@ export async function POST(req: NextRequest): Promise<Response> {
   }
 
   if (identity && config.dailyChatCap > 0) {
-    const { used, allowed } = await consumeUsage(authorization, identity.uid, "chat");
+    // The mode rides along so the console can break messages down by what
+    // people actually use; the cap itself still counts every message alike.
+    const { used, allowed } = await consumeUsage(authorization, identity.uid, "chat", requested);
     if (!allowed) {
       return errorStream("Mino could not verify this device. Please try again shortly.");
     }

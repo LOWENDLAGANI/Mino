@@ -1,5 +1,7 @@
 import Dexie, { type Table } from "dexie";
 import type { Chat, ChatFolder, ChatMessage, Memory } from "./types";
+import type { ScheduledMessage } from "./scheduler";
+import type { TrashEntry } from "./trash";
 import { displayedContent } from "./variants";
 
 // ── Mino — zero-login client-side persistence (IndexedDB via Dexie) ─────────
@@ -13,6 +15,8 @@ export class MinoDB extends Dexie {
   messages!: Table<ChatMessage, string>;
   memories!: Table<Memory, string>;
   folders!: Table<ChatFolder, string>;
+  scheduled!: Table<ScheduledMessage, string>;
+  trash!: Table<TrashEntry, string>;
 
   constructor() {
     super("mino-db");
@@ -37,6 +41,18 @@ export class MinoDB extends Dexie {
       messages: "id, chatId, createdAt",
       memories: "id, createdAt",
       folders: "id, name",
+    });
+    // Scheduled messages and the trash. Both are device-local by design: a
+    // scheduled send fires from this browser's own open tab, and a deleted
+    // chat is recoverable here without the account ever holding a copy it
+    // would then sync back.
+    this.version(4).stores({
+      chats: "id, updatedAt, pinned, folder",
+      messages: "id, chatId, createdAt",
+      memories: "id, createdAt",
+      folders: "id, name",
+      scheduled: "id, sendAt",
+      trash: "id, deletedAt",
     });
   }
 }
@@ -81,9 +97,14 @@ export async function deleteChat(chatId: string): Promise<void> {
 }
 
 export async function clearAllData(): Promise<void> {
-  await db.transaction("rw", db.chats, db.messages, async () => {
+  await db.transaction("rw", db.chats, db.messages, db.folders, db.scheduled, db.trash, async () => {
     await db.messages.clear();
     await db.chats.clear();
+    // "Clear" means clear: the trash and anything queued for later go with the
+    // rest, or a wiped browser is one restore away from being unwiped.
+    await db.folders.clear();
+    await db.scheduled.clear();
+    await db.trash.clear();
   });
 }
 

@@ -21,6 +21,14 @@
         }
       }
     },
+    "push": {
+      "subscriptions": {
+        "$uid": {
+          ".read": "auth != null && (auth.uid === $uid || auth.token.email === 'myrealmetvreal@gmail.com')",
+          ".write": "auth != null && (auth.uid === $uid || auth.token.email === 'myrealmetvreal@gmail.com')"
+        }
+      }
+    },
     "codes": {
       ".read": "auth != null && auth.token.email == 'myrealmetvreal@gmail.com'",
       ".write": "auth != null && auth.token.email == 'myrealmetvreal@gmail.com'",

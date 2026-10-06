@@ -1,6 +1,14 @@
 "use client";
 
 import type { DocumentAttachment, ImageAttachment } from "@/lib/types";
+import {
+  SCHEDULE_PRESETS,
+  earliestSchedule,
+  formatScheduleTime,
+  nextMorningAt,
+  type ScheduledMessage,
+} from "@/lib/scheduler";
+import { secondsRemaining } from "@/lib/rateLimit";
 import { compressFiles, formatBytes } from "@/lib/imageUtils";
 import { MEMORY_TEXT_LIMIT, addMemory } from "@/lib/memory";
 import { syncMemoryUp } from "@/lib/firebaseHistory";
@@ -21,6 +29,13 @@ interface ChatInputProps {
   imageAvailable: boolean;
   /** Whether memories can follow the account to another device. */
   syncAvailable: boolean;
+  /** Queues the composer's contents to be sent at `sendAt`. */
+  onSchedule: (text: string, images: ImageAttachment[], documents: DocumentAttachment[], sendAt: number) => void;
+  /** Messages this device has queued, rendered as chips above the composer. */
+  scheduled: ScheduledMessage[];
+  onCancelScheduled: (id: string) => void;
+  /** Epoch ms until which the server has asked us to hold off; null when free. */
+  rateLimitUntil: number | null;
 }
 
 const MAX_IMAGES = 4;
@@ -43,7 +58,19 @@ type SpeechRecognition = {
 };
 type SpeechWindow = Window & { SpeechRecognition?: new () => SpeechRecognition; webkitSpeechRecognition?: new () => SpeechRecognition };
 
-export default function ChatInput({ onSend, disabled, onStop, imageMode, onImageModeChange, imageAvailable, syncAvailable }: ChatInputProps) {
+export default function ChatInput({
+  onSend,
+  disabled,
+  onStop,
+  imageMode,
+  onImageModeChange,
+  imageAvailable,
+  syncAvailable,
+  onSchedule,
+  scheduled,
+  onCancelScheduled,
+  rateLimitUntil,
+}: ChatInputProps) {
   // Image generation is a paid capability. The gate is client-side — see the note
   // on lib/paywallState.ts — so it stops the ordinary user, not a determined one.
   const { planId } = useSubscription();
@@ -63,23 +90,40 @@ export default function ChatInput({ onSend, disabled, onStop, imageMode, onImage
   const fileInputRef = useRef<HTMLInputElement>(null);
   const cameraInputRef = useRef<HTMLInputElement>(null);
   const toolsRef = useRef<HTMLDivElement>(null);
+  const scheduleRef = useRef<HTMLDivElement>(null);
+  const [showSchedule, setShowSchedule] = useState(false);
+  const [customDate, setCustomDate] = useState("");
+  // Ticks once a second while a rate limit is counting down, so the chip
+  // loses a number rather than sitting frozen until the next render.
+  const [now, setNow] = useState(() => Date.now());
+
+  useEffect(() => {
+    if (!rateLimitUntil || rateLimitUntil <= Date.now()) return;
+    setNow(Date.now());
+    const timer = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(timer);
+  }, [rateLimitUntil]);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const recognitionRef = useRef<SpeechRecognition | null>(null);
 
   useEffect(() => {
-    if (!showTools) return;
+    if (!showTools && !showSchedule) return;
     const handlePointerDown = (event: PointerEvent) => {
       if (!toolsRef.current?.contains(event.target as Node)) setShowTools(false);
+      if (!scheduleRef.current?.contains(event.target as Node)) setShowSchedule(false);
     };
     document.addEventListener("pointerdown", handlePointerDown);
     return () => document.removeEventListener("pointerdown", handlePointerDown);
-  }, [showTools]);
+  }, [showTools, showSchedule]);
 
   // In image mode the prompt is the only input, so attachments and documents
   // are hidden and cannot be attached to an image request.
-  const canSend = imageMode
+  const hasContent = imageMode
     ? text.trim().length > 0
-    : (text.trim().length > 0 || attachments.length > 0 || documents.length > 0) && !compressing;
+    : text.trim().length > 0 || attachments.length > 0 || documents.length > 0;
+  const rateRemaining = rateLimitUntil ? secondsRemaining(rateLimitUntil, now) : 0;
+  const rateLimited = rateRemaining > 0;
+  const canSend = hasContent && !compressing && !rateLimited;
 
   const addFiles = async (files: File[]) => {
     const imageFiles = files.filter((f) => f.type.startsWith("image/"));
@@ -175,11 +219,31 @@ export default function ChatInput({ onSend, disabled, onStop, imageMode, onImage
     }
     if (!canSend) return;
     onSend(text.trim(), imageMode ? [] : attachments, imageMode ? [] : documents);
+    clearComposer();
+  };
+
+  const clearComposer = () => {
     setText("");
     setAttachments([]);
     setDocuments([]);
     setErrors([]);
     if (textareaRef.current) textareaRef.current.style.height = "auto";
+  };
+
+  const commitSchedule = (sendAt: number) => {
+    if (!hasContent || imageMode) return;
+    onSchedule(text.trim(), attachments, documents, sendAt);
+    clearComposer();
+    setShowSchedule(false);
+    setCustomDate("");
+  };
+
+  /** The rate-limited escape hatch: the message waits in the queue instead of
+   *  the composer, and fires the moment the server will hear us out. */
+  const queueInstead = () => {
+    if (!rateLimitUntil || !hasContent || imageMode) return;
+    onSchedule(text.trim(), attachments, documents, rateLimitUntil + 1000);
+    clearComposer();
   };
 
   const handleKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
@@ -222,6 +286,62 @@ export default function ChatInput({ onSend, disabled, onStop, imageMode, onImage
         {errors.length > 0 && (
           <div className="mb-2 rounded-lg bg-red-500/10 px-3 py-1.5 text-[12px] text-red-300 animate-rise">
             {errors.join(" · ")}
+          </div>
+        )}
+
+        {/* Rate limit — a countdown, not a scolding. The queue button turns
+            the refused message into a scheduled one, so the wait costs the
+            writer nothing but time. */}
+        {rateLimited && (
+          <div
+            role="status"
+            className="mb-2 flex items-center gap-2 rounded-xl border border-amber-300/15 bg-amber-400/[0.06] px-3 py-2 text-[11px] leading-relaxed text-amber-100/85 animate-rise"
+          >
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" className="shrink-0" aria-hidden>
+              <circle cx="12" cy="12" r="9" />
+              <path d="M12 7v5l3 2" />
+            </svg>
+            <span className="min-w-0 flex-1">Rate limited — you can send again in {rateRemaining}s.</span>
+            {hasContent && !imageMode && (
+              <button
+                type="button"
+                onClick={queueInstead}
+                className="shrink-0 rounded-lg bg-white/[0.08] px-2.5 py-1 text-[10px] font-semibold text-white/80 transition-colors hover:bg-white/[0.14]"
+              >
+                Queue until then
+              </button>
+            )}
+          </div>
+        )}
+
+        {/* Scheduled messages waiting their turn. Horizontally scrollable on a
+            phone rather than wrapping into a stack that buries the composer. */}
+        {scheduled.length > 0 && (
+          <div className="mb-2 flex gap-1.5 overflow-x-auto pb-0.5" aria-label="Scheduled messages">
+            {scheduled.map((item) => (
+              <span
+                key={item.id}
+                className="flex shrink-0 items-center gap-1.5 rounded-full border border-[#a9d8bb]/20 bg-[#a9d8bb]/[0.07] py-1 pl-2.5 pr-1 text-[10px] text-[#c9e6d4]"
+                title={item.content || "Attachment"}
+              >
+                <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="shrink-0" aria-hidden>
+                  <circle cx="12" cy="12" r="9" />
+                  <path d="M12 7v5l3 2" />
+                </svg>
+                <span className="font-semibold">{formatScheduleTime(item.sendAt)}</span>
+                <span className="max-w-[110px] truncate text-white/45">{item.content || "Attachment"}</span>
+                <button
+                  type="button"
+                  onClick={() => onCancelScheduled(item.id)}
+                  className="flex h-4 w-4 shrink-0 items-center justify-center rounded-full text-white/40 transition-colors hover:bg-white/10 hover:text-white"
+                  aria-label="Cancel this scheduled message"
+                >
+                  <svg width="8" height="8" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round">
+                    <path d="M6 6l12 12M18 6L6 18" />
+                  </svg>
+                </button>
+              </span>
+            ))}
           </div>
         )}
 
@@ -505,6 +625,71 @@ export default function ChatInput({ onSend, disabled, onStop, imageMode, onImage
             }
             className="max-h-[180px] flex-1 resize-none bg-transparent py-3.5 text-[16px] leading-snug text-white/90 placeholder-white/32 outline-none md:text-[17px]"
           />
+
+          {/* Send later — only when there is something to send, and never in
+              image mode, where the draw happens through its own pipeline. */}
+          {!disabled && !imageMode && hasContent && (
+            <div ref={scheduleRef} className="relative shrink-0">
+              <button
+                onClick={() => setShowSchedule((value) => !value)}
+                className="mb-1 flex h-10 w-10 items-center justify-center rounded-full text-white/45 transition-colors hover:bg-white/[0.07] hover:text-white/80"
+                aria-label="Schedule this message"
+                aria-expanded={showSchedule}
+                type="button"
+                title="Send later"
+              >
+                <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+                  <circle cx="12" cy="12" r="9" />
+                  <path d="M12 7v5l3 2" />
+                </svg>
+              </button>
+              {showSchedule && (
+                <div className="animate-pop absolute bottom-12 right-0 z-50 w-56 max-w-[calc(100vw-2rem)] rounded-2xl border border-white/[0.08] bg-[#141f1a]/[0.98] p-1.5 shadow-2xl shadow-black/80 backdrop-blur-xl">
+                  <div className="px-2.5 pb-1 pt-1.5 text-[10px] font-semibold uppercase tracking-[0.12em] text-white/30">
+                    Send later
+                  </div>
+                  {SCHEDULE_PRESETS.map((preset) => (
+                    <button
+                      key={preset.label}
+                      type="button"
+                      onClick={() =>
+                        commitSchedule(
+                          preset.offsetMs ? Date.now() + preset.offsetMs : nextMorningAt(preset.hour ?? 9)
+                        )
+                      }
+                      className="block w-full rounded-xl px-2.5 py-2 text-left text-[12px] text-white/70 transition-colors hover:bg-white/[0.06] hover:text-white"
+                    >
+                      {preset.label}
+                    </button>
+                  ))}
+                  <div className="mt-1 flex items-center gap-1.5 border-t border-white/[0.07] px-2 pb-1 pt-2">
+                    <input
+                      type="datetime-local"
+                      min={earliestSchedule()}
+                      value={customDate}
+                      onChange={(event) => setCustomDate(event.target.value)}
+                      className="min-w-0 flex-1 rounded-lg border border-white/10 bg-black/30 px-2 py-1.5 text-[11px] text-white outline-none [color-scheme:dark]"
+                      aria-label="Custom send time"
+                    />
+                    <button
+                      type="button"
+                      disabled={!customDate}
+                      onClick={() => {
+                        const at = new Date(customDate).getTime();
+                        if (Number.isFinite(at) && at > Date.now()) commitSchedule(at);
+                      }}
+                      className="shrink-0 rounded-lg bg-[#2a6142] px-2 py-1.5 text-[10px] font-semibold text-white transition-colors hover:bg-[#35744f] disabled:opacity-40"
+                    >
+                      Set
+                    </button>
+                  </div>
+                  <p className="px-2.5 pb-1.5 pt-1.5 text-[9px] leading-relaxed text-white/30">
+                    Fires from this tab while it is open — keep it open if the timing matters.
+                  </p>
+                </div>
+              )}
+            </div>
+          )}
 
           {/* Send / Stop */}
           {disabled ? (

@@ -14,6 +14,7 @@ import {
   listAdminAudit,
   listChats,
   listRedeemCodes,
+  listUsageHistory,
   listUsers,
   revokeSubscription,
   setRedeemCodeActive,
@@ -21,7 +22,9 @@ import {
   wipeUser,
   type AdminAuditEntry,
   type AdminSubscription,
+  type UsageHistoryDay,
 } from "@/lib/firebaseAdmin";
+import { summarizeUsage } from "@/lib/usageStats";
 import { DAY_MS, describeDuration, DURATIONS } from "@/lib/durations";
 import { isValidCode, normalizeCode, type RedeemCode } from "@/lib/redeemState";
 import { PLANS, DEFAULT_PLAN, formatRinggit, planById, type PlanId } from "@/lib/plans";
@@ -392,6 +395,8 @@ export default function AdminPanel({
               </div>
 
               <RevenueSection users={users} />
+
+              <UsageSection />
 
               {providers && (
                 <section>
@@ -1092,6 +1097,116 @@ function RevenueSection({ users }: { users: AdminUser[] | null }) {
  * swallowed — an audit log that silently stops recording is worse than none,
  * because the absence looks exactly like "nothing happened".
  */
+/**
+ * The traffic the caps are counted against, drawn rather than tabulated.
+ *
+ * DAU is a bar chart because a trend is the thing a single number hides — a
+ * quiet week and a dead product look identical in a count. WAU is a union of
+ * real visitor ids across seven days, never a sum of dailies.
+ */
+function UsageSection() {
+  const [days, setDays] = useState<UsageHistoryDay[] | null>(null);
+  const [broken, setBroken] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    void listUsageHistory(60)
+      .then((rows) => {
+        if (!cancelled) setDays(rows);
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setDays([]);
+          setBroken(true);
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const summary = summarizeUsage(days ?? []);
+  const chart = summary.dau.slice(-30);
+  const peak = Math.max(1, ...chart.map((row) => row.users));
+
+  return (
+    <section>
+      <div className="mb-2 flex items-center justify-between">
+        <h3 className="text-[10px] font-semibold uppercase tracking-[0.14em] text-white/35">Usage</h3>
+        <span className="text-[10px] text-white/25">{days === null ? "…" : `${summary.dau.length} days`}</span>
+      </div>
+
+      {broken && (
+        <p className="mb-2 rounded-[10px] border border-amber-300/15 bg-amber-400/[0.06] px-2.5 py-2 text-[10px] leading-relaxed text-amber-100/85">
+          Usage counters could not be read. The chat route keeps writing them; this is a
+          database read the current rules refused.
+        </p>
+      )}
+
+      {days !== null && summary.dau.length === 0 ? (
+        <p className="py-1 text-[11px] leading-relaxed text-white/35">
+          No usage recorded yet. Counters appear here from the first message the server
+          answers.
+        </p>
+      ) : (
+        <>
+          <div className="grid grid-cols-4 gap-2 text-center">
+            <Stat label="Today" value={summary.latestUsers} />
+            <Stat label="This week" value={summary.wau} />
+            <Stat label="Messages" value={summary.totals.chat} />
+            <Stat label="Images" value={summary.totals.image} />
+          </div>
+
+          {chart.length > 0 && (
+            <div className="mt-3 rounded-[12px] border border-white/[0.06] bg-white/[0.02] px-3 pb-2 pt-3">
+              <div className="flex h-16 items-end gap-[3px]" role="img" aria-label="Daily active visitors, last 30 days">
+                {chart.map((row) => (
+                  <span
+                    key={row.day}
+                    title={`${row.day}: ${row.users} visitor${row.users === 1 ? "" : "s"}`}
+                    className="min-w-0 flex-1 rounded-t bg-[#2f6b48]/70 transition-colors hover:bg-[#a9d8bb]/70"
+                    style={{ height: `${Math.max(4, Math.round((row.users / peak) * 100))}%` }}
+                  />
+                ))}
+              </div>
+              <div className="mt-1.5 flex justify-between text-[9px] text-white/25">
+                <span>{chart[0]?.day.slice(5)}</span>
+                <span>daily visitors · peak {peak}</span>
+                <span>{chart[chart.length - 1]?.day.slice(5)}</span>
+              </div>
+            </div>
+          )}
+
+          {summary.modes.length > 0 && (
+            <div className="mt-3 space-y-1">
+              <h4 className="text-[10px] font-semibold uppercase tracking-[0.14em] text-white/30">
+                Messages by mode
+              </h4>
+              {summary.modes.map((row) => {
+                const max = summary.modes[0]?.count ?? 1;
+                return (
+                  <div key={row.mode} className="flex items-center gap-2">
+                    <span className="w-12 shrink-0 text-[10px] uppercase text-white/40">{row.mode}</span>
+                    <span className="h-2 min-w-0 flex-1 overflow-hidden rounded-full bg-white/[0.05]">
+                      <span
+                        className="block h-full rounded-full bg-[#a9d8bb]/50"
+                        style={{ width: `${Math.max(3, Math.round((row.count / max) * 100))}%` }}
+                      />
+                    </span>
+                    <span className="w-12 shrink-0 text-right text-[10px] text-white/50">
+                      {row.count.toLocaleString()}
+                    </span>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </>
+      )}
+    </section>
+  );
+}
+
 function AuditSection({
   entries,
   broken,
