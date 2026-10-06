@@ -6,7 +6,8 @@ import MaintenanceGate from "@/components/MaintenanceGate";
 /** When the first Mino build was created. */
 const DATE_CREATED = "24/9/2026";
 
-/** Milestones reached, oldest first. Titles only — the point is the trail. */
+/** Milestones reached, oldest first. Titles only — the point is the trail.
+    Kept in step with the commits: every bullet is work that landed. */
 const PROGRESS: Array<{ label: string; state: "done" | "active" | "next" }> = [
   { label: "Instant chat", state: "done" },
   { label: "Streaming responses", state: "done" },
@@ -20,8 +21,18 @@ const PROGRESS: Array<{ label: string; state: "done" | "active" | "next" }> = [
   { label: "Admin console", state: "done" },
   { label: "Visitor names", state: "done" },
   { label: "Reasoning effort", state: "done" },
-  { label: "Image generation", state: "active" },
-  { label: "Next", state: "next" },
+  { label: "Image generation", state: "done" },
+  { label: "Plans sold by the day, enforced on the server", state: "done" },
+  { label: "Redeem codes the owner writes and terminates", state: "done" },
+  { label: "Temporary chats that are never written down", state: "done" },
+  { label: "Branching replies, folders, and message search", state: "done" },
+  { label: "Share a conversation as a link", state: "done" },
+  { label: "Bans with a reason, a length, and a record", state: "done" },
+  { label: "Send later, read aloud, trash, and the image gallery", state: "done" },
+  { label: "Notifications checked on every visit", state: "done" },
+  { label: "Chat actions behind a hold menu", state: "done" },
+  { label: "Open beta testing", state: "active" },
+  { label: "Full public launch", state: "next" },
 ];
 
 const STATE_STYLES = {
@@ -110,7 +121,9 @@ function AboutContent() {
         <section className="mt-12">
           <div className="mb-4 flex items-baseline justify-between gap-4">
             <h2 className="text-[10px] font-semibold uppercase tracking-[0.16em] text-white/30">Progress</h2>
-            <span className="text-[11px] text-white/25">{PROGRESS.length - 1} shipped</span>
+            <span className="text-[11px] text-white/25">
+              {PROGRESS.filter((item) => item.state === "done").length} shipped
+            </span>
           </div>
           <ol className="relative">
             {/* One continuous rail behind the markers, inset to sit on the arrow. */}

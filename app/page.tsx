@@ -9,6 +9,7 @@ import ModeSelector from "@/components/ModelSelector";
 import MinoMark from "@/components/MinoMark";
 import MinoTutorial from "@/components/MinoTutorial";
 import SettingsPanel from "@/components/SettingsPanel";
+import NotificationNag from "@/components/NotificationNag";
 import NamePrompt from "@/components/NamePrompt";
 import MaintenanceScreen from "@/components/MaintenanceScreen";
 import { loadDisplayName, saveDisplayName } from "@/lib/visitorName";
@@ -1160,6 +1161,10 @@ export default function HomePage() {
             LG FAILED
           </div>
         )}
+
+        {/* Checked on every visit: subscribed browsers see nothing, everyone
+            else is asked until they are. */}
+        <NotificationNag />
 
         <div className="relative z-10 flex min-h-0 flex-1 flex-col">
           <div className="flex min-h-0 min-w-0 flex-1 flex-col">

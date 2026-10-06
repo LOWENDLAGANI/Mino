@@ -284,6 +284,39 @@ await test("the console has the usage section with its chart", () => {
   assert.match(admin, /function UsageSection/);
 });
 
+await test("notifications are checked on every visit, not asked once", () => {
+  const page = read("app/page.tsx");
+  assert.match(page, /<NotificationNag \/>/, "the every-visit check is not mounted");
+  const nag = read("components/NotificationNag.tsx");
+  assert.match(nag, /currentPushSubscription/, "the prompt does not read the actual subscription");
+  assert.match(nag, /pushServerStatus/, "the prompt asks even when the deployment cannot send");
+  assert.match(nag, /Not now/, "the visitor needs a way out for this visit");
+});
+
+await test("chat actions live behind a hold menu with the feature written out", () => {
+  const sidebar = read("components/Sidebar.tsx");
+  assert.match(sidebar, /startHold/, "holding a row does not open anything");
+  assert.match(sidebar, /data-row-menu/, "the hold menu is not rendered");
+  assert.match(sidebar, /label="Move to folder"/, "an action has no title");
+  assert.match(sidebar, /label=\{chat\.pinned \? "Unpin chat" : "Pin chat"\}/, "pin has no title");
+  assert.ok(
+    !sidebar.includes("group-hover:block"),
+    "the stacked hover buttons this replaced are back in the rail"
+  );
+});
+
+await test("the About progress trail is updated from the commits", () => {
+  const about = read("app/about/page.tsx");
+  assert.match(about, /Send later, read aloud, trash, and the image gallery/, "the latest batch is missing");
+  assert.match(about, /Notifications checked on every visit/);
+  assert.ok(!about.includes('{ label: "Next", state: "next" }'), "the placeholder row is back");
+  assert.match(
+    about,
+    /PROGRESS\.filter\(\(item\) => item\.state === "done"\)\.length/,
+    "the shipped count must count the shipped rows"
+  );
+});
+
 console.log(
   failures === 0
     ? `\n${passes} passed\n`

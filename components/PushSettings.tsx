@@ -102,9 +102,9 @@ export default function PushSettings() {
     <section>
       <h3 className="mb-1.5 text-[13px] font-semibold text-white">Notifications</h3>
       <p className="mb-2.5 text-[11px] leading-relaxed text-white/40">
-        Optional alerts from the installed app — a renewal reminder when your plan is close to
-        ending, and news the owner publishes. Off by default, and only this browser is ever
-        contacted.
+        Alerts from the installed app — a renewal reminder when your plan is close to ending,
+        and news the owner publishes. Mino checks on every visit and asks until this browser is
+        subscribed; only this browser is ever contacted.
       </p>
 
       {configured === false && (

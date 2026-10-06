@@ -16,7 +16,7 @@ import { moveChatToTrash } from "@/lib/trash";
 import type { Chat, ChatFolder } from "@/lib/types";
 import { markChatDeleted, syncChatDelete, syncChatWipe } from "@/lib/firebaseHistory";
 import { nameInitial } from "@/lib/visitorName";
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent, type ReactNode } from "react";
 import MinoMark from "@/components/MinoMark";
 import SearchOverlay from "@/components/SearchOverlay";
 import TrashOverlay from "@/components/TrashOverlay";
@@ -93,6 +93,42 @@ function ToolbarButton({
   );
 }
 
+/**
+ * One labelled row in a chat's hold menu.
+ *
+ * Icon *and* words, never an icon alone: the four symbols this replaces were
+ * stacked at the edge of every row and misclicked precisely because they
+ * carried no text. A menu that names each action needs no guessing, which is
+ * the whole reason the features moved in here.
+ */
+function RowMenuButton({
+  icon,
+  label,
+  danger,
+  onClick,
+}: {
+  icon: ReactNode;
+  label: string;
+  danger?: boolean;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      role="menuitem"
+      onClick={onClick}
+      className={`flex w-full items-center gap-2.5 rounded-xl px-2.5 py-2 text-left text-[12px] transition-colors hover:bg-white/[0.06] ${
+        danger
+          ? "text-red-300/75 hover:bg-red-500/[0.08] hover:text-red-200"
+          : "text-white/70 hover:text-white"
+      }`}
+    >
+      <span className="flex h-4 w-4 shrink-0 items-center justify-center opacity-75">{icon}</span>
+      <span className="min-w-0 flex-1 truncate">{label}</span>
+    </button>
+  );
+}
+
 export default function Sidebar({
   activeChatId,
   onSelectChat,
@@ -142,6 +178,45 @@ export default function Sidebar({
   const [newFolderName, setNewFolderName] = useState("");
   const [fileChatId, setFileChatId] = useState<string | null>(null);
   const [pendingChatId, setPendingChatId] = useState<string | null>(null);
+  // The chat row's own menu: whose is open, and the hold gesture that opens
+  // it. One labelled popup replaces four stacked icon buttons that crowded
+  // each other at the edge of every row in this narrow rail.
+  const [menuChatId, setMenuChatId] = useState<string | null>(null);
+  const holdTimerRef = useRef<number | null>(null);
+  const holdStartRef = useRef<{ x: number; y: number } | null>(null);
+  // Armed when a hold just opened the menu, so the tap that ends the hold
+  // dismisses nothing and navigates nowhere — it only closes the menu.
+  const heldRef = useRef(false);
+
+  const clearHold = () => {
+    if (holdTimerRef.current !== null) {
+      window.clearTimeout(holdTimerRef.current);
+      holdTimerRef.current = null;
+    }
+    holdStartRef.current = null;
+  };
+
+  /** Arms the hold: 450ms without a slip opens this row's menu. */
+  const startHold = (chatId: string, event: ReactPointerEvent) => {
+    // The rename field lives inside the row; a hold there is typing.
+    if ((event.target as HTMLElement).closest("input")) return;
+    clearHold();
+    heldRef.current = false;
+    holdStartRef.current = { x: event.clientX, y: event.clientY };
+    holdTimerRef.current = window.setTimeout(() => {
+      holdTimerRef.current = null;
+      heldRef.current = true;
+      setFileChatId(null);
+      setMenuChatId(chatId);
+    }, 450);
+  };
+
+  /** A finger or cursor that drifted is scrolling, not holding. */
+  const watchHold = (event: ReactPointerEvent) => {
+    const start = holdStartRef.current;
+    if (!start) return;
+    if (Math.abs(event.clientX - start.x) > 8 || Math.abs(event.clientY - start.y) > 8) clearHold();
+  };
 
   // Ctrl/Cmd+K opens search from anywhere in the app — the shortcut people
   // expect since every other tool they use has one.
@@ -155,6 +230,28 @@ export default function Sidebar({
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, []);
+
+  // The hold menu behaves like any context menu: it closes when something
+  // else is touched, and Escape always gets out of it.
+  useEffect(() => {
+    if (!menuChatId) return;
+    const onDown = (event: Event) => {
+      if (!(event.target as HTMLElement).closest("[data-row-menu]")) setMenuChatId(null);
+    };
+    const onEsc = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setMenuChatId(null);
+    };
+    document.addEventListener("pointerdown", onDown);
+    document.addEventListener("keydown", onEsc);
+    return () => {
+      document.removeEventListener("pointerdown", onDown);
+      document.removeEventListener("keydown", onEsc);
+    };
+  }, [menuChatId]);
+
+  // A hold in flight when the list unmounts must not leave a stray timer to
+  // open a menu on something that is no longer on screen.
+  useEffect(() => clearHold, []);
 
   const closeFolderComposer = () => {
     setCreatingFolder(false);
@@ -242,6 +339,7 @@ export default function Sidebar({
 
   const chooseChat = (chatId: string) => {
     setFileChatId(null);
+    setMenuChatId(null);
     setSearchOpen(false);
     setTrashOpen(false);
     setGalleryOpen(false);
@@ -543,15 +641,46 @@ export default function Sidebar({
           )}
 
           <ul className="space-y-1">
-            {visibleChats.map((chat) => {
+            {visibleChats.map((chat, index) => {
               const active = chat.id === activeChatId;
+              // The last rows open upward so the menu never leaves the rail.
+              const menuFlip = index >= visibleChats.length - 2;
               return (
                 <li key={chat.id} className="relative">
                   <div
                     role="button"
                     tabIndex={0}
-                    onClick={() => chooseChat(chat.id)}
-                    onKeyDown={(e) => e.key === "Enter" && chooseChat(chat.id)}
+                    title="Click to open · hold for options"
+                    onClick={() => {
+                      // A hold just opened the menu; the tap that ends it
+                      // must not also navigate into the chat.
+                      if (heldRef.current) {
+                        heldRef.current = false;
+                        return;
+                      }
+                      chooseChat(chat.id);
+                    }}
+                    onPointerDown={(event) => startHold(chat.id, event)}
+                    onPointerUp={clearHold}
+                    onPointerCancel={clearHold}
+                    onPointerLeave={clearHold}
+                    onPointerMove={watchHold}
+                    onContextMenu={(event) => {
+                      // Right-click opens the same menu a hold does.
+                      event.preventDefault();
+                      clearHold();
+                      setFileChatId(null);
+                      setMenuChatId(chat.id);
+                    }}
+                    onKeyDown={(event) => {
+                      if (event.key === "Enter") chooseChat(chat.id);
+                      // The keyboard's context-menu gesture opens the menu too.
+                      if (event.key === "ContextMenu" || (event.shiftKey && event.key === "F10")) {
+                        event.preventDefault();
+                        setFileChatId(null);
+                        setMenuChatId(chat.id);
+                      }
+                    }}
                     className={`group flex cursor-pointer items-center gap-2 rounded-xl px-3 py-2.5 transition-colors ${active ? "bg-white/[0.09]" : "hover:bg-white/[0.05]"}`}
                   >
                     {editingId === chat.id ? (
@@ -582,23 +711,6 @@ export default function Sidebar({
                         <span className={`shrink-0 text-[10px] text-white/25 transition-opacity ${active ? "opacity-100" : "opacity-0 group-hover:opacity-100"}`}>
                           {timeAgo(chat.updatedAt)}
                         </span>
-                        <button onClick={(event) => { event.stopPropagation(); void db.chats.update(chat.id, { pinned: !chat.pinned, updatedAt: Date.now() }); }} className="hidden shrink-0 rounded p-1 text-white/35 hover:text-[#a9d8bb] group-hover:block" aria-label={chat.pinned ? `Unpin ${chat.title}` : `Pin ${chat.title}`} title={chat.pinned ? "Unpin" : "Pin"}>◆</button>
-                        <button
-                          type="button"
-                          onClick={(event) => {
-                            event.stopPropagation();
-                            setFileChatId(fileChatId === chat.id ? null : chat.id);
-                          }}
-                          className="hidden shrink-0 rounded p-1 text-white/35 hover:text-[#a9d8bb] group-hover:block"
-                          aria-label={`Move ${chat.title} to a folder`}
-                          title="Move to folder"
-                        >
-                          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                            <path d="M3 7.5A1.5 1.5 0 0 1 4.5 6h4l2 2.5h7A1.5 1.5 0 0 1 19 10v7a1.5 1.5 0 0 1-1.5 1.5h-13A1.5 1.5 0 0 1 3 17Z" />
-                          </svg>
-                        </button>
-                        <button onClick={(event) => { event.stopPropagation(); setEditingId(chat.id); setDraftTitle(chat.title); }} className="hidden shrink-0 rounded p-1 text-white/35 hover:text-white group-hover:block" aria-label={`Rename ${chat.title}`} title="Rename"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round"><path d="m4 16-.8 4.8L8 20l10.5-10.5a2.8 2.8 0 0 0-4-4L4 16Z" /><path d="m13.5 6.5 4 4" /></svg></button>
-                        <button onClick={(event) => { event.stopPropagation(); handleDeleteChat(chat.id, active); }} className="hidden shrink-0 rounded p-1 text-white/35 hover:text-red-300 group-hover:block" aria-label={`Delete ${chat.title}`} title="Delete — goes to the trash"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round"><path d="M6 6l12 12M18 6L6 18" /></svg></button>
                       </>
                     )}
                   </div>
@@ -638,6 +750,69 @@ export default function Sidebar({
                       </button>
                     </div>
                   )}
+
+                  {menuChatId === chat.id && (
+                    <div
+                      data-row-menu
+                      role="menu"
+                      aria-label={`Options for ${chat.title}`}
+                      className={`animate-pop absolute left-2 z-40 w-48 rounded-2xl border border-white/[0.08] bg-[#141f1a]/[0.98] p-1.5 shadow-2xl shadow-black/80 backdrop-blur-xl ${
+                        menuFlip ? "bottom-full mb-1" : "top-full mt-1"
+                      }`}
+                    >
+                      <RowMenuButton
+                        icon={
+                          <svg width="13" height="13" viewBox="0 0 24 24" fill={chat.pinned ? "currentColor" : "none"} stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+                            <path d="M12 3.5 20.5 12 12 20.5 3.5 12Z" />
+                          </svg>
+                        }
+                        label={chat.pinned ? "Unpin chat" : "Pin chat"}
+                        onClick={() => {
+                          setMenuChatId(null);
+                          void db.chats.update(chat.id, { pinned: !chat.pinned, updatedAt: Date.now() });
+                        }}
+                      />
+                      <RowMenuButton
+                        icon={
+                          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+                            <path d="M3 7.5A1.5 1.5 0 0 1 4.5 6h4l2 2.5h7A1.5 1.5 0 0 1 19 10v7a1.5 1.5 0 0 1-1.5 1.5h-13A1.5 1.5 0 0 1 3 17Z" />
+                          </svg>
+                        }
+                        label="Move to folder"
+                        onClick={() => {
+                          setMenuChatId(null);
+                          setFileChatId(chat.id);
+                        }}
+                      />
+                      <RowMenuButton
+                        icon={
+                          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+                            <path d="m4 16-.8 4.8L8 20l10.5-10.5a2.8 2.8 0 0 0-4-4L4 16Z" />
+                            <path d="m13.5 6.5 4 4" />
+                          </svg>
+                        }
+                        label="Rename chat"
+                        onClick={() => {
+                          setMenuChatId(null);
+                          setEditingId(chat.id);
+                          setDraftTitle(chat.title);
+                        }}
+                      />
+                      <RowMenuButton
+                        danger
+                        icon={
+                          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+                            <path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4.5h6V7" />
+                          </svg>
+                        }
+                        label="Delete chat"
+                        onClick={() => {
+                          setMenuChatId(null);
+                          handleDeleteChat(chat.id, active);
+                        }}
+                      />
+                    </div>
+                  )}
                 </li>
               );
             })}
@@ -646,7 +821,7 @@ export default function Sidebar({
           {visibleChats.length === 0 && (
             <p className="px-2 py-2 text-[12px] leading-relaxed text-white/30">
               {folderFilter
-                ? "Nothing in this folder yet. Hover a chat and press the folder icon."
+                ? "Nothing in this folder yet. Hold a chat to move it here."
                 : "Your conversations will appear here."}
             </p>
           )}
