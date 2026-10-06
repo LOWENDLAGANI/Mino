@@ -5,6 +5,7 @@ import { getModelDisplayName } from "@/lib/models";
 import { imageDownloadName } from "@/lib/imageGeneration";
 import { displayedContent, variantCount, variantPosition } from "@/lib/variants";
 import { downloadChatImage } from "@/lib/shareImage";
+import { buildShareLink } from "@/lib/shareLink";
 import Markdown from "./Markdown";
 import MinoMark from "./MinoMark";
 import { useSmoothText } from "@/lib/useSmoothText";
@@ -566,6 +567,7 @@ export default function ChatThread({  messages,
   // the button says so rather than appearing to do nothing.
   const [sharing, setSharing] = useState(false);
   const [shareNotice, setShareNotice] = useState<string | null>(null);
+  const [linkBusy, setLinkBusy] = useState(false);
   // Seeded deterministically for SSR, then randomized after mount.
   const [headline, setHeadline] = useState(EMPTY_STATE_HEADLINES[0]);
 
@@ -581,6 +583,51 @@ export default function ChatThread({  messages,
     } finally {
       setSharing(false);
       setTimeout(() => setShareNotice(null), 3000);
+    }
+  };
+
+  /**
+   * Hands this conversation over as a URL that carries it inside itself.
+   *
+   * The native share sheet goes first where the browser has one — this is a
+   * phone-first product and "share" on a phone means the sheet — with the
+   * clipboard as the fallback everywhere else, including desktop. Cancelling
+   * the sheet is not a failure and says nothing.
+   */
+  const handleShareLink = async () => {
+    if (linkBusy || sharing) return;
+    setLinkBusy(true);
+    try {
+      const title = messages.find((message) => message.role === "user")?.content ?? "";
+      const link = await buildShareLink(messages, title);
+      const summary =
+        link.included < link.total
+          ? `Link copied · latest ${link.included} of ${link.total} messages`
+          : "Link copied";
+
+      if (typeof navigator !== "undefined" && navigator.share) {
+        try {
+          await navigator.share({ title: "A chat from Mino", url: link.url });
+          setShareNotice(
+            link.included < link.total
+              ? `Shared · latest ${link.included} of ${link.total} messages`
+              : "Shared"
+          );
+          return;
+        } catch (cause) {
+          if (cause instanceof Error && cause.name === "AbortError") return;
+          // Any other refusal (an insecure context, a browser that exposes
+          // `share` but rejects URLs) falls through to the clipboard.
+        }
+      }
+
+      await navigator.clipboard.writeText(link.url);
+      setShareNotice(summary);
+    } catch (cause) {
+      setShareNotice(cause instanceof Error ? cause.message : "Could not build the link");
+    } finally {
+      setLinkBusy(false);
+      setTimeout(() => setShareNotice(null), 4000);
     }
   };
 
@@ -634,6 +681,9 @@ export default function ChatThread({  messages,
       <div className="mx-auto w-full max-w-3xl px-4 pb-8 pt-4 md:px-7 md:pt-6">
         <div className="mb-5 flex items-center justify-end gap-1 text-[10px] text-white/30">
           {shareNotice && <span className="animate-rise mr-1 rounded-lg bg-white/[0.06] px-2 py-1.5 text-white/55">{shareNotice}</span>}
+          <button type="button" onClick={() => void handleShareLink()} disabled={linkBusy || sharing} className="rounded-lg px-2 py-1.5 transition-colors hover:bg-white/[0.06] hover:text-white/70 disabled:opacity-50">
+            {linkBusy ? "Building…" : "Share link"}
+          </button>
           <button type="button" onClick={() => void handleShareImage()} disabled={sharing} className="rounded-lg px-2 py-1.5 transition-colors hover:bg-white/[0.06] hover:text-white/70 disabled:opacity-50">
             {sharing ? "Rendering…" : "Share image"}
           </button>
