@@ -492,12 +492,19 @@ export default function HomePage() {
     [publishTemp, temporary]
   );
 
-  /** The conversation so far, in the order the model must read it. */
-  const threadHistory = useCallback(async (): Promise<ChatMessage[]> => {
-    if (temporary) return tempThreadRef.current.list();
-    if (!activeChatId) return [];
-    return db.messages.where("chatId").equals(activeChatId).sortBy("createdAt");
-  }, [activeChatId, temporary]);
+  /** The conversation so far, in the order the model must read it.
+
+      The chat to read is passed in rather than taken from `activeChatId`: the
+      first message of a new chat is sent before React has re-rendered, so that
+      state still holds the previous value — or nothing at all — and reading it
+      here would hand the server an empty transcript. */
+  const threadHistory = useCallback(
+    async (chatId: string): Promise<ChatMessage[]> => {
+      if (temporary) return tempThreadRef.current.list();
+      return db.messages.where("chatId").equals(chatId).sortBy("createdAt");
+    },
+    [temporary]
+  );
 
   // ── Streaming send ─────────────────────────────────────────────────────────
   const sendMessage = useCallback(
@@ -537,7 +544,7 @@ export default function HomePage() {
       if (!chatId) return;
       if (!temporary) setActiveChatId(chatId);
 
-      const history = await threadHistory();
+      const history = await threadHistory(chatId);
       const apiMessages: ApiMessage[] = history.flatMap((message): ApiMessage[] => {
         if (message.error || (message.role !== "user" && message.role !== "assistant")) return [];
         if (message.role === "user" && (message.images?.length || message.documents?.length)) {
