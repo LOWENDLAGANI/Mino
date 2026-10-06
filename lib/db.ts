@@ -1,5 +1,6 @@
 import Dexie, { type Table } from "dexie";
-import type { Chat, ChatMessage, Memory } from "./types";
+import type { Chat, ChatFolder, ChatMessage, Memory } from "./types";
+import { displayedContent } from "./variants";
 
 // ── Mino — zero-login client-side persistence (IndexedDB via Dexie) ─────────
 //
@@ -11,6 +12,7 @@ export class MinoDB extends Dexie {
   chats!: Table<Chat, string>;
   messages!: Table<ChatMessage, string>;
   memories!: Table<Memory, string>;
+  folders!: Table<ChatFolder, string>;
 
   constructor() {
     super("mino-db");
@@ -25,6 +27,16 @@ export class MinoDB extends Dexie {
       chats: "id, updatedAt, pinned",
       messages: "id, chatId, createdAt",
       memories: "id, createdAt",
+    });
+    // Folders, and the index that lets the sidebar ask "everything in this
+    // folder" of Dexie rather than of JavaScript. Declared as a new version
+    // for the same reason as version 2: an existing browser has to be upgraded,
+    // not re-declared.
+    this.version(3).stores({
+      chats: "id, updatedAt, pinned, folder",
+      messages: "id, chatId, createdAt",
+      memories: "id, createdAt",
+      folders: "id, name",
     });
   }
 }
@@ -136,6 +148,110 @@ export async function importBackup(payload: BackupPayload): Promise<{ chats: num
     await db.messages.bulkPut(payload.messages);
   });
   return { chats: payload.chats.length, messages: payload.messages.length };
+}
+
+// ── Folders ───────────────────────────────────────────────────────────────────
+// Sidebar organisation only. A folder is a name and an id — no nesting, no
+// ordering table — because the question it answers is "which conversations are
+// about work", and anything more than one level deep stops answering that.
+
+const FOLDER_NAME_MAX = 32;
+
+export async function createFolder(name: string): Promise<ChatFolder | null> {
+  const clean = name.trim().replace(/\s+/g, " ").slice(0, FOLDER_NAME_MAX);
+  if (!clean) return null;
+  const existing = await db.folders
+    .filter((folder) => folder.name.toLowerCase() === clean.toLowerCase())
+    .first();
+  if (existing) return existing;
+  const folder: ChatFolder = { id: uid(), name: clean, createdAt: Date.now() };
+  await db.folders.add(folder);
+  return folder;
+}
+
+export async function renameFolder(id: string, name: string): Promise<void> {
+  const clean = name.trim().replace(/\s+/g, " ").slice(0, FOLDER_NAME_MAX);
+  if (!clean) return;
+  await db.folders.update(id, { name: clean });
+}
+
+/**
+ * Deletes a folder and files its chats back under nothing.
+ *
+ * The chats are kept. A folder is a label on conversations somebody wrote, and
+ * deleting the label by accident must not be able to delete the writing — the
+ * row of chats it held simply returns to the main list.
+ */
+export async function deleteFolder(id: string): Promise<void> {
+  await db.transaction("rw", db.folders, db.chats, async () => {
+    await db.folders.delete(id);
+    await db.chats.where("folder").equals(id).modify({ folder: undefined });
+  });
+}
+
+export async function setChatFolder(chatId: string, folderId: string | undefined): Promise<void> {
+  // Deliberately not `touchChat`: filing a conversation is not conversation
+  // activity, and it must not jump to the top of the list for it.
+  await db.chats.update(chatId, { folder: folderId });
+}
+
+// ── Full-text search ─────────────────────────────────────────────────────────
+
+export interface MessageSearchHit {
+  chatId: string;
+  messageId: string;
+  title: string;
+  /** The match with a little text either side, ready to render. */
+  snippet: string;
+  createdAt: number;
+}
+
+const SNIPPET_RADIUS = 46;
+const SEARCH_LIMIT = 30;
+
+function snippetFor(text: string, needle: string): string {
+  const at = text.toLowerCase().indexOf(needle);
+  if (at < 0) return text.slice(0, SNIPPET_RADIUS * 2).trim();
+  const start = Math.max(0, at - SNIPPET_RADIUS);
+  const end = Math.min(text.length, at + needle.length + SNIPPET_RADIUS);
+  return `${start > 0 ? "…" : ""}${text.slice(start, end).trim()}${end < text.length ? "…" : ""}`;
+}
+
+/**
+ * Finds messages whose text contains the query, newest first.
+ *
+ * IndexedDB has no full-text index, so this filters the whole message store —
+ * which is fine precisely because the store is one person's own history on
+ * their own device: tens of thousands of rows at the outside, scanned in
+ * memory in a few milliseconds. The moment this ever became a server query it
+ * would need an index, and it is deliberately not a server query: message text
+ * never leaves the device to be searched.
+ *
+ * Answers the *displayed* variant, because a search that returns text you
+ * cannot then find on screen is worse than no search at all.
+ */
+export async function searchMessages(query: string): Promise<MessageSearchHit[]> {
+  const needle = query.trim().toLowerCase();
+  if (needle.length < 2) return [];
+
+  const [chats, matches] = await Promise.all([
+    db.chats.toArray(),
+    db.messages
+      .orderBy("createdAt")
+      .reverse()
+      .filter((message) => displayedContent(message).toLowerCase().includes(needle))
+      .limit(SEARCH_LIMIT)
+      .toArray(),
+  ]);
+  const titles = new Map(chats.map((chat) => [chat.id, chat.title]));
+
+  return matches.map((message) => ({
+    chatId: message.chatId,
+    messageId: message.id,
+    title: titles.get(message.chatId) ?? "Chat",
+    snippet: snippetFor(displayedContent(message), needle),
+    createdAt: message.createdAt,
+  }));
 }
 
 // ── Mode preference (persisted outside Dexie to survive before DB open) ─────

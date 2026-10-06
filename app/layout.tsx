@@ -1,12 +1,40 @@
 import type { Metadata, Viewport } from "next";
 import ServiceWorker from "@/components/ServiceWorker";
 import SubscriptionCelebration from "@/components/SubscriptionCelebration";
+import PlanExpiryBanner from "@/components/PlanExpiryBanner";
 import "./globals.css";
+
+const DESCRIPTION =
+  "Mino is a private AI assistant by Minetallest. Multi-model chat, vision, image understanding, and image generation.";
 
 export const metadata: Metadata = {
   title: "Mino — AI Assistant by Minetallest",
-  description:
-    "Mino is a private AI assistant by Minetallest. Multi-model chat, vision, image understanding, and image generation.",
+  description: DESCRIPTION,
+  // Relative share links resolve against whatever domain this deployment is
+  // served from, so a preview and production both produce a correct absolute
+  // URL without the name being hardcoded here. Setting NEXT_PUBLIC_SITE_URL
+  // pins it explicitly for crawlers that refuse to resolve a relative path.
+  ...(process.env.NEXT_PUBLIC_SITE_URL
+    ? { metadataBase: new URL(process.env.NEXT_PUBLIC_SITE_URL) }
+    : {}),
+  // ── Share previews ─────────────────────────────────────────────────────────
+  // A link pasted into WhatsApp, X, Telegram or Facebook is, for a paid
+  // product, the advertisement — and without these tags it renders as a bare
+  // URL. The image is the splash artwork already shipped in /public, so the
+  // preview cannot drift from what the app looks like.
+  openGraph: {
+    type: "website",
+    siteName: "Mino",
+    title: "Mino — AI Assistant by Minetallest",
+    description: DESCRIPTION,
+    images: [{ url: "/mino-splash.jpg", alt: "Mino" }],
+  },
+  twitter: {
+    card: "summary_large_image",
+    title: "Mino — AI Assistant by Minetallest",
+    description: DESCRIPTION,
+    images: ["/mino-splash.jpg"],
+  },
   // Without a manifest and a service worker the site is not installable, and
   // without `standalone` the installed copy opens in a browser chrome frame
   // that looks like a website rather than an app.
@@ -57,6 +85,10 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
             to a screen: whoever is granted a plan must be told about it whether
             they are in the chat, on the pricing page, or reading this sentence. */}
         <SubscriptionCelebration />
+        {/* Same reasoning as the dialog above it — the end date belongs to the
+            account, not to a route, and a renewal reminder that only appears on
+            the chat page is one the buyer never sees. */}
+        <PlanExpiryBanner />
         <ServiceWorker />
       </body>
     </html>

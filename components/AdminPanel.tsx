@@ -6,10 +6,12 @@ import AdminControls from "./AdminControls";
 import ModelHealthSection from "./ModelHealth";
 import { firebaseConfigured, fetchVisitorRegistry, getServices, type VisitorProfile } from "@/lib/firebaseHistory";
 import {
+  appendAdminAudit,
   createRedeemCode,
   deleteRedeemCode,
   getChat,
   grantSubscription,
+  listAdminAudit,
   listChats,
   listRedeemCodes,
   listUsers,
@@ -17,9 +19,10 @@ import {
   setRedeemCodeActive,
   wipeAll,
   wipeUser,
+  type AdminAuditEntry,
   type AdminSubscription,
 } from "@/lib/firebaseAdmin";
-import { describeDuration, DURATIONS } from "@/lib/durations";
+import { DAY_MS, describeDuration, DURATIONS } from "@/lib/durations";
 import { isValidCode, normalizeCode, type RedeemCode } from "@/lib/redeemState";
 import { PLANS, DEFAULT_PLAN, formatRinggit, planById, type PlanId } from "@/lib/plans";
 import { normalizeDays } from "@/lib/durations";
@@ -78,6 +81,11 @@ export default function AdminPanel({
   const [error, setError] = useState<string | null>(null);
   const [diagnostics, setDiagnostics] = useState<Record<string, unknown> | null>(null);
   const [busy, setBusy] = useState(false);
+  // The grant ledger, and whether writing to it failed. The two are separate
+  // on purpose: a rules file that predates `admin/audit` refuses the write, and
+  // that must never be reported as "the grant failed" when the grant landed.
+  const [audit, setAudit] = useState<AdminAuditEntry[] | null>(null);
+  const [auditBroken, setAuditBroken] = useState(false);
   const [confirmWipe, setConfirmWipe] = useState<null | { scope: "all" | "user"; uid?: string; label: string }>(null);
   // Whose plan is being granted, and the choices made for it. Kept as a uid so
   // the panel always reads the current record out of `users` rather than a copy
@@ -172,6 +180,8 @@ export default function AdminPanel({
     setConfirmWipe(null);
     setGrantingUid(null);
     setGrantNote("");
+    setAudit(null);
+    setAuditBroken(false);
 
     void call("listUsers")
       .then((data) => setUsers(data.users as AdminUser[]))
@@ -183,6 +193,9 @@ export default function AdminPanel({
     void fetchVisitorRegistry()
       .then(setNamed)
       .catch(() => setNamed([]));
+    void listAdminAudit()
+      .then(setAudit)
+      .catch(() => setAudit([]));
 
     const onKey = (event: KeyboardEvent) => {
       if (event.key === "Escape") onClose();
@@ -259,6 +272,24 @@ export default function AdminPanel({
       );
       setGrantingUid(null);
       setGrantNote("");
+      // The ledger is written after the grant, never before, and a failure here
+      // is reported as a ledger failure rather than swallowing the grant that
+      // just succeeded.
+      const name = users?.find((user) => user.uid === uid)?.name ?? null;
+      const written = await appendAdminAudit({
+        at: record.grantedAt,
+        action: "grant",
+        uid,
+        name,
+        plan: record.plan,
+        days: record.days,
+        expiresAt: record.expiresAt,
+        ...(grantNote.trim() ? { note: grantNote.trim() } : {}),
+      }).catch(() => {
+        setAuditBroken(true);
+        return null;
+      });
+      if (written) setAudit((current) => [written, ...(current ?? [])]);
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : "Could not grant the plan.");
     } finally {
@@ -270,11 +301,27 @@ export default function AdminPanel({
     setBusy(true);
     setError(null);
     try {
+      const target = users?.find((user) => user.uid === uid) ?? null;
       await revokeSubscription(uid);
       setUsers((current) =>
         (current ?? []).map((user) => (user.uid === uid ? { ...user, subscription: null } : user))
       );
       setGrantingUid(null);
+      // Captured before the removal above: once the record is gone, the console
+      // no longer knows which tier was taken away, and the history would then
+      // say only "something was removed".
+      const written = await appendAdminAudit({
+        at: Date.now(),
+        action: "revoke",
+        uid,
+        name: target?.name ?? null,
+        plan: target?.subscription?.plan,
+        expiresAt: target?.subscription?.expiresAt,
+      }).catch(() => {
+        setAuditBroken(true);
+        return null;
+      });
+      if (written) setAudit((current) => [written, ...(current ?? [])]);
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : "Could not remove the plan.");
     } finally {
@@ -343,6 +390,8 @@ export default function AdminPanel({
                 <Stat label="Chats" value={users?.reduce((sum, user) => sum + user.chats, 0)} />
                 <Stat label="Messages" value={users?.reduce((sum, user) => sum + user.messages, 0)} />
               </div>
+
+              <RevenueSection users={users} />
 
               {providers && (
                 <section>
@@ -484,6 +533,8 @@ export default function AdminPanel({
               </section>
 
               <CodesSection />
+
+              <AuditSection entries={audit} broken={auditBroken} />
 
               <div className="rounded-[16px] border border-red-400/15 bg-red-500/[0.05] p-3.5">
                 <h3 className="text-[11px] font-semibold text-red-200/90">Danger zone</h3>
@@ -948,6 +999,167 @@ function GrantPanel({
         </button>
       </div>
     </div>
+  );
+}
+
+/**
+ * The money the console has actually recorded, for this month.
+ *
+ * Everything is derived from what is already in `subscriptions/` rather than
+ * from a second ledger, because two sources of truth about money is how they
+ * start disagreeing. Two limits are said out loud on the screen instead of
+ * hidden behind a confident total:
+ *
+ *   * Each person contributes their *current* record. A renewal replaces the
+ *     one before it, so this is a view of what is on the books now rather than
+ *     an accounting of every sale ever made.
+ *   * Value counts only lengths that appear on the price list. A custom grant
+ *     (the console can hand out 45 days) was never sold at a price, so it is
+ *     counted as a grant and left out of the money instead of being priced at
+ *     the nearest month — a guessed number beside a real one is worse than a
+ *     real one with a stated gap.
+ */
+function RevenueSection({ users }: { users: AdminUser[] | null }) {
+  if (users === null) {
+    return (
+      <section>
+        <h3 className="mb-1.5 text-[10px] font-semibold uppercase tracking-[0.14em] text-white/35">
+          This month
+        </h3>
+        <p className="py-1 text-[11px] text-white/35">Loading…</p>
+      </section>
+    );
+  }
+
+  const now = Date.now();
+  const monthStart = new Date();
+  monthStart.setDate(1);
+  monthStart.setHours(0, 0, 0, 0);
+  const start = monthStart.getTime();
+
+  let grants = 0;
+  let days = 0;
+  let value = 0;
+  let custom = 0;
+  let mini = 0;
+  let lunar = 0;
+  let active = 0;
+  let expiringSoon = 0;
+
+  for (const user of users) {
+    const subscription = user.subscription;
+    if (!subscription) continue;
+    if (subscription.expiresAt > now) {
+      active += 1;
+      if (subscription.expiresAt <= now + 7 * DAY_MS) expiringSoon += 1;
+    }
+    if (subscription.grantedAt < start) continue;
+    grants += 1;
+    days += subscription.days;
+    if (subscription.plan === "mini") mini += 1;
+    else lunar += 1;
+    const term = planById(subscription.plan).terms.find((item) => item.days === subscription.days);
+    if (term) value += term.ringgit;
+    else custom += 1;
+  }
+
+  return (
+    <section>
+      <h3 className="mb-1.5 text-[10px] font-semibold uppercase tracking-[0.14em] text-white/35">
+        This month
+      </h3>
+      <div className="grid grid-cols-3 gap-2 text-center">
+        <Stat label="Grants" value={grants} />
+        <Stat label="Days sold" value={days} />
+        <Stat label="Value (RM)" value={value} />
+      </div>
+      <p className="mt-1.5 text-[10px] leading-relaxed text-white/30">
+        Mini {mini} · Lunar {lunar}
+        {custom > 0
+          ? ` · ${custom} custom-length grant${custom === 1 ? "" : "s"} not on the price list`
+          : ""}
+        . {active} active now, {expiringSoon} ending within 7 days.
+        <br />
+        Value counts only lengths sold on the price list, from each person&apos;s current record.
+      </p>
+    </section>
+  );
+}
+
+/**
+ * The ledger: every grant and removal, newest first, with the payment
+ * reference typed at the time. A refusal to write it is shown rather than
+ * swallowed — an audit log that silently stops recording is worse than none,
+ * because the absence looks exactly like "nothing happened".
+ */
+function AuditSection({
+  entries,
+  broken,
+}: {
+  entries: AdminAuditEntry[] | null;
+  broken: boolean;
+}) {
+  return (
+    <section>
+      <div className="mb-2 flex items-center justify-between">
+        <h3 className="text-[10px] font-semibold uppercase tracking-[0.14em] text-white/35">
+          Grant history
+        </h3>
+        <span className="text-[10px] text-white/25">
+          {entries === null ? "…" : entries.length}
+        </span>
+      </div>
+
+      {broken && (
+        <p className="mb-2 rounded-[10px] border border-amber-300/15 bg-amber-400/[0.06] px-2.5 py-2 text-[10px] leading-relaxed text-amber-100/85">
+          The database rules in use do not cover <code>admin/audit</code>, so history could not be
+          written. The grants themselves succeeded. Publish <code>admin/audit</code> rules to
+          record them.
+        </p>
+      )}
+
+      {entries === null ? (
+        <p className="py-1 text-[11px] text-white/35">Loading…</p>
+      ) : entries.length === 0 ? (
+        <p className="py-1 text-[11px] leading-relaxed text-white/35">
+          Nothing recorded yet. Every grant and removal lands here with the payment reference you
+          typed.
+        </p>
+      ) : (
+        <ul className="space-y-1">
+          {entries.map((entry) => (
+            <li
+              key={entry.id}
+              className="flex items-start gap-2 rounded-[12px] border border-white/[0.06] bg-white/[0.03] px-3 py-2"
+            >
+              <span
+                className={`mt-0.5 shrink-0 rounded px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide ${
+                  entry.action === "grant"
+                    ? "bg-[#2f6b48]/20 text-[#a9d8bb]"
+                    : "bg-red-500/15 text-red-300"
+                }`}
+              >
+                {entry.action === "grant" ? "Grant" : "Removed"}
+              </span>
+              <span className="min-w-0 flex-1">
+                <span className="block truncate text-[12px] text-white/85">
+                  {entry.name ?? `${entry.uid.slice(0, 8)}…`}
+                </span>
+                <span className="block text-[10px] leading-relaxed text-white/35">
+                  {entry.plan ? planById(entry.plan).short : "—"}
+                  {entry.days ? ` · ${describeDuration(entry.days)}` : ""}
+                  {entry.note ? ` · ${entry.note}` : ""}
+                  {` · ${when(entry.at)}`}
+                  {entry.expiresAt
+                    ? ` → until ${new Date(entry.expiresAt).toLocaleDateString(undefined, { dateStyle: "medium" })}`
+                    : ""}
+                </span>
+              </span>
+            </li>
+          ))}
+        </ul>
+      )}
+    </section>
   );
 }
 

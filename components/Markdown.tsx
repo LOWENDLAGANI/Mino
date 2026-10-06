@@ -7,6 +7,7 @@ import remarkGfm from "remark-gfm";
 import { Prism as SyntaxHighlighterBase } from "react-syntax-highlighter";
 import { oneDark } from "react-syntax-highlighter/dist/cjs/styles/prism";
 import { parseFenceInfo } from "@/lib/codeFence";
+import ArtifactFrame from "./ArtifactFrame";
 
 // ── Markdown renderer with syntax-highlighted code blocks + copy button ─────
 
@@ -52,6 +53,80 @@ interface HighlighterProps {
 const SyntaxHighlighter = SyntaxHighlighterBase as unknown as React.FC<HighlighterProps>;
 
 /**
+ * Whether this fence is a whole web page rather than a snippet.
+ *
+ * The test is deliberately strict: the language has to be html (or the file
+ * named `.html`) *and* the contents have to open like a document. Highlighting
+ * a `<div>` as a live preview would render a fragment with no styling and look
+ * broken, which is worse than not offering a preview at all.
+ */
+function isArtifactDocument(language: string, path: string | null | undefined, code: string): boolean {
+  const looksLikeHtml = language === "html" || Boolean(path && path.toLowerCase().endsWith(".html"));
+  if (!looksLikeHtml) return false;
+  return /^\s*(<!doctype html|<html[\s>])/i.test(code);
+}
+
+/**
+ * One fenced block, with the Preview/Code toggle when it is a whole document.
+ *
+ * This is a component rather than a branch inside `components.code` on purpose:
+ * the toggle is state, and `components.code` also renders inline code, where
+ * calling a hook conditionally would be an invalid hook call.
+ */
+function CodeBlock({
+  language,
+  path,
+  codeText,
+}: {
+  language: string;
+  path?: string | null;
+  codeText: string;
+}) {
+  const [showPreview, setShowPreview] = useState(true);
+  const artifact = isArtifactDocument(language, path, codeText);
+  const highlight = language || "text";
+
+  return (
+    <div className="code-block">
+      <div className="code-block-header">
+        {path ? (
+          <span className="code-block-file" title={path}>
+            {path}
+          </span>
+        ) : (
+          <span className="code-block-lang">{artifact ? "artifact" : highlight}</span>
+        )}
+        {path && language && <span className="code-block-lang">{language}</span>}
+        <span className="flex-1" />
+        {artifact && (
+          <button
+            type="button"
+            onClick={() => setShowPreview((value) => !value)}
+            className="copy-btn"
+            aria-label={showPreview ? "Show the code" : "Show the preview"}
+          >
+            {showPreview ? "Code" : "Preview"}
+          </button>
+        )}
+        <CopyButton text={codeText} />
+      </div>
+      {artifact && showPreview ? (
+        <ArtifactFrame html={codeText} />
+      ) : (
+        <SyntaxHighlighter
+          language={highlight}
+          style={oneDark}
+          customStyle={{ margin: 0, background: "transparent", fontSize: 13 }}
+          codeTagProps={{ style: { fontFamily: "inherit" } }}
+        >
+          {codeText}
+        </SyntaxHighlighter>
+      )}
+    </div>
+  );
+}
+
+/**
  * Splits a fence info string into a language and an optional file path.
  *
  * The model is asked to name the file it is writing — ```` ```ts src/lib/thing.ts ```` —
@@ -75,34 +150,8 @@ const components = {
     }
 
     const { language, path } = parseFenceInfo(match[1] ?? "");
-    const highlight = language || "text";
 
-    return (
-      <div className="code-block">
-        <div className="code-block-header">
-          {/* The filename leads, because that is what tells the reader which
-              file to paste it into. The language is a quiet hint beside it. */}
-          {path ? (
-            <span className="code-block-file" title={path}>
-              {path}
-            </span>
-          ) : (
-            <span className="code-block-lang">{highlight}</span>
-          )}
-          {path && language && <span className="code-block-lang">{language}</span>}
-          <span className="flex-1" />
-          <CopyButton text={codeText} />
-        </div>
-        <SyntaxHighlighter
-          language={highlight}
-          style={oneDark}
-          customStyle={{ margin: 0, background: "transparent", fontSize: 13 }}
-          codeTagProps={{ style: { fontFamily: "inherit" } }}
-        >
-          {codeText}
-        </SyntaxHighlighter>
-      </div>
-    );
+    return <CodeBlock language={language} path={path} codeText={codeText} />;
   },
   a(props: { href?: string; children?: ReactNode }) {
     const { href, children } = props;

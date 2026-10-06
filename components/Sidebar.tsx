@@ -4,13 +4,18 @@ import { useLiveQuery } from "dexie-react-hooks";
 import { useSubscription } from "@/lib/useSubscription";
 import {
   db,
+  createFolder,
+  deleteFolder,
+  setChatFolder,
   deleteChat,
   clearAllData,
   exportBackup,
   importBackup,
+  searchMessages,
   type BackupPayload,
+  type MessageSearchHit,
 } from "@/lib/db";
-import type { Chat } from "@/lib/types";
+import type { Chat, ChatFolder } from "@/lib/types";
 import { markChatDeleted, syncChatDelete, syncChatWipe } from "@/lib/firebaseHistory";
 import { nameInitial } from "@/lib/visitorName";
 import { useEffect, useRef, useState, type ReactNode } from "react";
@@ -64,6 +69,11 @@ export default function Sidebar({ activeChatId, onSelectChat, onNewChat, tempora
     [],
     [] as Chat[]
   );
+  const folders = useLiveQuery(
+    () => db.folders.orderBy("name").toArray(),
+    [],
+    [] as ChatFolder[]
+  );
 
   // What this visitor has paid for. The promotion at the bottom of the sidebar
   // changes shape entirely once they have: selling Mino Lunar to somebody who
@@ -78,6 +88,62 @@ export default function Sidebar({ activeChatId, onSelectChat, onNewChat, tempora
   const [search, setSearch] = useState("");
   const [editingId, setEditingId] = useState<string | null>(null);
   const [draftTitle, setDraftTitle] = useState("");
+  // Folders: which one the list is filtered to, whether the new-folder input
+  // is open, whose "move to folder" menu is open, and the chat waiting for a
+  // folder that is being created from inside that menu.
+  const [folderFilter, setFolderFilter] = useState<string | null>(null);
+  const [creatingFolder, setCreatingFolder] = useState(false);
+  const [newFolderName, setNewFolderName] = useState("");
+  const [fileChatId, setFileChatId] = useState<string | null>(null);
+  const [pendingChatId, setPendingChatId] = useState<string | null>(null);
+
+  const closeFolderComposer = () => {
+    setCreatingFolder(false);
+    setPendingChatId(null);
+    setNewFolderName("");
+  };
+
+  const submitFolder = async () => {
+    const folder = await createFolder(newFolderName);
+    const waiting = pendingChatId;
+    closeFolderComposer();
+    if (!folder) return;
+    // A folder created from a chat's menu exists to hold *that* chat, so the
+    // move happens with the create — otherwise the folder appears and the
+    // conversation is still sitting where it was.
+    if (waiting) await setChatFolder(waiting, folder.id);
+  };
+
+  const fileInto = async (chatId: string, folderId: string | undefined) => {
+    await setChatFolder(chatId, folderId);
+    setFileChatId(null);
+  };
+
+  const removeFolder = async (id: string) => {
+    await deleteFolder(id);
+    if (folderFilter === id) setFolderFilter(null);
+  };
+
+  // Full-text hits for the search box: local, bounded, and only asked once
+  // there is something to search for. It sits below the state it reads — the
+  // search box is declared above — rather than at the top with the other
+  // queries, where it would read a value that does not exist yet.
+  const messageHits = useLiveQuery(
+    () => searchMessages(search),
+    [search],
+    [] as MessageSearchHit[]
+  );
+
+  // One filter, applied once: folder first (cheap, indexed), then the title
+  // search. Pinned chats still float to the top of whatever survives it.
+  const visibleChats = (chats ?? [])
+    .filter(
+      (chat) =>
+        (!folderFilter || chat.folder === folderFilter) &&
+        chat.title.toLowerCase().includes(search.toLowerCase())
+    )
+    .sort((a, b) => Number(Boolean(b.pinned)) - Number(Boolean(a.pinned)));
+  const hasMessageHits = search.trim().length >= 2 && (messageHits?.length ?? 0) > 0;
 
   useEffect(() => {
     if (!notice) return;
@@ -312,23 +378,122 @@ export default function Sidebar({ activeChatId, onSelectChat, onNewChat, tempora
               autoFocus
               value={search}
               onChange={(event) => setSearch(event.target.value)}
-              placeholder="Search your chats"
+              placeholder="Search chats and messages"
               className="w-full rounded-xl border border-white/[0.08] bg-white/[0.05] px-3 py-2.5 text-[13px] text-white outline-none placeholder:text-white/30 focus:border-[#3f7d5c]/50"
             />
           </div>
         )}
 
+        {(folders?.length ?? 0) > 0 && (
+          <div className="flex flex-wrap gap-1.5 px-4 pt-3" role="group" aria-label="Chat folders">
+            <button
+              type="button"
+              onClick={() => setFolderFilter(null)}
+              aria-pressed={folderFilter === null}
+              className={`rounded-full border px-2.5 py-1 text-[11px] transition-colors ${
+                folderFilter === null
+                  ? "border-[#2f6b48]/50 bg-[#2f6b48]/15 text-white"
+                  : "border-white/[0.08] bg-white/[0.03] text-white/45 hover:text-white/80"
+              }`}
+            >
+              All
+            </button>
+            {folders?.map((folder) => (
+              <span
+                key={folder.id}
+                className={`flex items-center rounded-full border text-[11px] transition-colors ${
+                  folderFilter === folder.id
+                    ? "border-[#2f6b48]/50 bg-[#2f6b48]/15 text-white"
+                    : "border-white/[0.08] bg-white/[0.03] text-white/45"
+                }`}
+              >
+                <button
+                  type="button"
+                  onClick={() => setFolderFilter(folderFilter === folder.id ? null : folder.id)}
+                  aria-pressed={folderFilter === folder.id}
+                  className="px-2.5 py-1 hover:text-white"
+                >
+                  {folder.name}
+                </button>
+                {folderFilter === folder.id && (
+                  <button
+                    type="button"
+                    onClick={() => void removeFolder(folder.id)}
+                    className="pr-1.5 text-white/35 transition-colors hover:text-red-300"
+                    aria-label={`Remove the ${folder.name} folder`}
+                    title="Remove the folder — its chats stay"
+                  >
+                    ×
+                  </button>
+                )}
+              </span>
+            ))}
+          </div>
+        )}
+
         <div className="mt-6 min-h-0 flex-1 overflow-y-auto px-4" data-tutorial="sidebar-recent">
-          <div className="mb-2 px-2 text-[11px] font-medium uppercase tracking-[0.12em] text-white/30">Recent</div>
+          <div className="mb-2 flex items-center justify-between px-2">
+            <span className="text-[11px] font-medium uppercase tracking-[0.12em] text-white/30">
+              {folderFilter
+                ? folders?.find((folder) => folder.id === folderFilter)?.name ?? "Recent"
+                : "Recent"}
+            </span>
+            <button
+              type="button"
+              onClick={() => {
+                setPendingChatId(null);
+                setNewFolderName("");
+                setCreatingFolder(true);
+              }}
+              className="text-[10px] text-white/30 transition-colors hover:text-white/70"
+            >
+              + Folder
+            </button>
+          </div>
+
+          {creatingFolder && (
+            <div className="mb-2 flex items-center gap-1.5 rounded-xl border border-white/[0.08] bg-white/[0.04] px-2 py-1.5 animate-rise">
+              <input
+                autoFocus
+                value={newFolderName}
+                onChange={(event) => setNewFolderName(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter") void submitFolder();
+                  if (event.key === "Escape") closeFolderComposer();
+                }}
+                placeholder="Folder name"
+                maxLength={32}
+                className="min-w-0 flex-1 bg-transparent text-[12px] text-white outline-none placeholder:text-white/30"
+              />
+              <button
+                type="button"
+                onClick={() => void submitFolder()}
+                className="rounded-lg bg-[#2f6b48] px-2 py-1 text-[10px] font-semibold text-black"
+              >
+                Add
+              </button>
+              <button
+                type="button"
+                onClick={closeFolderComposer}
+                className="text-[10px] text-white/40 transition-colors hover:text-white"
+              >
+                Cancel
+              </button>
+            </div>
+          )}
+
           <ul className="space-y-1">
-            {chats?.filter((chat) => chat.title.toLowerCase().includes(search.toLowerCase())).sort((a, b) => Number(Boolean(b.pinned)) - Number(Boolean(a.pinned))).map((chat) => {
+            {visibleChats.map((chat) => {
               const active = chat.id === activeChatId;
               return (
-                <li key={chat.id}>
+                <li key={chat.id} className="relative">
                   <div
                     role="button"
                     tabIndex={0}
-                    onClick={() => onSelectChat(chat.id)}
+                    onClick={() => {
+                      setFileChatId(null);
+                      onSelectChat(chat.id);
+                    }}
                     onKeyDown={(e) => e.key === "Enter" && onSelectChat(chat.id)}
                     className={`group flex cursor-pointer items-center gap-2 rounded-xl px-3 py-3 transition-colors ${active ? "bg-white/[0.09]" : "hover:bg-white/[0.05]"}`}
                   >
@@ -361,17 +526,101 @@ export default function Sidebar({ activeChatId, onSelectChat, onNewChat, tempora
                           {timeAgo(chat.updatedAt)}
                         </span>
                         <button onClick={(event) => { event.stopPropagation(); void db.chats.update(chat.id, { pinned: !chat.pinned, updatedAt: Date.now() }); }} className="hidden shrink-0 rounded p-1 text-white/35 hover:text-[#a9d8bb] group-hover:block" aria-label={chat.pinned ? `Unpin ${chat.title}` : `Pin ${chat.title}`} title={chat.pinned ? "Unpin" : "Pin"}>◆</button>
+                        <button
+                          type="button"
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            setFileChatId(fileChatId === chat.id ? null : chat.id);
+                          }}
+                          className="hidden shrink-0 rounded p-1 text-white/35 hover:text-[#a9d8bb] group-hover:block"
+                          aria-label={`Move ${chat.title} to a folder`}
+                          title="Move to folder"
+                        >
+                          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                            <path d="M3 7.5A1.5 1.5 0 0 1 4.5 6h4l2 2.5h7A1.5 1.5 0 0 1 19 10v7a1.5 1.5 0 0 1-1.5 1.5h-13A1.5 1.5 0 0 1 3 17Z" />
+                          </svg>
+                        </button>
                         <button onClick={(event) => { event.stopPropagation(); setEditingId(chat.id); setDraftTitle(chat.title); }} className="hidden shrink-0 rounded p-1 text-white/35 hover:text-white group-hover:block" aria-label={`Rename ${chat.title}`} title="Rename"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round"><path d="m4 16-.8 4.8L8 20l10.5-10.5a2.8 2.8 0 0 0-4-4L4 16Z" /><path d="m13.5 6.5 4 4" /></svg></button>
                         <button onClick={(event) => { event.stopPropagation(); markChatDeleted(chat.id); void syncChatDelete(chat.id); void deleteChat(chat.id); if (active) onNewChat(); }} className="hidden shrink-0 rounded p-1 text-white/35 hover:text-red-300 group-hover:block" aria-label={`Delete ${chat.title}`}><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round"><path d="M6 6l12 12M18 6L6 18" /></svg></button>
                       </>
                     )}
                   </div>
+
+                  {fileChatId === chat.id && (
+                    <div className="absolute right-2 top-full z-30 mt-1 w-44 rounded-xl border border-white/10 bg-[#0f1713] p-1 shadow-2xl shadow-black/60 animate-rise">
+                      <button
+                        type="button"
+                        onClick={() => void fileInto(chat.id, undefined)}
+                        className="block w-full rounded-lg px-2.5 py-1.5 text-left text-[11px] text-white/60 transition-colors hover:bg-white/[0.06] hover:text-white"
+                      >
+                        No folder
+                      </button>
+                      {folders?.map((folder) => (
+                        <button
+                          key={folder.id}
+                          type="button"
+                          onClick={() => void fileInto(chat.id, folder.id)}
+                          className={`block w-full rounded-lg px-2.5 py-1.5 text-left text-[11px] transition-colors hover:bg-white/[0.06] ${
+                            chat.folder === folder.id ? "text-[#a9d8bb]" : "text-white/60 hover:text-white"
+                          }`}
+                        >
+                          {folder.name}
+                        </button>
+                      ))}
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setFileChatId(null);
+                          setPendingChatId(chat.id);
+                          setNewFolderName("");
+                          setCreatingFolder(true);
+                        }}
+                        className="mt-0.5 block w-full border-t border-white/[0.07] px-2.5 py-1.5 text-left text-[11px] text-white/45 transition-colors hover:text-white"
+                      >
+                        + New folder…
+                      </button>
+                    </div>
+                  )}
                 </li>
               );
             })}
           </ul>
-          {chats?.filter((chat) => chat.title.toLowerCase().includes(search.toLowerCase())).length === 0 && (
-            <p className="px-2 py-2 text-[12px] leading-relaxed text-white/30">{search ? "No matching chats." : "Your conversations will appear here."}</p>
+
+          {visibleChats.length === 0 && !hasMessageHits && (
+            <p className="px-2 py-2 text-[12px] leading-relaxed text-white/30">
+              {search
+                ? "No matching chats or messages."
+                : folderFilter
+                  ? "Nothing in this folder yet. Hover a chat and press the folder icon."
+                  : "Your conversations will appear here."}
+            </p>
+          )}
+
+          {hasMessageHits && (
+            <div className="mt-4 animate-rise">
+              <div className="mb-1.5 px-2 text-[11px] font-medium uppercase tracking-[0.12em] text-white/30">
+                Messages
+              </div>
+              <ul className="space-y-1">
+                {messageHits?.map((hit) => (
+                  <li key={hit.messageId}>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setFileChatId(null);
+                        onSelectChat(hit.chatId);
+                      }}
+                      className="w-full rounded-xl px-3 py-2 text-left transition-colors hover:bg-white/[0.05]"
+                    >
+                      <span className="block truncate text-[12px] text-white/70">{hit.title}</span>
+                      <span className="mt-0.5 block truncate text-[11px] text-white/35">
+                        {hit.snippet}
+                      </span>
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            </div>
           )}
         </div>
 

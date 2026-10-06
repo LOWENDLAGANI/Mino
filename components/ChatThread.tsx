@@ -3,6 +3,8 @@
 import type { ChatMessage, GeneratedImage } from "@/lib/types";
 import { getModelDisplayName } from "@/lib/models";
 import { imageDownloadName } from "@/lib/imageGeneration";
+import { displayedContent, variantCount, variantPosition } from "@/lib/variants";
+import { downloadChatImage } from "@/lib/shareImage";
 import Markdown from "./Markdown";
 import MinoMark from "./MinoMark";
 import { useSmoothText } from "@/lib/useSmoothText";
@@ -17,6 +19,8 @@ interface ChatThreadProps {
   onRegenerate: (assistantId: string) => void;
   onEditMessage: (messageId: string, content: string) => void;
   onCopyConversation: () => void;
+  /** Which answer is on screen for a message that has more than one. */
+  onSwitchVariant: (messageId: string, index: number | null) => void;
 }
 
 const STREAMING_MESSAGES = [
@@ -120,20 +124,73 @@ function MessageActions({ onRegenerate }: { onRegenerate: () => void }) {
   );
 }
 
-function MessageRow({ msg, streaming, drawing, onRegenerate, onEditMessage }: {
+/**
+ * The stepper for an answer with more than one version.
+ *
+ * A retry or an edit used to replace the answer; now the old one stays, so the
+ * reader needs a way to see both. Position 0 is the live answer and k is the
+ * k-th previous one — the numbering counts from the newest, because that is the
+ * one people think of as "the" answer when they start browsing.
+ */
+function VariantNav({
+  message,
+  onSwitch,
+}: {
+  message: ChatMessage;
+  onSwitch: (index: number | null) => void;
+}) {
+  const count = variantCount(message);
+  if (count <= 1) return null;
+  const position = variantPosition(message);
+  const go = (next: number) => onSwitch(next <= 0 ? null : next);
+
+  return (
+    <span className="ml-auto flex shrink-0 items-center gap-0.5 rounded-full border border-white/[0.08] bg-white/[0.035] px-1 py-0.5 text-[10px] text-white/45">
+      <button
+        type="button"
+        onClick={() => go(position - 1)}
+        disabled={position === 0}
+        className="flex h-4 w-4 items-center justify-center rounded-full transition-colors hover:bg-white/[0.08] hover:text-white disabled:opacity-25"
+        aria-label="Show the newer answer"
+      >
+        ‹
+      </button>
+      <span className={position === 0 ? "px-0.5" : "px-0.5 text-[#a9d8bb]"}>
+        {position + 1}/{count}
+        {position === 0 ? " latest" : " earlier"}
+      </span>
+      <button
+        type="button"
+        onClick={() => go(position + 1)}
+        disabled={position >= count - 1}
+        className="flex h-4 w-4 items-center justify-center rounded-full transition-colors hover:bg-white/[0.08] hover:text-white disabled:opacity-25"
+        aria-label="Show the previous answer"
+      >
+        ›
+      </button>
+    </span>
+  );
+}
+
+function MessageRow({ msg, streaming, drawing, onRegenerate, onEditMessage, onSwitchVariant }: {
   msg: ChatMessage;
   streaming: boolean;
   drawing: boolean;
   onRegenerate: () => void;
   onEditMessage: (content: string) => void;
+  onSwitchVariant: (index: number | null) => void;
 }) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(msg.content);
+  // What the reader is looking at: the live answer, or an earlier one they
+  // stepped back to. Every display and copy below uses this, so the screen and
+  // the clipboard can never disagree about which answer is being read.
+  const displayText = displayedContent(msg);
   // While the answer is arriving, the text on screen trails the text already
   // received, revealed at a steady pace instead of landing in whatever size
   // chunks the provider happened to send. Finished answers are never held
   // back — only the streaming one is animated.
-  const shownContent = useSmoothText(msg.content, streaming);
+  const shownContent = useSmoothText(displayText, streaming);
   if (msg.role === "user") {
     return (
       <div className="group flex flex-col items-end animate-rise">
@@ -190,6 +247,7 @@ function MessageRow({ msg, streaming, drawing, onRegenerate, onEditMessage }: {
         {msg.usage && (
           <span className="text-[10px] text-text-low">{msg.usage.total.toLocaleString()} tok</span>
         )}
+        <VariantNav message={msg} onSwitch={onSwitchVariant} />
       </div>
 
       {drawing && <DrawingPlaceholder />}
@@ -236,7 +294,7 @@ function MessageRow({ msg, streaming, drawing, onRegenerate, onEditMessage }: {
       {msg.content && !streaming && !msg.truncated && !msg.error && (
         <div className="mt-2 flex items-center gap-1">
           <MessageActions onRegenerate={onRegenerate} />
-          <CopyMessageButton text={msg.content} />
+          <CopyMessageButton text={displayText} />
         </div>
       )}
 
@@ -497,14 +555,34 @@ export default function ChatThread({  messages,
   onRegenerate,
   onEditMessage,
   onCopyConversation,
+  onSwitchVariant,
 }: ChatThreadProps) {
   const bottomRef = useRef<HTMLDivElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const stickRef = useRef(true);
   const [loadingMessage, setLoadingMessage] = useState<string>(STREAMING_MESSAGES[0]);
   const [showSourceHistory, setShowSourceHistory] = useState(false);
+  // Rendering a share image takes a moment (measure, draw at 2×, encode), and
+  // the button says so rather than appearing to do nothing.
+  const [sharing, setSharing] = useState(false);
+  const [shareNotice, setShareNotice] = useState<string | null>(null);
   // Seeded deterministically for SSR, then randomized after mount.
   const [headline, setHeadline] = useState(EMPTY_STATE_HEADLINES[0]);
+
+  const handleShareImage = async () => {
+    if (sharing) return;
+    setSharing(true);
+    try {
+      const title = messages.find((message) => message.role === "user")?.content ?? "";
+      await downloadChatImage(messages, title);
+      setShareNotice("Image saved");
+    } catch (cause) {
+      setShareNotice(cause instanceof Error ? cause.message : "Could not build the image");
+    } finally {
+      setSharing(false);
+      setTimeout(() => setShareNotice(null), 3000);
+    }
+  };
 
   useEffect(() => {
     if (!isEmpty) return;
@@ -555,6 +633,10 @@ export default function ChatThread({  messages,
     <div ref={containerRef} onScroll={handleScroll} className="min-h-0 flex-1 overflow-y-auto">
       <div className="mx-auto w-full max-w-3xl px-4 pb-8 pt-4 md:px-7 md:pt-6">
         <div className="mb-5 flex items-center justify-end gap-1 text-[10px] text-white/30">
+          {shareNotice && <span className="animate-rise mr-1 rounded-lg bg-white/[0.06] px-2 py-1.5 text-white/55">{shareNotice}</span>}
+          <button type="button" onClick={() => void handleShareImage()} disabled={sharing} className="rounded-lg px-2 py-1.5 transition-colors hover:bg-white/[0.06] hover:text-white/70 disabled:opacity-50">
+            {sharing ? "Rendering…" : "Share image"}
+          </button>
           <button type="button" onClick={onCopyConversation} className="rounded-lg px-2 py-1.5 transition-colors hover:bg-white/[0.06] hover:text-white/70">Copy chat</button>
           {allSources.length > 0 && <button type="button" onClick={() => setShowSourceHistory((value) => !value)} className="rounded-lg px-2 py-1.5 transition-colors hover:bg-white/[0.06] hover:text-white/70">Sources ({allSources.length})</button>}
           {showSourceHistory && <button type="button" onClick={() => void copySources()} className="rounded-lg px-2 py-1.5 transition-colors hover:bg-white/[0.06] hover:text-white/70">Copy links</button>}
@@ -569,6 +651,7 @@ export default function ChatThread({  messages,
               drawing={msg.id === drawingId}
               onRegenerate={() => onRegenerate(msg.id)}
               onEditMessage={(content) => onEditMessage(msg.id, content)}
+              onSwitchVariant={(index) => onSwitchVariant(msg.id, index)}
             />
           ))}
           {streamingId && !messages.find((m) => m.id === streamingId)?.content && (

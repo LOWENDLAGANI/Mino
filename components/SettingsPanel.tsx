@@ -9,6 +9,7 @@ import { useSubscription } from "@/lib/useSubscription";
 import { useEffect } from "react";
 import AccountSection from "@/components/AccountSection";
 import MemoryPanel from "@/components/MemoryPanel";
+import PushSettings from "@/components/PushSettings";
 
 interface SettingsPanelProps {
   open: boolean;
@@ -234,6 +235,11 @@ export default function SettingsPanel({
               ))}
             </div>
           </section>
+
+          {/* Last, because it is the only setting that can fail for reasons
+              outside this device — missing server keys, a blocked permission —
+              and the settings above never do. */}
+          <PushSettings />
         </div>
       </section>
     </div>

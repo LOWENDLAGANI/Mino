@@ -56,6 +56,7 @@ import {
   syncFirebaseHistory,
 } from "@/lib/firebaseHistory";
 import { subscribeAppConfig, type AppConfig } from "@/lib/appConfig";
+import { displayedContent, retireCurrentAnswer } from "@/lib/variants";
 import { TempThread, type MessageInput } from "@/lib/tempChat";
 
 /** The chat id a temporary thread uses. It is never a row in the database — it
@@ -506,6 +507,38 @@ export default function HomePage() {
     [temporary]
   );
 
+  /**
+   * Turns the current answer into a variant and empties the row for the next
+   * one — which is what retry and edit now mean. The old answer stays readable
+   * (see lib/variants.ts) instead of being deleted with the row, because it is
+   * the answer the new one is being judged against.
+   *
+   * Only the text moves across. Sources, usage, truncation and any error belong
+   * to the answer being replaced; carrying them over would show the new
+   * answer's controls above the old answer's evidence.
+   *
+   * Returns false for a row with nothing in it — an answer that never started
+   * is not a branch, it is a row to cut.
+   */
+  const branchAnswer = useCallback(
+    async (message: ChatMessage): Promise<boolean> => {
+      if (!message.content) return false;
+      await patchMessage(message.id, {
+        content: "",
+        variants: retireCurrentAnswer(message),
+        variantIndex: undefined,
+        error: undefined,
+        truncated: undefined,
+        sources: undefined,
+        searchQuery: undefined,
+        usage: undefined,
+        model: getMode(selectedMode).display,
+      });
+      return true;
+    },
+    [patchMessage, selectedMode]
+  );
+
   // ── Streaming send ─────────────────────────────────────────────────────────
   const sendMessage = useCallback(
     async (text: string, images: ImageAttachment[], documents: DocumentAttachment[] = [], options?: SendOptions) => {
@@ -513,17 +546,37 @@ export default function HomePage() {
       if (!text && images.length === 0 && documents.length === 0 && !options) return;
 
       let chatId: string | null = temporary ? TEMP_CHAT_ID : activeChatId;
+      // The row the new answer streams into. Normally a fresh message; when a
+      // retry or an edit turns the old reply into a branch point, it is that
+      // reply — emptied above, with the previous answer kept beside it.
+      let reuseId: string | null = null;
       if (options?.editMessageId) {
         const original = await readMessage(options.editMessageId);
         if (!original) return;
         chatId = original.chatId;
         await patchMessage(original.id, { content: text, images: images.length ? images : undefined, documents: documents.length ? documents : undefined });
-        await dropFromMessage(chatId, original.id, original.createdAt, false);
+        // The reply to the wording being replaced is what an edit is compared
+        // against, so it is found before the cut, turned into a variant, and
+        // reused as the home of the new answer. The two then sit on one row
+        // behind one stepper rather than as two answers that read as one.
+        const previousReply = (await threadHistory(chatId)).find(
+          (message) => message.createdAt > original.createdAt && message.role === "assistant"
+        );
+        if (previousReply && (await branchAnswer(previousReply))) {
+          await dropFromMessage(chatId, previousReply.id, previousReply.createdAt, false);
+          reuseId = previousReply.id;
+        } else {
+          await dropFromMessage(chatId, original.id, original.createdAt, false);
+        }
       } else if (options?.regenerateAssistantId) {
         const original = await readMessage(options.regenerateAssistantId);
         if (!original) return;
         chatId = original.chatId;
-        await dropFromMessage(chatId, original.id, original.createdAt, true);
+        // An answer worth keeping becomes a variant; an empty one has nothing
+        // to keep and is cut the way it always was.
+        const branched = await branchAnswer(original);
+        await dropFromMessage(chatId, original.id, original.createdAt, !branched);
+        if (branched) reuseId = original.id;
       } else {
         if (!chatId) {
           const chat = await createChat();
@@ -547,16 +600,20 @@ export default function HomePage() {
       const history = await threadHistory(chatId);
       const apiMessages: ApiMessage[] = history.flatMap((message): ApiMessage[] => {
         if (message.error || (message.role !== "user" && message.role !== "assistant")) return [];
+        // What the reader is looking at is what the model continues from: if
+        // somebody stepped back to an earlier answer and then writes, the next
+        // reply has to follow that one, not a version only the database knows.
+        const text = displayedContent(message);
         if (message.role === "user" && (message.images?.length || message.documents?.length)) {
           const parts: ApiContentPart[] = [];
           const documentText = message.documents?.map((document) => `Attachment ${document.name}:\n${document.text}`).join("\n\n");
-          const textContent = [message.content, documentText].filter(Boolean).join("\n\n");
+          const textContent = [text, documentText].filter(Boolean).join("\n\n");
           if (textContent) parts.push({ type: "text", text: textContent });
           for (const image of message.images ?? []) parts.push({ type: "image_url", image_url: { url: image.url } });
           return [{ role: "user", content: parts }];
         }
-        if (!message.content.trim()) return [];
-        return [{ role: message.role, content: message.content }];
+        if (!text.trim()) return [];
+        return [{ role: message.role, content: text }];
       });
 
       // The attachment belongs to this turn, not to the stored history, so it is
@@ -565,7 +622,9 @@ export default function HomePage() {
       setModelNotice(null);
       // The Mino name is stored rather than a provider id, so nothing vendor-
       // specific ends up in the local database or in an exported backup.
-      const assistantMsg = await appendMessage({ chatId, role: "assistant", content: "", model: getMode(selectedMode).display });
+      const assistantMsg: ChatMessage =
+        (reuseId ? await readMessage(reuseId) : undefined) ??
+        (await appendMessage({ chatId, role: "assistant", content: "", model: getMode(selectedMode).display }));
       setStreamingId(assistantMsg.id);
 
       const controller = new AbortController();
@@ -702,7 +761,7 @@ export default function HomePage() {
         abortRef.current = null;
       }
     },
-    [activeChatId, appendMessage, dropFromMessage, markError, memorySnapshot, patchMessage, publishTemp, readMessage, reasoningEffort, responseLength, searchMode, selectedMode, streamingId, temporary, threadHistory, writeContent, writeUsage]
+    [activeChatId, appendMessage, branchAnswer, dropFromMessage, markError, memorySnapshot, patchMessage, publishTemp, readMessage, reasoningEffort, responseLength, searchMode, selectedMode, streamingId, temporary, threadHistory, writeContent, writeUsage]
   );
 
   // ── Image generation ───────────────────────────────────────────────────────
@@ -777,6 +836,18 @@ export default function HomePage() {
   const handleEditMessage = useCallback((messageId: string, content: string) => {
     void sendMessage(content, [], [], { editMessageId: messageId });
   }, [sendMessage]);
+
+  /** Which answer is on screen for a message that has more than one. */
+  const handleSwitchVariant = useCallback(
+    (messageId: string, index: number | null) => {
+      // A pointer change and nothing else — the stored answer is untouched, so
+      // browsing back through previous answers cannot rewrite the transcript.
+      // `undefined` rather than `null` because that is what removes the field
+      // from the row, and "no index" is the live answer.
+      void patchMessage(messageId, { variantIndex: index ?? undefined });
+    },
+    [patchMessage]
+  );
 
   // The conversation on screen: a temporary thread has no database rows to read,
   // so it is read from memory instead.
@@ -949,6 +1020,7 @@ export default function HomePage() {
               onRegenerate={handleRegenerate}
               onEditMessage={handleEditMessage}
               onCopyConversation={handleCopyConversation}
+              onSwitchVariant={handleSwitchVariant}
             />
             <MemorySuggestions
               suggestions={suggestions}

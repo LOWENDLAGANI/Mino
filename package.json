@@ -11,6 +11,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@types/web-push": "^3.6.4",
     "dexie": "^4.0.8",
     "dexie-react-hooks": "^1.1.7",
     "firebase": "^12.19.0",
@@ -21,7 +22,8 @@
     "react-markdown": "^9.0.1",
     "react-syntax-highlighter": "^15.6.1",
     "remark-gfm": "^4.0.0",
-    "sharp": "^0.35.4"
+    "sharp": "^0.35.4",
+    "web-push": "^3.6.7"
   },
   "overrides": {
     "postcss": "^8.5.28",

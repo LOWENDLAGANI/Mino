@@ -58,6 +58,17 @@ export interface ChatMessage {
    */
   truncated?: boolean;
   error?: string;
+  /**
+   * Earlier versions of this answer, newest previous first.
+   *
+   * A retry or an edit used to delete the answer it replaced. It now keeps it:
+   * the answer being replaced is the one the new answer is judged against, and
+   * throwing it away means the comparison can never be made. `content` still
+   * holds the live answer — see lib/variants.ts for the whole rule.
+   */
+  variants?: string[];
+  /** Which answer is on screen: absent or 0 is the live one, k is variants[k - 1]. */
+  variantIndex?: number;
   createdAt: number;
   updatedAt?: number;
 }
@@ -68,6 +79,15 @@ export interface Chat {
   createdAt: number;
   updatedAt: number;
   pinned?: boolean;
+  /** Folder this chat sits under in the sidebar, or nothing for unfiled. */
+  folder?: string;
+}
+
+/** A user-named folder for chats. Local to this browser, like the sidebar. */
+export interface ChatFolder {
+  id: string;
+  name: string;
+  createdAt: number;
 }
 
 /**

@@ -19,7 +19,7 @@
 // an in-flight SSE stream is the fastest way to break replies, and there is
 // nothing here worth caching about them.
 
-const VERSION = "mino-shell-v1";
+const VERSION = "mino-shell-v2";
 const SHELL_CACHE = VERSION;
 
 // Only the artwork. The document and its JavaScript are always fetched fresh.
@@ -81,6 +81,54 @@ self.addEventListener("activate", (event) => {
         Promise.all(keys.filter((key) => key !== SHELL_CACHE).map((key) => caches.delete(key)))
       )
       .then(() => self.clients.claim())
+  );
+});
+
+// ── Notifications ──────────────────────────────────────────────────────────
+// The only reason the push API is usable at all: a subscription is granted
+// against a worker, and the worker is what actually displays the notification.
+//
+// The payload is allowed to be malformed — a push from a service we do not
+// control is untrusted input — so every field falls back to something sensible
+// and a body that is not JSON still produces a notification rather than a
+// silent failure.
+self.addEventListener("push", (event) => {
+  let payload = { title: "Mino", body: "", url: "/" };
+  try {
+    if (event.data) payload = { ...payload, ...event.data.json() };
+  } catch {
+    // Plain-text push: show the text itself.
+    try {
+      if (event.data) payload.body = event.data.text();
+    } catch {
+      // Nothing readable in it; the default title still shows.
+    }
+  }
+
+  event.waitUntil(
+    self.registration.showNotification(String(payload.title || "Mino"), {
+      body: String(payload.body || ""),
+      icon: "/icon-192.png",
+      badge: "/icon-192.png",
+      data: { url: String(payload.url || "/") },
+    })
+  );
+});
+
+self.addEventListener("notificationclick", (event) => {
+  event.notification.close();
+  const url = (event.notification.data && event.notification.data.url) || "/";
+  event.waitUntil(
+    self.clients
+      .matchAll({ type: "window", includeUncontrolled: true })
+      .then((clients) => {
+        // Focus what is already open before opening a second copy: two Mino
+        // tabs is two answers streaming at each other.
+        for (const client of clients) {
+          if ("focus" in client) return client.focus();
+        }
+        return self.clients.openWindow(url);
+      })
   );
 });
 

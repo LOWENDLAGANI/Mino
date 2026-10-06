@@ -13,7 +13,7 @@
 // this file would gain an attacker nothing.
 
 import { GoogleAuthProvider, signInWithPopup, signOut } from "firebase/auth";
-import { get, ref, remove, set } from "firebase/database";
+import { get, push, ref, remove, set } from "firebase/database";
 import { firebaseConfigured, getServices } from "./firebaseHistory";
 import type { AppConfig } from "./appConfig";
 import type { PlanId } from "./plans";
@@ -473,4 +473,52 @@ export async function saveAppConfig(config: AppConfig): Promise<void> {
     const payload = (await response.json().catch(() => null)) as { error?: string } | null;
     throw new Error(payload?.error || `Could not save controls (HTTP ${response.status})`);
   }
+}
+
+// ── Grant history ─────────────────────────────────────────────────────────────
+// Every plan granted or removed, written at the moment of the decision, with
+// the payment reference the owner typed. Money that changes hands by hand and
+// is recorded only in somebody's memory is how an owner loses track of who was
+// given what — and a renewal six weeks later cannot be reconstructed from a
+// bank statement once three other people have been paid in between.
+//
+// It lives under `admin/`, whose rules already grant the administrator read and
+// write across the whole subtree — so no rule has to be republished for this to
+// work, and no visitor can read or write it. The entry carries the person's
+// name as it was known at the time, because the registry can be wiped and the
+// history should not lose the name with it.
+
+export interface AdminAuditEntry {
+  /** Firebase key — time-ordered, generated on write. */
+  id: string;
+  at: number;
+  action: "grant" | "revoke";
+  uid: string;
+  /** The visitor's name at the time of the entry, when they had given one. */
+  name?: string | null;
+  plan?: PlanId;
+  days?: number;
+  expiresAt?: number;
+  note?: string;
+}
+
+export async function appendAdminAudit(
+  entry: Omit<AdminAuditEntry, "id">
+): Promise<AdminAuditEntry> {
+  const { database } = await requireAdmin();
+  const key = push(ref(database, "admin/audit")).key;
+  if (!key) throw new Error("Could not allocate a history entry");
+  await set(ref(database, `admin/audit/${key}`), entry).catch(rethrow);
+  return { ...entry, id: key };
+}
+
+/** Newest first, capped: the console shows the recent ledger, not all of it. */
+export async function listAdminAudit(limit = 50): Promise<AdminAuditEntry[]> {
+  const { database } = await requireAdmin();
+  const snapshot = await get(ref(database, "admin/audit")).catch(rethrow);
+  const value = (snapshot.val() ?? {}) as Record<string, Omit<AdminAuditEntry, "id">>;
+  return Object.entries(value)
+    .map(([id, entry]) => ({ ...entry, id }))
+    .sort((a, b) => (b.at ?? 0) - (a.at ?? 0))
+    .slice(0, limit);
 }
