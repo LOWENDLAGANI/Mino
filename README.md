@@ -55,6 +55,11 @@ Set either (or both) via `process.env` — locally in `.env.local`, or in Vercel
 | `CLOUDFLARE_ACCOUNT_ID` | **Image generation** | Cloudflare account that hosts the Workers AI model |
 | `CLOUDFLARE_API_TOKEN` | **Image generation** | API token with the *Workers AI: Read* permission |
 | `MINO_ADMIN_EMAIL` | **Admin controls** | The administrator's address, matching the one in `database.rules.json` |
+| `NEXT_PUBLIC_VAPID_PUBLIC_KEY` | **Web push** | Public half of the VAPID pair — inlined into the browser bundle at build, so it must be set *before* the deploy |
+| `WEB_PUSH_PRIVATE_KEY` | **Web push** | Private half — read only inside `/api/push`, never reaches the browser |
+| `WEB_PUSH_SUBJECT` | **Web push** | A `mailto:` (or `https:`) contact for the push service, e.g. `mailto:you@example.com` |
+
+All three push keys are read from `process.env` like everything else, so on Vercel they live in **Settings → Environment Variables**: set all three and deploy. The two `WEB_PUSH_*` values are read at request time (changing them needs no rebuild), but `NEXT_PUBLIC_VAPID_PUBLIC_KEY` is baked into the bundle during the build — add or change it *before* the deploy, or the browser half stays stale. Generate a pair with `bunx web-push generate-vapid-keys`. Until all three exist, `GET /api/push` reports `configured: false` and Settings → Notifications says so instead of pretending.
 
 ### Mino Azure (the Gradio Space)
 
@@ -296,6 +301,8 @@ Resilience behavior:
 - Web search key missing → Mino keeps answering without web context and the composer shows a setup state instead of failing the chat.
 
 ## Deploying to Vercel
+
+Environment variables live in **Vercel → Settings → Environment Variables** for the project, and the app reads every one of them from `process.env` — the provider keys, the Firebase config, and the three Web push keys above. Set them all before the first deploy; the `NEXT_PUBLIC_*` values are inlined at build time, so changing one requires a redeploy rather than a restart.
 
 Add the Firebase variables above and publish `database.rules.json` in the Firebase Realtime Database Rules editor to enable automatic logging. `/api/chat` remains a Node.js Route Handler; Firebase is initialized only in the browser when configured. If Firebase is not configured, the app remains local-only. No service account or `FIREBASE_ADMIN_*` variable is needed.
 

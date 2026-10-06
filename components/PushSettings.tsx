@@ -116,7 +116,8 @@ export default function PushSettings() {
             <code className="text-white/70">WEB_PUSH_PRIVATE_KEY</code> and{" "}
             <code className="text-white/70">WEB_PUSH_SUBJECT</code> (a mailto: address). Generate
             a pair with <code className="text-white/70">bunx web-push generate-vapid-keys</code>{" "}
-            and add them in Keys/API keys.
+            and add them to the deployment's environment — Vercel → Settings → Environment
+            Variables, or Keys/API keys in the preview workspace.
           </p>
         </div>
       )}
