@@ -777,8 +777,17 @@ export default function ChatThread({  messages,
           {streamingId && !messages.find((m) => m.id === streamingId)?.content && (
             <div className="animate-rise">
               <div className="mb-2 flex items-center gap-2">
-                <ModelIcon model={msg.model} />
-                <ModelBadge model={msg.model} /><span className="hidden ml-2 text-[12px] font-medium text-white/55">Mino</span>
+                {(() => {
+                  const m = messages.find((x) => x.id === streamingId);
+                  return m ? (
+                    <>
+                      <ModelIcon model={m.model} />
+                      <ModelBadge model={m.model} /><span className="hidden ml-2 text-[12px] font-medium text-white/55">Mino</span>
+                    </>
+                  ) : (
+                    <span className="hidden ml-2 text-[12px] font-medium text-white/55">Mino</span>
+                  );
+                })()}
               </div>
               <TypingDots message={loadingMessage} />
             </div>
