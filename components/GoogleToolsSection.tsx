@@ -4,17 +4,24 @@
 // Connect, check, and disconnect the Google account whose Calendar, Tasks,
 // Sheets, Docs, and Maps Mino can act on in chat. The consent happens on
 // Google's own screen; this panel only ever sees connected/not.
+//
+// A signed-up Google account is required: an anonymous guest sees "Sign in
+// with Google" instead of "Connect", because acting on someone's Calendar,
+// Tasks, or documents is an account-holder feature, not a guest one.
 
 import { useCallback, useEffect, useState } from "react";
-import { disconnectGoogle, fetchGoogleStatus, startGoogleConnect, type GoogleStatus } from "@/lib/googleStatus";
+import { disconnectGoogle, fetchGoogleStatus, signInWithGoogleAccount, startGoogleConnect, type GoogleStatus } from "@/lib/googleStatus";
+import { watchAccount } from "@/lib/account";
+import type { AccountView } from "@/lib/accountState";
 
-const IDLE = { available: false, connected: false, email: "", mapsAvailable: false } as GoogleStatus;
+const IDLE: GoogleStatus = { available: false, connected: false, email: "", mapsAvailable: false, googleLinked: false };
 
 export default function GoogleToolsSection() {
   const [status, setStatus] = useState<GoogleStatus>(IDLE);
   const [loaded, setLoaded] = useState(false);
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState("");
+  const [account, setAccount] = useState<AccountView | null>(null);
 
   const refresh = useCallback(async () => {
     const next = await fetchGoogleStatus();
@@ -26,12 +33,15 @@ export default function GoogleToolsSection() {
     void refresh();
   }, [refresh]);
 
+  useEffect(() => watchAccount(setAccount), []);
+
   // The OAuth callback returns to this page with a fragment. Read it once,
   // show the outcome, and strip it so a reload does not repeat the message.
   useEffect(() => {
     const hash = window.location.hash;
     if (!hash) return;
     if (hash.startsWith("#google-connected")) setNotice("Google connected. Mino can now use Calendar, Tasks, Sheets, Docs, and Maps when you ask.");
+    else if (hash.startsWith("#google-needs-signin")) setNotice("Sign in with Google first, then connect the tools.");
     else if (hash.startsWith("#google-error=")) {
       const message = decodeURIComponent(hash.slice("#google-error=".length));
       setNotice(message === "access_denied" ? "Google consent was cancelled." : `Google could not be connected: ${message}`);
@@ -42,6 +52,18 @@ export default function GoogleToolsSection() {
     }
   }, [refresh]);
 
+  const handleSignIn = async () => {
+    setBusy(true);
+    const ok = await signInWithGoogleAccount();
+    setBusy(false);
+    if (ok) {
+      setNotice("Signed in. Now press Connect Google to give Mino access.");
+      void refresh();
+    } else {
+      setNotice("Sign-in was cancelled.");
+    }
+  };
+
   const handleDisconnect = async () => {
     setBusy(true);
     const ok = await disconnectGoogle();
@@ -49,6 +71,8 @@ export default function GoogleToolsSection() {
     setNotice(ok ? "Disconnected. Mino can no longer reach your Google account." : "Disconnect failed. Try again.");
     void refresh();
   };
+
+  const linked = account?.isLinked ?? false;
 
   return (
     <section className="rounded-xl bg-white/[0.03] border border-white/[0.06] p-4 card-hover">
@@ -80,7 +104,7 @@ export default function GoogleToolsSection() {
           >
             {busy ? "Disconnecting…" : "Disconnect"}
           </button>
-        ) : (
+        ) : linked ? (
           <button
             type="button"
             onClick={startGoogleConnect}
@@ -88,6 +112,15 @@ export default function GoogleToolsSection() {
             className="rounded-lg bg-[#a9d8bb]/15 px-3.5 py-2 text-[12px] font-medium text-[#a9d8bb] transition-all hover:bg-[#a9d8bb]/25 disabled:cursor-not-allowed disabled:opacity-40"
           >
             Connect Google
+          </button>
+        ) : (
+          <button
+            type="button"
+            onClick={handleSignIn}
+            disabled={busy}
+            className="rounded-lg bg-[#a9d8bb]/15 px-3.5 py-2 text-[12px] font-medium text-[#a9d8bb] transition-all hover:bg-[#a9d8bb]/25 disabled:cursor-not-allowed disabled:opacity-40"
+          >
+            {busy ? "Opening Google…" : "Sign in with Google"}
           </button>
         )}
       </div>

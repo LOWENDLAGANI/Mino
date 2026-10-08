@@ -1,10 +1,10 @@
 // ── GET /api/google/auth — start the Google consent ──────────────────────────
 //
-// Requires a verified caller, because the state cookie records whose consent
-// this is. Anonymous users are told to bind a Google account first, which is
-// the honest answer: the token cookie is bound to a Firebase uid, and an
-// anonymous uid is as good as any other, but the rest of the data layer (chat
-// sync, plans) only becomes portable once the account is bound.
+// Requires a verified caller whose account carries a Google credential. An
+// anonymous guest is bounced back with #google-needs-signin rather than a
+// consent screen — Google Workspace access is a signed-up-account feature,
+// and the state cookie records whose consent this is, which a guest cannot
+// meaningfully be.
 
 import { NextRequest, NextResponse } from "next/server";
 import { buildConsentUrl, createStateCookie, googleConfigured } from "@/lib/googleAuth";
@@ -26,6 +26,13 @@ export async function GET(req: NextRequest): Promise<Response> {
       { error: "Link a Google account in Settings first, then connect Google tools." },
       { status: 401 }
     );
+  }
+  if (!identity.googleLinked) {
+    // Not an error to the client — the redirect back with this fragment is
+    // what the Settings panel turns into "sign in with Google first".
+    const back = NextResponse.redirect(new URL("/#google-needs-signin", req.nextUrl.origin));
+    back.headers.set("Referrer-Policy", "no-referrer");
+    return back;
   }
 
   const origin = req.nextUrl.origin;

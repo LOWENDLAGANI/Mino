@@ -27,6 +27,13 @@ export interface CallerIdentity {
   uid: string;
   /** Empty for an anonymous visitor, who has no Google account attached. */
   email: string;
+  /**
+   * Whether the verified account carries a Google credential (a bound or
+   * signed-up Google account) as opposed to an anonymous guest. Read from the
+   * token itself, so a caller cannot claim it. The Google tools gate on this:
+   * acting on someone's Calendar requires a real account, not a guest session.
+   */
+  googleLinked: boolean;
 }
 
 let cached: { config: AppConfig; at: number } | null = null;
@@ -97,7 +104,12 @@ export async function verifyCaller(authorization: string | null): Promise<Caller
     return fail(`lookup-http-${response.status}`, body);
   }
   const payload = (await response.json().catch(() => null)) as {
-    users?: Array<{ localId?: string; uid?: string; email?: string }>;
+    users?: Array<{
+      localId?: string;
+      uid?: string;
+      email?: string;
+      providerUserInfo?: Array<{ providerId?: string }>;
+    }>;
   } | null;
   const user = payload?.users?.[0];
   // The Identity Toolkit REST API names the user id `localId`. `uid` is what
@@ -109,7 +121,17 @@ export async function verifyCaller(authorization: string | null): Promise<Caller
   // every caller is anonymous. Demanding an email here would identify nobody,
   // which silently disables the ban list and the daily caps as well. The uid
   // is what those controls act on; only the admin check needs an address.
-  return { uid, email: typeof user?.email === "string" ? user.email.toLowerCase() : "" };
+  // `providerUserInfo` lists every credential on the account; the anonymous
+  // provider is implicit and never listed, so the presence of google.com here
+  // is exactly the "signed up with Google" signal the Google tools need.
+  const googleLinked = Array.isArray(user?.providerUserInfo)
+    ? user.providerUserInfo.some((provider) => provider?.providerId === "google.com")
+    : false;
+  return {
+    uid,
+    email: typeof user?.email === "string" ? user.email.toLowerCase() : "",
+    googleLinked,
+  };
 }
 
 /**

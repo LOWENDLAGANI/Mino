@@ -224,5 +224,38 @@ test("maps works without oauth but is flagged by its own key", () => {
   assert.ok(toolsSource.includes("maps.googleapis.com/maps/api/place/textsearch"));
 });
 
+
+// ── Signed-up-account gate ───────────────────────────────────────────────────
+
+test("the auth route bounces an anonymous guest to sign-in, not a consent screen", () => {
+  const source = read("app/api/google/auth/route.ts");
+  assert.ok(source.includes("identity.googleLinked"), "the gate reads the flag from the verified token");
+  assert.ok(source.includes("google-needs-signin"), "the bounce lands on the fragment the panel understands");
+});
+
+test("CallerIdentity carries googleLinked from the token's providers", () => {
+  const source = read("lib/serverControl.ts");
+  assert.ok(source.includes("googleLinked: boolean"));
+  assert.ok(source.includes('providerId === "google.com"'));
+});
+
+test("the status route reports googleLinked for the panel", () => {
+  const source = read("app/api/google/status/route.ts");
+  assert.ok(source.includes("googleLinked: identity.googleLinked"));
+});
+
+test("the settings panel offers sign-in before connect for a guest", () => {
+  const source = read("components/GoogleToolsSection.tsx");
+  assert.ok(source.includes("Sign in with Google"));
+  assert.ok(source.includes("startGoogleConnect"));
+  // Connect is only reachable through the linked branch.
+  assert.ok(source.includes("linked ? ("));
+});
+
+test("chat-side tools stay keyed to a verified identity, never a body claim", () => {
+  assert.ok(routeSource.includes("identity !== null"));
+  assert.ok(routeSource.includes("readSession(req.headers, identity.uid)"));
+});
+
 console.log(`\n${passes} passed, ${failures} failed`);
 process.exit(failures > 0 ? 1 : 0);

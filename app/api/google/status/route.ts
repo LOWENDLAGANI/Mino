@@ -25,7 +25,13 @@ export async function GET(req: NextRequest): Promise<Response> {
   const configured = googleConfigured();
   const identity = await verifyCaller(req.headers.get("authorization"));
   if (!configured || !identity) {
-    return Response.json({ available: configured, connected: false, email: "", mapsAvailable: mapsConfigured() });
+    return Response.json({
+      available: configured,
+      connected: false,
+      email: "",
+      mapsAvailable: mapsConfigured(),
+      googleLinked: false,
+    });
   }
   const blob = decryptBlob(readTokenCookie(req.headers));
   const connected = Boolean(blob && blob.uid === identity.uid && blob.accessToken);
@@ -34,5 +40,6 @@ export async function GET(req: NextRequest): Promise<Response> {
     connected,
     email: connected && blob ? maskEmail(blob.email) : "",
     mapsAvailable: mapsConfigured(),
+    googleLinked: identity.googleLinked,
   });
 }

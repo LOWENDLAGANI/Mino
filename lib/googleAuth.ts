@@ -279,8 +279,10 @@ export interface GoogleSession {
  *
  * The uid check is the whole security model for the cookie: consent given in
  * this browser is only usable by the same Firebase account, verified on every
- * request through the same `verifyCaller` the other routes use. Returns null
- * whenever anything is missing — the caller treats that as "not connected".
+ * request through the same `verifyCaller` the other routes use. Callers gate
+ * on `identity.googleLinked` before reaching here, so a session also implies
+ * a Google-signed account. Returns null whenever anything is missing — the
+ * caller treats that as "not connected".
  */
 export function readGoogleSession(cookies: Headers, uid: string): GoogleSession | null {
   const blob = decryptBlob(readTokenCookie(cookies));

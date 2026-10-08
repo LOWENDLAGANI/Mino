@@ -126,7 +126,7 @@ async function main(): Promise<void> {
   test("a banned visitor is refused, and is told the reason and the end date", () => {
     const endsAt = NOW + 3 * DAY;
     const gate = identityGate(
-      { uid: "uid-a", email: "" },
+      { uid: "uid-a", email: "", googleLinked: false },
       configWith([ban({ uid: "uid-a", reason: "Spamming", expiresAt: endsAt })]),
       0
     );
@@ -136,7 +136,7 @@ async function main(): Promise<void> {
   });
 
   test("a permanent ban without a reason keeps the plain sentence", () => {
-    const gate = identityGate({ uid: "uid-a", email: "" }, configWith([ban({ uid: "uid-a" })]), 0);
+    const gate = identityGate({ uid: "uid-a", email: "", googleLinked: false }, configWith([ban({ uid: "uid-a" })]), 0);
     assert.equal(gate.allowed, false);
     assert.equal(gate.error, "This device is not allowed to use Mino.");
   });
@@ -151,7 +151,7 @@ async function main(): Promise<void> {
 
   test("an expired ban lifts by itself and stops forcing identification", () => {
     const config = configWith([ban({ uid: "uid-a", expiresAt: NOW - DAY })]);
-    assert.equal(identityGate({ uid: "uid-a", email: "" }, config, 0).allowed, true);
+    assert.equal(identityGate({ uid: "uid-a", email: "", googleLinked: false }, config, 0).allowed, true);
     assert.equal(
       identityGate(null, config, 0).allowed,
       true,
@@ -173,10 +173,10 @@ async function main(): Promise<void> {
 
   test("the administrator is exempt from their own ban list", () => {
     const config = configWith([ban({ uid: "uid-admin", reason: "Testing the control" })]);
-    assert.ok(isAdmin({ uid: "uid-admin", email: "admin@example.com" }));
-    assert.equal(identityGate({ uid: "uid-admin", email: "admin@example.com" }, config, 0).allowed, true);
+    assert.ok(isAdmin({ uid: "uid-admin", email: "admin@example.com", googleLinked: false }));
+    assert.equal(identityGate({ uid: "uid-admin", email: "admin@example.com", googleLinked: false }, config, 0).allowed, true);
     assert.equal(
-      identityGate({ uid: "uid-admin", email: "someone@example.com" }, config, 0).allowed,
+      identityGate({ uid: "uid-admin", email: "someone@example.com", googleLinked: false }, config, 0).allowed,
       false,
       "sharing the administrator's uid is not exemption; the address decides"
     );

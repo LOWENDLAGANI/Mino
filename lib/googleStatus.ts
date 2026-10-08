@@ -12,7 +12,16 @@ export interface GoogleStatus {
   connected: boolean;
   email: string;
   mapsAvailable: boolean;
+  /**
+   * Whether the signed-in account carries a Google credential. False for an
+   * anonymous guest — the panel uses this to show "sign in with Google"
+   * instead of "connect", because the Google tools are a signed-up-account
+   * feature.
+   */
+  googleLinked: boolean;
 }
+
+const IDLE: GoogleStatus = { available: false, connected: false, email: "", mapsAvailable: false, googleLinked: false };
 
 export async function fetchGoogleStatus(): Promise<GoogleStatus> {
   try {
@@ -20,10 +29,17 @@ export async function fetchGoogleStatus(): Promise<GoogleStatus> {
       headers: await authHeader(),
       cache: "no-store",
     });
-    if (!response.ok) return { available: false, connected: false, email: "", mapsAvailable: false };
-    return (await response.json()) as GoogleStatus;
+    if (!response.ok) return IDLE;
+    const payload = (await response.json()) as Partial<GoogleStatus>;
+    return {
+      available: payload.available === true,
+      connected: payload.connected === true,
+      email: typeof payload.email === "string" ? payload.email : "",
+      mapsAvailable: payload.mapsAvailable === true,
+      googleLinked: payload.googleLinked === true,
+    };
   } catch {
-    return { available: false, connected: false, email: "", mapsAvailable: false };
+    return IDLE;
   }
 }
 
@@ -35,6 +51,21 @@ export async function fetchGoogleStatus(): Promise<GoogleStatus> {
  */
 export function startGoogleConnect(): void {
   window.location.href = "/api/google/auth";
+}
+
+/**
+ * Signs the visitor's anonymous account in with Google (or binds it, when the
+ * browser holds a guest session — the same upgrade Settings already offers).
+ * Returns whether the account now carries a Google credential.
+ */
+export async function signInWithGoogleAccount(name?: string): Promise<boolean> {
+  try {
+    const { bindGoogleAccount } = await import("./account");
+    const result = await bindGoogleAccount(name);
+    return result.outcome === "linked" || result.outcome === "adopted";
+  } catch {
+    return false;
+  }
 }
 
 export async function disconnectGoogle(): Promise<boolean> {
