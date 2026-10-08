@@ -14,6 +14,13 @@ import { IdentityFilter, sanitizeIdentity, sanitizeProviderDetail } from "@/lib/
 import { checkRateLimit, consumeUsage, identityGate, isAdmin, readConfig, verifyCaller } from "@/lib/serverControl";
 import { resolveEffectivePlan } from "@/lib/serverRedeem";
 import { checkChatEntitlement, clampReasoningEffort } from "@/lib/paywallServer";
+import {
+  extractActionBlocks,
+  googleToolsPrompt,
+  runGoogleAction,
+  shouldUseGoogleTools,
+} from "@/lib/googleTools";
+import { ensureFreshSession, googleConfigured, readGoogleSession as readSession } from "@/lib/googleAuth";
 
 // ── Mino — resilient SSE proxy for Auto and Code ─────────────────────────────
 //   OPENROUTER_API_KEY → OpenRouter Auto Router
@@ -55,6 +62,12 @@ interface ChatRequestBody {
    * prompt.
    */
   memories?: unknown;
+  /**
+   * The browser's IANA time zone, reported by Intl. Google Calendar and Tasks
+   * datetimes are interpreted in it. Untrusted by construction and validated
+   * loosely — a bogus value degrades to UTC in the tools prompt, never throws.
+   */
+  timeZone?: string;
 }
 
 class ProviderError extends Error {
@@ -216,7 +229,8 @@ async function callProvider(
   searchContext: string,
   userPreferences: string,
   reasoningEffort: ReasoningEffort | null,
-  codeMode: boolean
+  codeMode: boolean,
+  googleContext: string
 ): Promise<Response> {
   const system = [
     provider.family === "space" ? AZURE_SYSTEM_PROMPT : MINO_SYSTEM_PROMPT,
@@ -226,6 +240,7 @@ async function callProvider(
     codeMode ? CODE_SYSTEM_PROMPT : "",
     userPreferences,
     searchContext,
+    googleContext,
   ]
     .filter(Boolean)
     .join("\n\n");
@@ -418,6 +433,34 @@ export async function POST(req: NextRequest): Promise<Response> {
     }
   }
   const searchContext = formatSearchContext(searchSources);
+  const timeZone = typeof body.timeZone === "string" && /^[A-Za-z_]+\/[A-Za-z_+/\-0-9]+$/.test(body.timeZone) ? body.timeZone : undefined;
+
+  // ── Google tools ───────────────────────────────────────────────────────────
+  // Resolved before the model call so the tools prompt rides along with the
+  // system text, and the session cookie can be refreshed inside this request.
+  // Everything here degrades silently: an unconfigured or unconnected caller
+  // just gets a normal answer.
+  const googleRelevant =
+    googleConfigured() &&
+    identity !== null &&
+    config.googleToolsEnabled !== false &&
+    shouldUseGoogleTools(latestUserText);
+  let googleSession = googleRelevant && identity ? readSession(req.headers, identity.uid) : null;
+  let googleSetCookie: string | null = null;
+  let googleContext = "";
+  if (googleRelevant && googleSession) {
+    try {
+      const fresh = await ensureFreshSession(googleSession);
+      googleSession = fresh;
+      googleSetCookie = fresh.refreshedCookie;
+      googleContext = googleToolsPrompt(new Date().toISOString(), timeZone);
+    } catch {
+      // A refresh failure must not break the chat. The answer simply carries
+      // no tools prompt, and the model answers from what it already knows.
+      googleSession = null;
+    }
+  }
+  const googleRequested = Boolean(googleSession) || googleRelevant;
   const responseLength = body.responseLength === "short" || body.responseLength === "detailed" ? body.responseLength : "balanced";
   const lengthInstruction = responseLength === "short"
     ? "Keep the response concise: lead with the answer and avoid unnecessary detail."
@@ -466,7 +509,7 @@ export async function POST(req: NextRequest): Promise<Response> {
     if (exhaustedFamilies.has(provider.family)) continue;
     const wantsEffort = provider.supportsReasoning ? reasoningEffort : null;
     try {
-      upstream = await callProvider(provider, messages, req.signal, searchContext, userPreferences, wantsEffort, isCodeMode);
+      upstream = await callProvider(provider, messages, req.signal, searchContext, userPreferences, wantsEffort, isCodeMode, googleContext);
       activeProvider = provider;
       break;
     } catch (error) {
@@ -476,7 +519,7 @@ export async function POST(req: NextRequest): Promise<Response> {
       // whole conversation down with it, so retry once without the parameter.
       if (wantsEffort && error instanceof ProviderError && error.status === 400) {
         try {
-          upstream = await callProvider(provider, messages, req.signal, searchContext, userPreferences, null, isCodeMode);
+          upstream = await callProvider(provider, messages, req.signal, searchContext, userPreferences, null, isCodeMode, googleContext);
           activeProvider = provider;
           break;
         } catch (retryError) {
@@ -529,6 +572,9 @@ export async function POST(req: NextRequest): Promise<Response> {
           })
         );
       }
+      if (googleRequested) {
+        controller.enqueue(encodeEvent({ google: { connected: Boolean(googleSession) } }));
+      }
       controller.enqueue(
         encodeEvent({
           mode: activeProvider!.id,
@@ -558,7 +604,8 @@ export async function POST(req: NextRequest): Promise<Response> {
             searchContext,
             userPreferences,
             provider.supportsReasoning ? reasoningEffort : null,
-            isCodeMode
+            isCodeMode,
+            googleContext
           );
           if (!continuation.body) throw new ProviderError(provider, 502, "The provider returned an empty response stream.");
           source = continuation.body;
@@ -717,6 +764,91 @@ export async function POST(req: NextRequest): Promise<Response> {
       // off while Mino is still completing it.
       if (truncated) controller.enqueue(encodeEvent({ truncated: true }));
 
+      // ── Google actions ─────────────────────────────────────────────────────
+      // The answer has been read whole, so action blocks are extracted from the
+      // finished text and executed against the caller's connected account. The
+      // model never holds a token; it only names the action. Results stream as
+      // appended markdown, and the models are given the results in a short
+      // second round so the answer ends in Mino's voice, not a JSON dump.
+      if (googleSession && answer.includes("```")) {
+        const actions = extractActionBlocks(answer);
+        if (actions.length > 0) {
+          const results: string[] = [];
+          for (const action of actions.slice(0, 5)) {
+            try {
+              const outcome = await runGoogleAction(googleSession, action);
+              results.push(`**${action.action}** — ${outcome}`);
+            } catch {
+              results.push(`**${action.action}** — Error: the action could not be completed. Try again.`);
+            }
+          }
+          const resultText = results.join("\n\n");
+          controller.enqueue(encodeEvent({ content: `\n\n---\n\n${resultText}\n\n` }));
+
+          // One continuation round so the model reports the outcomes. The
+          // follow-up carries the raw results; a refusal here still leaves the
+          // results on screen, so nothing the tools did is ever hidden.
+          try {
+            const followUp = await callProvider(
+              activeProvider!,
+              [
+                ...messages,
+                { role: "assistant", content: answer },
+                {
+                  role: "user",
+                  content:
+                    "These are the results of the Google actions you ran. Reply with a short confirmation (or a clear explanation of any failure) and nothing else:\n\n" +
+                    resultText,
+                },
+              ],
+              req.signal,
+              "",
+              userPreferences,
+              null,
+              isCodeMode,
+              ""
+            );
+            if (followUp.ok && followUp.body) {
+              const followReader = followUp.body.getReader();
+              const followFilter = new IdentityFilter();
+              let followBuffer = "";
+              let followText = "";
+              for (;;) {
+                const { done, value } = await followReader.read();
+                if (done) break;
+                followBuffer += decoder.decode(value, { stream: true });
+                const lines = followBuffer.split(/\r?\n/);
+                followBuffer = lines.pop() ?? "";
+                for (const line of lines) {
+                  const trimmed = line.trim();
+                  if (!trimmed.startsWith("data:")) continue;
+                  const data = trimmed.slice(5).trim();
+                  if (!data || data === "[DONE]") continue;
+                  try {
+                    const chunk = JSON.parse(data) as { choices?: { delta?: { content?: string | null } }[] };
+                    const delta = chunk.choices?.[0]?.delta?.content;
+                    if (delta) {
+                      const safe = followFilter.push(delta);
+                      if (safe) followText += safe;
+                    }
+                  } catch {
+                    // Non-JSON provider events in the follow-up round.
+                  }
+                }
+              }
+              const tail = followFilter.flush();
+              if (tail) followText += tail;
+              if (followText.trim()) {
+                controller.enqueue(encodeEvent({ content: `\n${followText.trim()}` }));
+              }
+            }
+          } catch {
+            // The results are already on screen; a failed follow-up round must
+            // not turn into a second error block.
+          }
+        }
+      }
+
       controller.enqueue(encoder.encode("data: [DONE]\n\n"));
       controller.close();
     },
@@ -725,7 +857,9 @@ export async function POST(req: NextRequest): Promise<Response> {
     },
   });
 
-  return new Response(stream, { headers: sseHeaders() });
+  const response = new Response(stream, { headers: sseHeaders() });
+  if (googleSetCookie) response.headers.append("Set-Cookie", googleSetCookie);
+  return response;
 }
 
 /** Reports which provider keys exist without exposing their values. */
@@ -746,6 +880,7 @@ export async function GET(): Promise<Response> {
   return Response.json({
     available,
     searchAvailable: Boolean(process.env.TAVILY_API_KEY?.trim()),
+    googleAvailable: googleConfigured(),
     imageAvailable: Boolean(
       process.env.CLOUDFLARE_ACCOUNT_ID?.trim() && process.env.CLOUDFLARE_API_TOKEN?.trim()
     ),

@@ -773,6 +773,9 @@ export default function HomePage() {
             searchMode: activeSearch,
             responseLength,
             reasoningEffort,
+            // Lets the Google tools interpret "tomorrow at 3" in the user's
+            // own time zone. Read from the browser, validated server-side.
+            timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone || undefined,
           }),
           signal: controller.signal,
         });

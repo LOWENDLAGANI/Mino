@@ -45,6 +45,12 @@ export interface AppConfig {
   imageEnabled: boolean;
   /** Master switch for web search inside chat. */
   searchEnabled: boolean;
+  /**
+   * Master switch for the Google tools (Calendar, Tasks, Sheets, Docs, Maps)
+   * inside chat. Absent in an older config, so the default is on and the
+   * normalize step treats a missing value as on.
+   */
+  googleToolsEnabled: boolean;
   /** A short line shown to every visitor. Empty hides the banner. */
   announcement: string;
   /** Heading on the notes page, e.g. "News From Developers". */
@@ -72,6 +78,7 @@ export const DEFAULT_CONFIG: AppConfig = {
   chatEnabled: true,
   imageEnabled: true,
   searchEnabled: true,
+  googleToolsEnabled: true,
   announcement: "",
   notesTitle: "News From Developers",
   notes: [],
@@ -147,6 +154,7 @@ export function normalizeConfig(raw: unknown): AppConfig {
     chatEnabled: asBool(value.chatEnabled, DEFAULT_CONFIG.chatEnabled),
     imageEnabled: asBool(value.imageEnabled, DEFAULT_CONFIG.imageEnabled),
     searchEnabled: asBool(value.searchEnabled, DEFAULT_CONFIG.searchEnabled),
+    googleToolsEnabled: asBool(value.googleToolsEnabled, DEFAULT_CONFIG.googleToolsEnabled),
     announcement: typeof value.announcement === "string" ? value.announcement.slice(0, 200) : "",
     notesTitle:
       typeof value.notesTitle === "string" && value.notesTitle.trim()

@@ -19,6 +19,7 @@ Built with **Next.js 15 (App Router)**, **React 19**, **TypeScript**, **Tailwind
 - **Web search** — Mino stays off for general knowledge questions and searches when you explicitly request it or say an answer may be wrong, with source links shown in the response; the composer supports Auto, On, and Off modes
 - **Markdown + code** — syntax-highlighted code blocks (Prism) with per-block copy button
 - **Chat management** — pin and rename chats, retry/edit-and-resend, copy chats, source history, voice input, and text/code file attachments
+- **Google tools** — connect a Google account in Settings and ask Mino in chat: "what's on my calendar tomorrow", "add a task", "make a sheet of these", "create a doc", "directions to …". The model writes an explicit action block, Mino executes it against the connected account (Calendar, Tasks, Sheets, Docs read **and** write; Maps search), shows the result in the answer, and never sees or holds a token — consent lives in an AES-256-GCM encrypted httpOnly cookie bound to the account that pressed Connect, and Disconnect revokes the refresh token at Google
 - **Send later** — the composer's clock queues a message (five minutes, thirty, an hour, tomorrow morning, or any datetime) and this open tab fires it when the time comes, oldest first, under the mode and search setting it was written with; queued messages sit as cancellable chips above the composer
 - **Rate limits you can see** — a server refusal is parsed for the wait it names and becomes a live countdown in the composer; *Queue until then* holds the message behind the wait and sends it when the wait lifts
 - **Read aloud** — every finished answer has a speaker button that reads it in the browser's own voice; code blocks are announced rather than spelled out, link targets are dropped, and moving away stops the speech
@@ -55,11 +56,30 @@ Set either (or both) via `process.env` — locally in `.env.local`, or in Vercel
 | `CLOUDFLARE_ACCOUNT_ID` | **Image generation** | Cloudflare account that hosts the Workers AI model |
 | `CLOUDFLARE_API_TOKEN` | **Image generation** | API token with the *Workers AI: Read* permission |
 | `MINO_ADMIN_EMAIL` | **Admin controls** | The administrator's address, matching the one in `database.rules.json` |
+| `GOOGLE_CLIENT_ID` | **Google tools** | OAuth client id from Google Cloud Console |
+| `GOOGLE_CLIENT_SECRET` | **Google tools** | The client's secret — never reaches the browser |
+| `GOOGLE_ENCRYPTION_KEY` | **Google tools** | Any 32-byte hex value (`openssl rand -hex 32`) — AES-256 key for the token cookie |
+| `GOOGLE_REDIRECT_URI` | **Google tools** | Optional. Overrides `https://YOUR-DOMAIN/api/google/callback` |
+| `GOOGLE_MAPS_API_KEY` | **Google tools** | Optional. Enables structured Maps results; without it Maps returns openable links |
 | `NEXT_PUBLIC_VAPID_PUBLIC_KEY` | **Web push** | Public half of the VAPID pair — inlined into the browser bundle at build, so it must be set *before* the deploy |
 | `WEB_PUSH_PRIVATE_KEY` | **Web push** | Private half — read only inside `/api/push`, never reaches the browser |
 | `WEB_PUSH_SUBJECT` | **Web push** | A `mailto:` (or `https:`) contact for the push service, e.g. `mailto:you@example.com` |
 
 All three push keys are read from `process.env` like everything else, so on Vercel they live in **Settings → Environment Variables**: set all three and deploy. The two `WEB_PUSH_*` values are read at request time (changing them needs no rebuild), but `NEXT_PUBLIC_VAPID_PUBLIC_KEY` is baked into the bundle during the build — add or change it *before* the deploy, or the browser half stays stale. Generate a pair with `bunx web-push generate-vapid-keys`. Until all three exist, `GET /api/push` reports `configured: false` and Settings → Notifications says so instead of pretending.
+
+### Google tools (Calendar, Tasks, Sheets, Docs, Maps)
+
+A one-time setup on Google's side, then four environment variables:
+
+1. [Google Cloud Console](https://console.cloud.google.com) → create (or pick) a project
+2. **APIs & Services → Library** → enable **Calendar API**, **Tasks API**, **Sheets API**, **Docs API**, and **Drive API**
+3. **APIs & Services → OAuth consent screen** → External → add the app name and a support email; add yourself as a **test user** while the app is unverified (all user scopes then still work for up to 100 test users)
+4. **Credentials → Create credentials → OAuth client ID** → **Web application** → under *Authorized redirect URIs* add exactly `https://YOUR-DEPLOYMENT-DOMAIN/api/google/callback` (and `http://localhost:3000/api/google/callback` for local dev)
+5. Set `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, and `GOOGLE_ENCRYPTION_KEY` in Vercel → Settings → Environment Variables, then redeploy
+
+Google Maps is separate and optional: create an **API key** (Credentials → API key) with the *Places API* enabled and set `GOOGLE_MAPS_API_KEY`. Without it, Maps requests still answer with openable Google Maps links.
+
+**Verification** — until the consent screen is published or the domain is verified, Google shows a "not verified" warning before consent; pressing *Advanced → Go to (app) (unsafe)* proceeds and everything works for test users.
 
 ### Mino Azure (the Gradio Space)
 

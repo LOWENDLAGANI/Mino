@@ -9,6 +9,7 @@ import { useSubscription } from "@/lib/useSubscription";
 import { useEffect } from "react";
 import AccountSection from "@/components/AccountSection";
 import DataControls from "@/components/DataControls";
+import GoogleToolsSection from "@/components/GoogleToolsSection";
 import MemoryPanel from "@/components/MemoryPanel";
 import PushSettings from "@/components/PushSettings";
 
@@ -282,6 +283,7 @@ export default function SettingsPanel({
             </section>
           </div>
 
+          <GoogleToolsSection />
           <PushSettings />
         </div>
       </section>
