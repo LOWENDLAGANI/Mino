@@ -1,5 +1,6 @@
 import { NextRequest } from "next/server";
 import { MINO_SYSTEM_PROMPT } from "@/lib/systemPrompt";
+import { AZURE_SYSTEM_PROMPT } from "@/lib/systemPrompt";
 import { formatMemories, sanitizeMemoryPayload } from "@/lib/memory";
 import type { ReasoningEffort } from "@/lib/settings";
 import type { ApiMessage, SearchMode, SearchSource } from "@/lib/types";
@@ -218,7 +219,7 @@ async function callProvider(
   codeMode: boolean
 ): Promise<Response> {
   const system = [
-    MINO_SYSTEM_PROMPT,
+    provider.family === "space" ? AZURE_SYSTEM_PROMPT : MINO_SYSTEM_PROMPT,
     // The Code grammar only applies in Code mode. Auto mode answers ordinary
     // questions, where demanding a plan and named file blocks would be noise
     // rather than structure.
