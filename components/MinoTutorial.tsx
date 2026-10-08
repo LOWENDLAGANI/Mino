@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useState, type CSSProperties } from "react";
 import MinoMark from "@/components/MinoMark";
 
-const TUTORIAL_STORAGE_KEY = "mino:first-use-tutorial-v1";
+const TUTORIAL_STORAGE_KEY = "mino:first-use-tutorial-v2";
 
 type TutorialTarget =
   | "mobile-menu"
@@ -22,66 +22,60 @@ interface TutorialStep {
   body: string;
   fallbackTarget?: TutorialTarget;
   mobileSidebar?: boolean;
+  highlight?: "composer" | "selector" | "sidebar" | "tools";
 }
 
 const STEPS: TutorialStep[] = [
   {
     target: "composer",
-    eyebrow: "01 · Start a conversation",
-    title: "Ask Mino anything",
-    body: "Type a question or idea into the composer, then press the arrow to send it. Mino streams its answer here in real time; use Stop to end a response early, then Copy to reuse an answer.",
+    highlight: "composer",
+    eyebrow: "Welcome to Mino",
+    title: "Start a conversation",
+    body: "Type any question or idea below and press send. Mino streams answers in real-time — watch it think as you read. Use Stop to pause, Copy to save.",
   },
   {
     target: "composer",
-    eyebrow: "02 · Add context",
-    title: "Bring images into the chat",
-    body: "Select the image button, drag files into the composer, or paste an image from your clipboard. Mino prepares up to four image attachments for your message, so you can ask questions about what you share.",
+    highlight: "composer",
+    eyebrow: "Bring context",
+    title: "Add images & files",
+    body: "Tap the attachment button, drag files in, or paste from clipboard. Mino understands images — show it something and ask questions about what you see.",
   },
   {
     target: "model-selector",
-    eyebrow: "03 · Choose your helper",
-    title: "Pick the right Mino mode",
-    body: "Use the model menu in the top bar. Mino Auto chooses the best available model for each prompt. Mino Code is tuned for code and technical work — every file comes back in a block you can copy, and picking it starts a fresh session. Your choice is remembered on this device.",
+    highlight: "selector",
+    eyebrow: "Choose your mode",
+    title: "Pick the right Mino",
+    body: "Mino Auto for everyday tasks, Mino Code for programming, or Mino Azure — Mino's own model created by Minetallest. Your choice is remembered.",
   },
   {
     target: "gallery-button",
-    eyebrow: "04 · Add your tools",
-    title: "Everything useful, one tap away",
-    body: "Open this compact tools menu to attach images from your Gallery or choose how Mino handles web search. Auto stays quiet for general knowledge questions, while On and Off give you direct control.",
-  },
-  {
-    target: "mobile-menu",
-    fallbackTarget: "sidebar-new-chat",
-    eyebrow: "05 · Open your workspace",
-    title: "Everything is one tap away",
-    body: "On small screens, the menu button opens your Mino workspace. From there you can start a new chat, find recent conversations, and manage the data stored on this device.",
+    highlight: "tools",
+    eyebrow: "Quick tools",
+    title: "Everything at your fingertips",
+    body: "The tools menu gives you fast access to gallery, search settings, and more. One tap, everything you need.",
   },
   {
     target: "sidebar-new-chat",
-    eyebrow: "06 · Start a fresh conversation",
-    title: "New chat keeps things clear",
-    body: "Use New chat whenever you want a clean slate. Your current conversation is cleared without deleting anything from Recent.",
+    highlight: "sidebar",
+    eyebrow: "Your workspace",
+    title: "New chat, fresh start",
+    body: "Start a new conversation anytime. Your previous chats stay in Recent — pick up where you left off or begin something new.",
     mobileSidebar: true,
   },
   {
     target: "sidebar-recent",
-    eyebrow: "07 · Keep chats organized",
-    title: "Your work stays close",
-    body: "Recent chats are saved locally. Reopen any conversation to continue where you left off, or use the small delete control to remove an individual chat.",
-    mobileSidebar: true,
-  },
-  {
-    target: "sidebar-utilities",
-    eyebrow: "08 · Find and move your work",
-    title: "Search or bring in a backup",
-    body: "Search chats filters your recent titles as you type. Library opens a Mino JSON backup for import, while Export saves a copy of your chats and messages. Clear removes the local data after confirmation.",
+    highlight: "sidebar",
+    eyebrow: "Stay organized",
+    title: "Recent conversations",
+    body: "Every chat is saved locally. Reopen any conversation to continue, or swipe to delete. Your workspace, your control.",
     mobileSidebar: true,
   },
   {
     target: "sidebar-data",
-    eyebrow: "09 · Yours, on this device",
+    highlight: "sidebar",
+    eyebrow: "Your data",
     title: "Stored on your device",
-    body: "Mino stores chats and messages locally in your browser, so your workspace stays available without an account. The account footer and data controls are here whenever you want to manage that local copy.",
+    body: "Mino keeps chats in your browser — no account needed. Import backups, export your data, or clear everything. You own your conversations.",
     mobileSidebar: true,
   },
 ];
@@ -194,69 +188,92 @@ export default function MinoTutorial({ sidebarOpen, onOpenSidebar, onFinished }:
 
   const spotlightStyle: CSSProperties | null = targetRect
     ? {
-        top: targetRect.top - 5,
-        left: targetRect.left - 5,
-        width: targetRect.width + 10,
-        height: targetRect.height + 10,
+        top: targetRect.top - 8,
+        left: targetRect.left - 8,
+        width: targetRect.width + 16,
+        height: targetRect.height + 16,
       }
     : null;
+
+  const highlightColor = step.highlight === "selector" 
+    ? "rgba(91, 155, 213, 0.4)" 
+    : step.highlight === "composer" 
+      ? "rgba(224, 142, 107, 0.4)"
+      : "rgba(110, 194, 148, 0.4)";
 
   return (
     <div className="fixed inset-0 z-[80]" role="dialog" aria-modal="true" aria-labelledby="mino-tutorial-title">
       {spotlightStyle && (
         <div
           aria-hidden="true"
-          className="pointer-events-none fixed rounded-[22px] border border-[#a9d8bb]/80 shadow-[0_0_0_9999px_rgba(0,0,0,0.76),0_0_0_1px_rgba(169,216,187,0.25),0_0_32px_rgba(63,125,92,0.28)]"
-          style={spotlightStyle}
+          className="pointer-events-none fixed rounded-[24px] border border-white/10 shadow-[0_0_0_9999px_rgba(0,0,0,0.78),0_0_0_1px_rgba(255,255,255,0.08)]"
+          style={{ ...spotlightStyle, boxShadow: `0 0 0 9999px rgba(0,0,0,0.78), 0 0 0 1px rgba(255,255,255,0.08), 0 0 40px ${highlightColor}` }}
         />
       )}
 
       <div className="pointer-events-none absolute inset-0 flex items-start justify-center p-4 pt-8 sm:items-center sm:p-8">
-        <section className="pointer-events-auto w-full max-w-sm rounded-[26px] border border-white/[0.12] bg-[#121c18]/[0.97] p-5 shadow-2xl shadow-black/70 backdrop-blur-2xl sm:p-6">
+        <section className="pointer-events-auto w-full max-w-md rounded-2xl border border-white/[0.12] bg-[#121c18]/[0.98] p-6 shadow-2xl shadow-black/70 backdrop-blur-2xl sm:p-7">
+          {/* Header with logo and progress */}
           <div className="flex items-start justify-between gap-4">
             <div className="flex items-center gap-3">
-              <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-white/[0.07]">
-                <MinoMark className="h-7 w-7" />
+              <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-gradient-to-br from-[#a9d8bb]/20 to-[#2f6b48]/20 border border-[#a9d8bb]/20">
+                <MinoMark className="h-8 w-8" />
               </div>
               <div>
-                <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-[#a9d8bb]/75">Mino quick tour</p>
-                <p className="mt-1 text-[12px] text-white/40">{stepIndex + 1} of {STEPS.length}</p>
+                <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-[#a9d8bb]/80">
+                  {step.eyebrow}
+                </p>
+                <p className="mt-0.5 text-[11px] text-white/35">
+                  {stepIndex + 1} / {STEPS.length}
+                </p>
               </div>
             </div>
             <button
               type="button"
               onClick={finish}
-              className="rounded-full px-2 py-1 text-[12px] text-white/40 transition-colors hover:bg-white/[0.07] hover:text-white"
+              className="rounded-full px-3 py-1.5 text-[12px] text-white/40 transition-colors hover:bg-white/[0.07] hover:text-white/70"
               aria-label="Skip Mino tutorial"
             >
               Skip
             </button>
           </div>
 
+          {/* Content */}
           <div className="mt-6">
-            <p className="text-[11px] font-medium tracking-[0.08em] text-[#9fd0b3]">{step.eyebrow}</p>
-            <h2 id="mino-tutorial-title" className="mt-2 text-[23px] font-semibold tracking-[-0.035em] text-white">
+            <h2 id="mino-tutorial-title" className="text-[26px] font-semibold tracking-[-0.04em] text-white leading-tight">
               {step.title}
             </h2>
-            <p className="mt-3 text-[14px] leading-6 text-white/60">{step.body}</p>
+            <p className="mt-3 text-[14px] leading-relaxed text-white/60">{step.body}</p>
           </div>
 
-          <div className="mt-6 flex items-center justify-between gap-4">
-            <div className="flex items-center gap-1.5" aria-hidden="true">
-              {STEPS.map((item, index) => (
-                <span
-                  key={item.target + index}
-                  className={`h-1.5 rounded-full transition-all ${index === stepIndex ? "w-6 bg-[#a9d8bb]" : "w-1.5 bg-white/20"}`}
-                />
-              ))}
-            </div>
+          {/* Progress dots */}
+          <div className="mt-6 flex items-center gap-1.5" aria-hidden="true">
+            {STEPS.map((item, index) => (
+              <span
+                key={item.target + index}
+                className={`h-1.5 rounded-full transition-all duration-300 ${
+                  index === stepIndex ? "w-8 bg-gradient-to-r from-[#a9d8bb] to-[#2f6b48]" : "w-1.5 bg-white/15"
+                }`}
+              />
+            ))}
+          </div>
+
+          {/* Navigation */}
+          <div className="mt-5 flex items-center justify-between gap-4">
+            <button
+              type="button"
+              onClick={finish}
+              className="text-[13px] text-white/40 transition-colors hover:text-white/70"
+            >
+              Skip tour
+            </button>
             <button
               type="button"
               onClick={next}
-              className="flex items-center gap-2 rounded-full bg-white px-4 py-2.5 text-[13px] font-semibold text-[#121c18] transition-transform hover:scale-[1.02] active:scale-[0.98]"
+              className="flex items-center gap-2 rounded-full bg-gradient-to-r from-[#a9d8bb] to-[#2f6b48] px-5 py-2.5 text-[13px] font-semibold text-[#121c18] transition-all duration-200 hover:shadow-lg hover:shadow-[#a9d8bb]/20 active:scale-[0.98]"
             >
               {stepIndex === STEPS.length - 1 ? "Start chatting" : "Next"}
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
                 <path d="M5 12h14M13 6l6 6-6 6" />
               </svg>
             </button>
@@ -266,3 +283,4 @@ export default function MinoTutorial({ sidebarOpen, onOpenSidebar, onFinished }:
     </div>
   );
 }
+

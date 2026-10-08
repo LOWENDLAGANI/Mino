@@ -255,8 +255,8 @@ function MessageRow({ msg, streaming, drawing, onRegenerate, onEditMessage, onSw
   return (
     <div className="group animate-rise">
       <div className="mb-2 flex items-center gap-2">
-        <MinoMark className="h-5 w-5" />
-        <span className="text-[12px] font-medium text-white/55">
+        <ModelIcon model={msg.model} />
+        <ModelBadge model={msg.model} /><span className="hidden ml-2 text-[12px] font-medium text-white/55">
           {getModelDisplayName(msg.model)}
         </span>
         {msg.usage && (
@@ -777,8 +777,8 @@ export default function ChatThread({  messages,
           {streamingId && !messages.find((m) => m.id === streamingId)?.content && (
             <div className="animate-rise">
               <div className="mb-2 flex items-center gap-2">
-                <MinoMark className="h-5 w-5" />
-                <span className="text-[12px] font-medium text-white/55">Mino</span>
+                <ModelIcon model={msg.model} />
+                <ModelBadge model={msg.model} /><span className="hidden ml-2 text-[12px] font-medium text-white/55">Mino</span>
               </div>
               <TypingDots message={loadingMessage} />
             </div>
@@ -787,5 +787,58 @@ export default function ChatThread({  messages,
         </div>
       </div>
     </div>
+  );
+}
+
+// ── Model identity badge (added for UI overhaul) ──────────────────────────
+// Visual indicator showing which Mino model responded with color-coded styling
+import { getMode } from "@/lib/models";
+
+function ModelBadge({ model }: { model?: string }) {
+  const mode = getMode(model ?? "auto");
+  const isAzure = mode.id === "self";
+  const isCode = mode.id === "code";
+  
+  const badgeClass = isAzure 
+    ? "model-badge model-badge-azure" 
+    : isCode 
+      ? "model-badge model-badge-code" 
+      : "model-badge model-badge-auto";
+  
+  const label = isAzure ? "Mino Azure" : isCode ? "Mino Code" : mode.display;
+  
+  return (
+    <span className={badgeClass}>
+      <span className="model-badge-dot" />
+      {label}
+    </span>
+  );
+}
+
+function ModelIcon({ model }: { model?: string }) {
+  const mode = getMode(model ?? "auto");
+  const isAzure = mode.id === "self";
+  const isCode = mode.id === "code";
+  
+  if (isAzure) {
+    return (
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" className="text-[#5b9bd5] flex-shrink-0" aria-hidden="true">
+        <circle cx="12" cy="12" r="3" />
+        <path d="M12 2v4M12 18v4M2 12h4M18 12h4" />
+      </svg>
+    );
+  }
+  if (isCode) {
+    return (
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" className="text-[#e08e6b] flex-shrink-0" aria-hidden="true">
+        <path d="M16 18l6-6-6-6M8 6l-6 6 6 6" />
+      </svg>
+    );
+  }
+  return (
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" className="text-[#6ec294] flex-shrink-0" aria-hidden="true">
+      <path d="M12 3c.132 0 .263 0 .393 0a7.5 7.5 0 0 0 7.92 12.446a9 9 0 1 1-9.123-12.776" />
+      <path d="M15 15.5a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z" />
+    </svg>
   );
 }
