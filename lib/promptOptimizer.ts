@@ -161,14 +161,14 @@ export async function optimizePrompt(input: string, signal?: AbortSignal): Promi
         // The final string is what FLUX actually receives, and nothing else in
         // the system shows it. Without this, a wrong result is only diagnosable
         // by looking at the picture and guessing what the model was told.
-        console.log(`[promptOptimizer] ${provider.label} in="${original}" out="${prompt}"`);
+        if (process.env.NODE_ENV === "development") console.log(`[promptOptimizer] ${provider.label} in="${original}" out="${prompt}"`);
         return { prompt, optimized: true, provider: provider.label };
       }
     } catch {
       // Try the next provider; a missing text key must not fail the image.
     }
   }
-  console.log(`[promptOptimizer] passthrough (no text model) prompt="${original}"`);
+  if (process.env.NODE_ENV === "development") console.log(`[promptOptimizer] passthrough (no text model) prompt="${original}"`);
   return { prompt: original.slice(0, MAX_PROMPT_LENGTH), optimized: false };
 }
 
