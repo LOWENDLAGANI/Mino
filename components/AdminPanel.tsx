@@ -268,6 +268,8 @@ export default function AdminPanel({
                   grantedAt: record.grantedAt,
                   expiresAt: record.expiresAt,
                   days: record.days,
+                  paused: false,
+                  pausedUntil: 0,
                 },
               }
             : user
@@ -524,7 +526,7 @@ export default function AdminPanel({
                   <ul className="mt-1 space-y-1">
                     {named.map((visitor) => (
                       <li
-                        key={visitor.uid}
+                        key={visitor.uid ?? ""}
                         className="flex items-center justify-between gap-2 rounded-[12px] border border-white/[0.06] bg-white/[0.03] px-3 py-2"
                       >
                         <span className="min-w-0 truncate text-[12px] font-medium text-white/85">
@@ -1258,7 +1260,7 @@ function AuditSection({
               </span>
               <span className="min-w-0 flex-1">
                 <span className="block truncate text-[12px] text-white/85">
-                  {entry.name ?? `${entry.uid.slice(0, 8)}…`}
+                  {entry.name ?? `{entry.uid?.slice(0, 8) ?? '----'}…`}
                 </span>
                 <span className="block text-[10px] leading-relaxed text-white/35">
                   {entry.plan ? planById(entry.plan).short : "—"}

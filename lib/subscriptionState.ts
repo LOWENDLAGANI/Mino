@@ -12,6 +12,8 @@
 import { formatRinggit, planById, termForDays, type PlanId } from "./plans";
 import { DAY_MS, MAX_DAYS, MIN_DAYS, describeDuration, normalizeDays } from "./durations";
 
+export type { PlanId } from "./plans";
+
 /** The payment reference is what the owner reads off their banking app. */
 export const NOTE_MAX = 120;
 
@@ -268,4 +270,118 @@ export function renewalNote(
 export function subscriptionVerdict(subscription: Subscription | null): string {
   if (!subscription) return "Free";
   return planById(subscription.plan).name;
+}
+
+// ── Paused subscriptions ─────────────────────────────────────────────────────
+// A pause is a temporary suspension of access that does not spend the time
+// bought. The buyer keeps the days they paid for; they just cannot use them
+// while paused. That is the difference between pausing and revoking: revoke is
+// a removal, pause is a hold.
+
+/** The pause state written into a subscription record. */
+export interface PauseState {
+  /** When the pause started, so the pause duration can be measured. */
+  pausedAt: number;
+  /** When the pause was set, for the audit trail. */
+  setAt: number;
+  /** The administrator who set it, when known. */
+  setBy: string;
+  /** Why, in the owner's words. Shown in the console. */
+  reason: string;
+}
+
+/** Reads a pause state from whatever the database holds. */
+export function parsePauseState(raw: unknown): PauseState | null {
+  if (!raw || typeof raw !== "object") return null;
+  const value = raw as Record<string, unknown>;
+  const pausedAt = Number(value.pausedAt);
+  const setAt = Number(value.setAt);
+  if (!Number.isFinite(pausedAt) || pausedAt <= 0) return null;
+  if (!Number.isFinite(setAt) || setAt <= 0) return null;
+  return {
+    pausedAt,
+    setAt,
+    setBy: String(value.setBy ?? "").slice(0, 120),
+    reason: String(value.reason ?? "").slice(0, 200),
+  };
+}
+
+/** True while the subscription is currently paused. */
+export function isPaused(
+  subscription: Subscription | null | undefined,
+  now = Date.now()
+): boolean {
+  if (!subscription) return false;
+  const candidate = (subscription as Subscription & { pausedUntil?: number }).pausedUntil ?? 0;
+  return Number.isFinite(candidate) && candidate > now;
+}
+
+/** Read a pausedUntil value from a subscription-shaped object that may carry it. */
+export function readPausedUntil(subscription: Subscription | null | undefined): number {
+  if (!subscription) return 0;
+  const candidate = (subscription as Subscription & { pausedUntil?: number }).pausedUntil ?? 0;
+  return Number.isFinite(candidate) ? candidate : 0;
+}
+/** When the current pause ends, or 0 when not paused. */
+export function pausedUntil(subscription: Subscription | null | undefined): number {
+  if (!subscription) return 0;
+  const raw = (subscription as Subscription & { pausedUntil?: number }).pausedUntil;
+  const candidate = raw !== undefined ? raw : 0;
+  return Number.isFinite(candidate) ? candidate : 0;
+}
+
+/**
+ * When a paused subscription resumes, measured from the moment it was paused.
+ *
+ * The resumed subscription keeps the remaining time it had when paused, not a new
+ * full term. Pausing does not spend time; it only defers access.
+ */
+export function resumeExpiry(
+  subscription: Subscription,
+  pauseState: PauseState,
+  now: number
+): number {
+  const wasPausedAt = pauseState.pausedAt;
+  const remainingAtPause = subscription.expiresAt - wasPausedAt;
+  if (remainingAtPause <= 0) return now + DAY_MS; // edge case: already expired when paused
+  return wasPausedAt + Math.max(0, remainingAtPause) + (now - wasPausedAt);
+}
+
+/**
+ * The effective access window once paused status is taken into account.
+ *
+ * A paused subscription is still owned by the buyer; it just cannot be used
+ * until the pause lifts. This helper is what the enforcement path reads so the
+ * two decisions — do they have a plan, and is it usable right now — stay in one
+ * place.
+ */
+export function effectiveExpiry(
+  subscription: Subscription | null | undefined,
+  now = Date.now()
+): {
+  planId: PlanId | null;
+  expiresAt: number;
+  paused: boolean;
+  pausedUntil: number;
+} {
+  if (!subscription) return { planId: null, expiresAt: 0, paused: false, pausedUntil: 0 };
+  const pUntil = readPausedUntil(subscription);
+  return {
+    planId: subscription.plan,
+    expiresAt: subscription.expiresAt,
+    paused: pUntil > now,
+    pausedUntil: pUntil,
+  };
+}
+
+/**
+ * Reads the pause state out of a subscription view's raw payload.
+ *
+ * Kept separate from parseSubscription so the pure subscription logic does not
+ * depend on the pause field, and the console can ask for it directly without
+ * fishing it out of a parsed Subscription.
+ */
+export function readPauseState(raw: unknown): PauseState | null {
+  if (!raw || typeof raw !== "object") return null;
+  return parsePauseState((raw as Record<string, unknown>).pause ?? null);
 }

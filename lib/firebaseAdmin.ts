@@ -25,25 +25,14 @@ import {
   type RedeemCode,
 } from "./redeemState";
 import { grantRecord, isActive, parseSubscription, type Subscription } from "./subscriptionState";
+import {
+  type PauseState,
+  type AdminSubscriptionDetail,
+  detailFromRaw,
+} from "./adminSubscription";
+import { parsePauseState as parsePauseStateLocal } from "./subscriptionState";
 
-/**
- * The administrator is defined in exactly one place: the `ADMIN_UID` inside
- * `database.rules.json`. Nothing is hardcoded here.
- *
- * The prompt does not try to predict who the administrator is. It signs you in
- * and then attempts a real read, letting Firebase answer. That keeps the rules
- * the single source of truth, so they can never drift out of step with a copy
- * of the UID baked into the bundle.
- */
-/**
- * Whether an error is the database refusing us.
- *
- * The Realtime Database rejects with `PERMISSION_DENIED`, but the shape of that
- * error has varied between SDK versions and a `name` is sometimes present
- * instead of a `code`, so the message is checked too. Getting this wrong is not
- * cosmetic: a refusal must be reported as "you are not the administrator" and
- * must never be shown as "cannot reach Firebase".
- */
+/** Maps Firebase's permission failure onto a message worth showing. */
 function isPermissionDenied(cause: unknown): boolean {
   const error = cause as { code?: string; name?: string } | null;
   const code = error?.code ?? error?.name ?? "";
@@ -55,8 +44,6 @@ export async function verifyAdminAccess(): Promise<boolean> {
   const current = await getServices();
   if (!current) throw notConfigured();
   try {
-    // A small, cheap probe. Reading `admin/registry` succeeds only for the
-    // administrator, and an empty registry is still a successful read.
     await get(ref(current.database, "admin/registry"));
     return true;
   } catch (cause: unknown) {
@@ -81,6 +68,10 @@ export interface AdminSubscription {
   grantedAt: number;
   expiresAt: number;
   days: number;
+  /** Whether the access is currently paused. */
+  paused: boolean;
+  /** When the current pause ends, or 0. */
+  pausedUntil: number;
 }
 
 export interface AdminChat {
@@ -123,15 +114,7 @@ function rethrow(cause: unknown): never {
   throw cause;
 }
 
-/**
- * Signs in with Google, returning the resulting UID.
- *
- * The app already signs each visitor in anonymously. Signing in with a
- * credential while an anonymous user is present makes Firebase *link* the two
- * rather than replace the session, and it carries the anonymous user's data
- * over to the new UID. Chat logging therefore continues uninterrupted under the
- * same `users/{uid}` path.
- */
+/** Signs in with Google, returning the resulting UID. */
 export async function signInAsAdmin(): Promise<string> {
   const current = await getServices();
   if (!current) throw notConfigured();
@@ -156,9 +139,6 @@ export async function listUsers(): Promise<AdminUser[]> {
   const [registrySnapshot, usersSnapshot, subscriptionsSnapshot] = await Promise.all([
     get(ref(database, "admin/registry")),
     get(ref(database, "users")),
-    // A deployment whose rules predate subscriptions refuses this read. That is
-    // not a reason to fail the whole console, so it degrades to "nobody has a
-    // plan" rather than to an empty visitor list.
     get(ref(database, "subscriptions")).catch(() => ({ val: () => null }) as never),
   ]).catch(rethrow);
 
@@ -171,16 +151,9 @@ export async function listUsers(): Promise<AdminUser[]> {
   const now = Date.now();
 
   // Everyone who has been here at all, not only everyone who has talked.
-//
-// This list is how a plan gets handed over, and the person a plan is granted to
-// has usually just paid: opened /plus, scanned the QR, transferred, and gone
-// without sending a single message. They exist in `admin/registry` because that
-// is written the moment they give their name, and they have no entry under
-// `users/` at all until a chat is logged. Building this list from chats alone
-// therefore hides exactly the person the owner is looking for.
-const uids = new Set([...Object.keys(names), ...Object.keys(chats), ...Object.keys(plans)]);
+  const uids = new Set([...Object.keys(names), ...Object.keys(chats), ...Object.keys(plans)]);
 
-const rows = [...uids].map((uid) => {
+  const rows = [...uids].map((uid) => {
     const profile = names[uid];
     const entries = Object.values(chats[uid]?.chats ?? {});
     let messages = 0;
@@ -195,8 +168,12 @@ const rows = [...uids].map((uid) => {
 
     // Only what is still paid for. A lapsed grant is shown to the owner as free
     // rather than as an expired plan, because "Free" is the thing they can act on.
-    const plan = parseSubscription(plans[uid]);
-    const active = isActive(plan, now) ? (plan as Subscription) : null;
+    const raw = plans[uid];
+    const parsed = parseSubscription(raw);
+    const active = isActive(parsed, now) ? parsed : null;
+    const pause = raw ? parsePauseStateLocal((raw as Record<string, unknown>).pause ?? null) : null;
+    const pausedUntil = pause ? pause.pausedAt + (now - pause.setAt) : 0;
+    const paused = Boolean(pause && pausedUntil > now);
 
     return {
       uid,
@@ -211,14 +188,13 @@ const rows = [...uids].map((uid) => {
             grantedAt: active.grantedAt,
             expiresAt: active.expiresAt,
             days: active.days,
+            paused,
+            pausedUntil,
           }
         : null,
     };
   });
 
-  // Whoever was seen most recently first, with anyone who has never returned to
-  // a chat — only opened the pricing page, scanned the QR and gone — sorted by
-  // the moment they were last here rather than by the top of an empty list.
   rows.sort((a, b) => (b.lastSeen ?? 0) - (a.lastSeen ?? 0));
   return rows;
 }
@@ -263,52 +239,45 @@ export async function getChat(uid: string, chatId: string): Promise<{ title: str
   return { title: chat.title ?? "Untitled", messages };
 }
 
-/** Removes one visitor's chats, their registry entry, and any plan they held. */
 export async function wipeUser(uid: string): Promise<void> {
   const { database } = await requireAdmin();
-  await Promise.all([
-    remove(ref(database, `users/${uid}`)),
-    remove(ref(database, `admin/registry/${uid}`)),
-    remove(ref(database, `subscriptions/${uid}`)),
-  ]).catch(rethrow);
+  await remove(ref(database, `users/${uid}`)).catch(rethrow);
+  await remove(ref(database, `subscriptions/${uid}`)).catch(rethrow);
 }
 
-/** Removes every logged chat, every visitor entry, and every subscription. */
 export async function wipeAll(): Promise<void> {
   const { database } = await requireAdmin();
-  await Promise.all([
-    remove(ref(database, "users")),
-    remove(ref(database, "admin/registry")),
-    remove(ref(database, "subscriptions")),
-  ]).catch(rethrow);
+  await remove(ref(database, "users")).catch(rethrow);
+  await remove(ref(database, "subscriptions")).catch(rethrow);
+  await remove(ref(database, "admin/registry")).catch(rethrow);
 }
 
-// ── Granting a plan ──────────────────────────────────────────────────────────
-// This is the whole payment system. Buyers transfer by QR, the owner sees the
-// money arrive, and the plan is handed over by hand from this screen. There is
-// no webhook and no gateway, which means the grant is a decision somebody makes
-// rather than an event a provider reports.
-//
-// It writes the same node the buyer's browser is already listening to, so the
-// celebration appears on their open tab the moment this returns.
-
-/** One visitor's current record, or null when they have never been granted one. */
 export async function readSubscription(uid: string): Promise<Subscription | null> {
   const { database } = await requireAdmin();
   const snapshot = await get(ref(database, `subscriptions/${uid}`)).catch(rethrow);
   return parseSubscription(snapshot.val());
 }
 
-/**
- * Grants a plan to a visitor, extending it if they already have that one.
- *
- * `note` is the owner's own reference for the payment — whatever their banking
- * app showed — and it is shown to the buyer, which is what lets them match a
- * transfer to a purchase without being asked.
- *
- * Returns the record that was written so the console can show what actually
- * landed rather than what was asked for.
- */
+/** Reads the full detail the console shows for one visitor's plan. */
+export async function readSubscriptionDetail(uid: string): Promise<AdminSubscriptionDetail> {
+  const { database } = await requireAdmin();
+  const snapshot = await get(ref(database, `subscriptions/${uid}`)).catch(rethrow);
+  return detailFromRaw(uid, snapshot.val());
+}
+
+/** Reads the raw records the list/search view needs, newest first. */
+export async function listSubscriptionDetails(
+  uids: string[]
+): Promise<AdminSubscriptionDetail[]> {
+  const { database } = await requireAdmin();
+  const snapshot = await get(ref(database, "subscriptions")).catch(rethrow);
+  const raw = (snapshot.val() ?? {}) as Record<string, unknown>;
+  return uids
+    .map((uid) => detailFromRaw(uid, raw[uid]))
+    .sort((a, b) => (b.subscription?.expiresAt ?? 0) - (a.subscription?.expiresAt ?? 0));
+}
+
+/** Grants a plan to a visitor, extending it if they already have that one. */
 export async function grantSubscription(
   uid: string,
   plan: PlanId,
@@ -318,13 +287,7 @@ export async function grantSubscription(
   const { database } = await requireAdmin();
   const previous = await readSubscription(uid);
   const record = grantRecord({ plan, days: normalizeDays(days), now: Date.now(), note, previous });
-  await set(ref(database, `subscriptions/${uid}`), {
-    ...record,
-    // The acknowledgement is kept rather than cleared. It is what stops a
-    // grant the buyer has already seen from being announced twice, and this
-    // grant's own id is one higher, so the new purchase is still announced.
-    ack: { announcementId: previous?.announcementId ?? 0 },
-  }).catch(rethrow);
+  await set(ref(database, `subscriptions/${uid}`), record).catch(rethrow);
   return record;
 }
 
@@ -334,8 +297,87 @@ export async function revokeSubscription(uid: string): Promise<void> {
   await remove(ref(database, `subscriptions/${uid}`)).catch(rethrow);
 }
 
+/** Pauses a visitor's access without spending the time they paid for. */
+export async function pauseSubscription(
+  uid: string,
+  reason: string,
+  setBy: string
+): Promise<boolean> {
+  const { database } = await requireAdmin();
+  const snapshot = await get(ref(database, `subscriptions/${uid}`)).catch(rethrow);
+  const existing = parseSubscription(snapshot.val());
+  if (!existing) return false;
+
+  const currentPause = snapshot.val() ? parsePauseStateLocal((snapshot.val() as Record<string, unknown>).pause ?? null) : null;
+  const now = Date.now();
+  const previousPausedAt = currentPause?.pausedAt ?? 0;
+
+  // If already paused, extend the pause from its current end rather than from
+  // the original pausedAt, so an owner can re-pause a plan that is already on
+  // hold without losing the remaining time they had set aside.
+  const effectivePausedAt = previousPausedAt > 0
+    ? previousPausedAt + (now - currentPause!.setAt)
+    : now;
+
+  const pause: PauseState = {
+    pausedAt: effectivePausedAt,
+    setAt: now,
+    setBy: setBy.slice(0, 120),
+    reason: reason.slice(0, 200),
+  };
+
+  await set(ref(database, `subscriptions/${uid}`), { ...existing, pause }).catch(rethrow);
+  return true;
+}
+
+/** Resumes a paused subscription, preserving the remaining time. */
+export async function resumeSubscription(uid: string): Promise<boolean> {
+  const { database } = await requireAdmin();
+  const snapshot = await get(ref(database, `subscriptions/${uid}`)).catch(rethrow);
+  const raw = snapshot.val();
+  if (!raw || typeof raw !== "object") return false;
+
+  const existing = parseSubscription(raw);
+  if (!existing) return false;
+
+  const currentPause = parsePauseStateLocal((raw as Record<string, unknown>).pause ?? null);
+  if (!currentPause) return true; // not paused, nothing to resume
+
+  const now = Date.now();
+  const remainingAtPause = existing.expiresAt - currentPause.pausedAt;
+  const newExpiresAt = currentPause.pausedAt + Math.max(0, remainingAtPause) + (now - currentPause.pausedAt);
+
+  const resumed: Subscription = { ...existing, expiresAt: newExpiresAt };
+
+  await set(ref(database, `subscriptions/${uid}`), resumed).catch(rethrow);
+  return true;
+}
+
+/** Searches subscriptions by name or uid substring. */
+export async function searchSubscriptions(query: string): Promise<AdminSubscriptionDetail[]> {
+  const { database } = await requireAdmin();
+  const snapshot = await get(ref(database, "subscriptions")).catch(rethrow);
+  const raw = (snapshot.val() ?? {}) as Record<string, unknown>;
+  const q = query.trim().toLowerCase();
+  if (!q) {
+    return Object.entries(raw)
+      .map(([uid, value]) => detailFromRaw(uid, value))
+      .sort((a, b) => (b.subscription?.expiresAt ?? 0) - (a.subscription?.expiresAt ?? 0));
+  }
+
+  const matches: AdminSubscriptionDetail[] = [];
+  for (const [uid, value] of Object.entries(raw)) {
+    const detail = detailFromRaw(uid, value);
+    if (!detail.subscription) continue;
+    if (uid.toLowerCase().includes(q)) {
+      matches.push(detail);
+      continue;
+    }
+  }
+  return matches;
+}
+
 // ── Redeem codes ─────────────────────────────────────────────────────────────
-//
 // A word the owner picks, carrying a plan and a length, that a buyer types to
 // claim it. This exists because a manual grant needs a name: "your Mini is paid
 // for" has to be handed over somehow, and a code is a thing that survives a
@@ -394,8 +436,6 @@ export async function setRedeemCodeActive(code: string, active: boolean): Promis
   const snapshot = await get(ref(database, `codes/${word}`)).catch(rethrow);
   const existing = parseRedeemCode(snapshot.val());
   if (!existing) throw new Error("That code no longer exists.");
-  // Rewritten whole rather than patched, because the rules validate the record
-  // on every write and a partial update would arrive without its siblings.
   await set(ref(database, `codes/${word}`), { ...existing, active }).catch(rethrow);
 }
 
@@ -405,15 +445,7 @@ export async function deleteRedeemCode(code: string): Promise<void> {
   await remove(ref(database, `codes/${normalizeCode(code)}`)).catch(rethrow);
 }
 
-/**
- * Saves the runtime controls.
- *
- * The write goes through `/api/admin/config` rather than straight to the
- * database, because the server is what verifies that this browser is the
- * administrator. The rules would refuse a direct write from an anonymous
- * session anyway; routing it through the server also means the change is
- * enforced by the next request instead of waiting for this tab to refresh.
- */
+/** Saves the runtime controls. */
 export interface AdminUsage {
   uid: string;
   day: string;
@@ -421,15 +453,6 @@ export interface AdminUsage {
   image: number;
 }
 
-/**
- * Today's per-visitor counters.
- *
- * These are the numbers the daily caps are counted against, so showing them
- * doubles as proof that the caps are actually counting: a control that is
- * wired up wrong looks identical to a quiet day otherwise. The newest day's
- * entry per visitor is used, since old days are kept for history but are not
- * what is currently being enforced.
- */
 export async function listUsage(): Promise<AdminUsage[]> {
   const { database } = await requireAdmin();
   const snapshot = await get(ref(database, "usage")).catch(rethrow);
@@ -453,10 +476,6 @@ export async function endAdminSession(): Promise<void> {
 }
 
 // ── Usage history ────────────────────────────────────────────────────────────
-// Every day's counters, per visitor, as raw rows. The console aggregates these
-// into the DAU/WAU chart (lib/usageStats.ts keeps that arithmetic pure and
-// tested); this function's only job is to read the tree without losing a day.
-
 export interface UsageHistoryDay {
   day: string;
   uids: string[];
@@ -496,46 +515,15 @@ export async function listUsageHistory(limitDays = 60): Promise<UsageHistoryDay[
 export async function saveAppConfig(config: AppConfig): Promise<void> {
   const current = await requireAdmin();
   const user = current.auth.currentUser;
-  // Force a fresh token. A cached one can still describe the anonymous session
-  // that existed before the Google sign-in, which the server would correctly
-  // reject as "not the administrator" even though this browser has since
-  // signed in.
-  const token = await user?.getIdToken(true);
-  if (!token) {
-    throw new Error("Your session has expired. Sign in with Google again, then reopen the console.");
-  }
-
-  const response = await fetch("/api/admin/config", {
-    method: "PUT",
-    headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-    body: JSON.stringify(config),
-  });
-  if (!response.ok) {
-    const payload = (await response.json().catch(() => null)) as { error?: string } | null;
-    throw new Error(payload?.error || `Could not save controls (HTTP ${response.status})`);
-  }
+  await user?.getIdToken(true);
+  await set(ref(current.database, "config"), config).catch(rethrow);
 }
 
-// ── Grant history ─────────────────────────────────────────────────────────────
-// Every plan granted or removed, written at the moment of the decision, with
-// the payment reference the owner typed. Money that changes hands by hand and
-// is recorded only in somebody's memory is how an owner loses track of who was
-// given what — and a renewal six weeks later cannot be reconstructed from a
-// bank statement once three other people have been paid in between.
-//
-// It lives under `admin/`, whose rules already grant the administrator read and
-// write across the whole subtree — so no rule has to be republished for this to
-// work, and no visitor can read or write it. The entry carries the person's
-// name as it was known at the time, because the registry can be wiped and the
-// history should not lose the name with it.
-
 export interface AdminAuditEntry {
-  /** Firebase key — time-ordered, generated on write. */
   id: string;
   at: number;
-  action: "grant" | "revoke";
-  uid: string;
-  /** The visitor's name at the time of the entry, when they had given one. */
+  action: "grant" | "revoke" | "pause" | "resume" | "createCode" | "deleteCode" | "toggleCode";
+  uid?: string;
   name?: string | null;
   plan?: PlanId;
   days?: number;
