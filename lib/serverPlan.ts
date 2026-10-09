@@ -31,10 +31,18 @@ function restBase(): string | null {
 }
 
 export interface CallerPlan {
-  /** The active plan, or null. An expired grant is no plan. */
+  /** The active plan, or null. An expired or held grant is no plan. */
   planId: PlanId | null;
   /** When the grant runs out, for the log line. 0 when there is no plan. */
   expiresAt: number;
+  /**
+   * True when the owner has this caller's grant on hold (see
+   * `subscriptionState.pause`). A held plan grants nothing — the buyer still
+   * owns the time, it simply cannot be spent until the owner continues it —
+   * but the two refusals are not the same sentence, so this rides along and
+   * the routes can tell "you never paid" from "your plan is on hold".
+   */
+  paused: boolean;
 }
 
 /**
@@ -50,7 +58,7 @@ export async function readCallerPlan(
   authorization: string | null,
   uid: string
 ): Promise<CallerPlan> {
-  const none: CallerPlan = { planId: null, expiresAt: 0 };
+  const none: CallerPlan = { planId: null, expiresAt: 0, paused: false };
   const token = authorization?.replace(/^Bearer\s+/i, "").trim();
   const base = restBase();
   if (!token || !base || !uid) return none;
@@ -66,8 +74,16 @@ export async function readCallerPlan(
     if (!response.ok) return none;
 
     const subscription = parseSubscription(await response.json());
-    if (!subscription || !isActive(subscription, Date.now())) return none;
-    return { planId: subscription.plan, expiresAt: subscription.expiresAt };
+    if (!subscription) return none;
+    // The hold is checked before the clock: a paused plan whose end date has
+    // since passed is still a held plan, not a lapsed one — the remaining time
+    // was frozen rather than spent, and saying otherwise would tell the buyer
+    // the days they were owed have disappeared.
+    if (subscription.pause) {
+      return { planId: null, expiresAt: subscription.expiresAt, paused: true };
+    }
+    if (!isActive(subscription, Date.now())) return none;
+    return { planId: subscription.plan, expiresAt: subscription.expiresAt, paused: false };
   } catch (error) {
     console.warn(`[mino paywall] plan read failed for uid ${uid}:`, error);
     return none;
@@ -81,5 +97,5 @@ export async function readCallerPlan(
  * majority of traffic, so this is the ordinary path and it does no network work.
  */
 export function planForUnidentified(): CallerPlan {
-  return { planId: null, expiresAt: 0 };
+  return { planId: null, expiresAt: 0, paused: false };
 }

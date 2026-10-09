@@ -42,6 +42,16 @@ export interface Subscription {
    * a second dialog while the same grant never earns it twice.
    */
   announcementId: number;
+  /**
+   * The owner's hold on this plan, when there is one.
+   *
+   * Pausing does not rewrite `expiresAt`; the hold is a sibling record that
+   * freezes where the countdown stood, and continuing shifts `expiresAt`
+   * forward by exactly the time held. Absent — the key is omitted entirely —
+   * for an ordinary record, so a plain subscription still parses to exactly
+   * what it always did.
+   */
+  pause?: PauseState;
 }
 
 export interface SubscriptionView {
@@ -76,6 +86,7 @@ export function parseSubscription(raw: unknown): Subscription | null {
   if (!Number.isFinite(expiresAt) || expiresAt <= 0) return null;
   if (!Number.isFinite(announcementId) || announcementId < 1) return null;
 
+  const pause = parsePauseState(value.pause);
   return {
     plan: value.plan,
     grantedAt,
@@ -84,6 +95,9 @@ export function parseSubscription(raw: unknown): Subscription | null {
     days: readDays(value),
     note: normalizeNote(value.note),
     announcementId: Math.floor(announcementId),
+    // Only present when the hold is real: an absent key keeps deepEqual honest
+    // for every record written before pauses existed.
+    ...(pause ? { pause } : {}),
   };
 }
 
@@ -273,16 +287,18 @@ export function subscriptionVerdict(subscription: Subscription | null): string {
 }
 
 // ── Paused subscriptions ─────────────────────────────────────────────────────
-// A pause is a temporary suspension of access that does not spend the time
-// bought. The buyer keeps the days they paid for; they just cannot use them
-// while paused. That is the difference between pausing and revoking: revoke is
-// a removal, pause is a hold.
+// A pause is a hold the owner places on a plan. The clock stops where it
+// stands: `expiresAt` is not rewritten while the hold is on, and continuing
+// the plan shifts `expiresAt` forward by exactly the time held — so the buyer
+// picks up with the same days they had left, never with a fresh term and
+// never early. That is the whole difference from a revoke, which throws the
+// time away.
 
 /** The pause state written into a subscription record. */
 export interface PauseState {
-  /** When the pause started, so the pause duration can be measured. */
+  /** When the hold began. The countdown is frozen at this instant. */
   pausedAt: number;
-  /** When the pause was set, for the audit trail. */
+  /** When the hold was set or last touched, for the console. */
   setAt: number;
   /** The administrator who set it, when known. */
   setBy: string;
@@ -306,54 +322,55 @@ export function parsePauseState(raw: unknown): PauseState | null {
   };
 }
 
-/** True while the subscription is currently paused. */
-export function isPaused(
-  subscription: Subscription | null | undefined,
-  now = Date.now()
-): boolean {
-  if (!subscription) return false;
-  const candidate = (subscription as Subscription & { pausedUntil?: number }).pausedUntil ?? 0;
-  return Number.isFinite(candidate) && candidate > now;
+/** True while the owner has this plan on hold. Presence of the record decides. */
+export function isPaused(subscription: Subscription | null | undefined): boolean {
+  return Boolean(subscription?.pause);
 }
 
-/** Read a pausedUntil value from a subscription-shaped object that may carry it. */
-export function readPausedUntil(subscription: Subscription | null | undefined): number {
-  if (!subscription) return 0;
-  const candidate = (subscription as Subscription & { pausedUntil?: number }).pausedUntil ?? 0;
-  return Number.isFinite(candidate) ? candidate : 0;
-}
-/** When the current pause ends, or 0 when not paused. */
-export function pausedUntil(subscription: Subscription | null | undefined): number {
-  if (!subscription) return 0;
-  const raw = (subscription as Subscription & { pausedUntil?: number }).pausedUntil;
-  const candidate = raw !== undefined ? raw : 0;
-  return Number.isFinite(candidate) ? candidate : 0;
+/** When the hold began, or 0 when the plan is running. */
+export function pausedAt(subscription: Subscription | null | undefined): number {
+  return subscription?.pause?.pausedAt ?? 0;
 }
 
 /**
- * When a paused subscription resumes, measured from the moment it was paused.
+ * The days still held, measured from the moment the clock stopped.
  *
- * The resumed subscription keeps the remaining time it had when paused, not a new
- * full term. Pausing does not spend time; it only defers access.
+ * This is what the console shows while a plan is paused and what continuing
+ * must hand back: `expiresAt - pausedAt` does not move with wall-clock time,
+ * which is the point of a hold.
+ */
+export function heldRemainingMs(
+  subscription: Subscription | null | undefined,
+  now = Date.now()
+): number {
+  if (!subscription) return 0;
+  const frozen = subscription.pause?.pausedAt ?? 0;
+  return Math.max(0, subscription.expiresAt - (frozen || now));
+}
+
+/**
+ * The end date after continuing a hold, at the moment it is continued.
+ *
+ * Only the pause duration is added: `expiresAt + (now - pausedAt)`. A buyer
+ * with 25 days held who continues twelve days later gets 25 days from that
+ * moment — never a restart of the full term, and nothing granted early. A plan
+ * whose end date had already passed *before* the hold began stays ended, for
+ * the same reason a pause cannot resurrect a lapsed purchase.
  */
 export function resumeExpiry(
   subscription: Subscription,
   pauseState: PauseState,
   now: number
 ): number {
-  const wasPausedAt = pauseState.pausedAt;
-  const remainingAtPause = subscription.expiresAt - wasPausedAt;
-  if (remainingAtPause <= 0) return now + DAY_MS; // edge case: already expired when paused
-  return wasPausedAt + Math.max(0, remainingAtPause) + (now - wasPausedAt);
+  return subscription.expiresAt + Math.max(0, now - pauseState.pausedAt);
 }
 
 /**
- * The effective access window once paused status is taken into account.
+ * The effective access window once a hold is taken into account.
  *
  * A paused subscription is still owned by the buyer; it just cannot be used
- * until the pause lifts. This helper is what the enforcement path reads so the
- * two decisions — do they have a plan, and is it usable right now — stay in one
- * place.
+ * until the owner continues it. The two decisions — do they have a plan, and
+ * is it usable right now — stay in one place so no route answers them apart.
  */
 export function effectiveExpiry(
   subscription: Subscription | null | undefined,
@@ -362,26 +379,19 @@ export function effectiveExpiry(
   planId: PlanId | null;
   expiresAt: number;
   paused: boolean;
-  pausedUntil: number;
+  pausedAt: number;
+  /** Days still held while paused, or days left while running. 0 with no plan. */
+  remainingMs: number;
 } {
-  if (!subscription) return { planId: null, expiresAt: 0, paused: false, pausedUntil: 0 };
-  const pUntil = readPausedUntil(subscription);
+  if (!subscription) {
+    return { planId: null, expiresAt: 0, paused: false, pausedAt: 0, remainingMs: 0 };
+  }
+  const hold = subscription.pause ?? null;
   return {
     planId: subscription.plan,
     expiresAt: subscription.expiresAt,
-    paused: pUntil > now,
-    pausedUntil: pUntil,
+    paused: Boolean(hold),
+    pausedAt: hold?.pausedAt ?? 0,
+    remainingMs: Math.max(0, subscription.expiresAt - (hold ? hold.pausedAt : now)),
   };
-}
-
-/**
- * Reads the pause state out of a subscription view's raw payload.
- *
- * Kept separate from parseSubscription so the pure subscription logic does not
- * depend on the pause field, and the console can ask for it directly without
- * fishing it out of a parsed Subscription.
- */
-export function readPauseState(raw: unknown): PauseState | null {
-  if (!raw || typeof raw !== "object") return null;
-  return parsePauseState((raw as Record<string, unknown>).pause ?? null);
 }

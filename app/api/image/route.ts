@@ -221,15 +221,26 @@ export async function POST(req: NextRequest): Promise<Response> {
   // tells them what to do about it. The cap is for images they may actually
   // have; this is for images they may not.
   if (!isAdmin(identity)) {
-    const { planId } = identity
+    const { planId, paused } = identity
       ? await resolveEffectivePlan(authorization, identity.uid)
-      : { planId: null };
+      : { planId: null, paused: false };
     const entitlement = checkImageEntitlement(planId);
     if (!entitlement.allowed) {
       // 402 rather than 403: the request was understood and authenticated, and
       // what is missing is payment. A client that reads the status learns the
       // feature is genuinely paid, which is the point of selling it.
-      return Response.json({ error: entitlement.error }, { status: 402 });
+      // A held plan gets the hold sentence rather than the upgrade pitch —
+      // see the chat route, which refuses the same callers for the same
+      // reason and with the same words.
+      return Response.json(
+        {
+          error:
+            paused && !planId
+              ? "Your Mino plan is on hold right now. The time you paid for is saved and will pick up where it left off — message the person who runs this Mino to continue it."
+              : entitlement.error,
+        },
+        { status: 402 }
+      );
     }
   }
 

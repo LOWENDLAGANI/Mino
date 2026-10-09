@@ -144,6 +144,13 @@ export interface EffectivePlan {
   planId: PlanId | null;
   /** When the winning access runs out, or 0 on the free tier. */
   expiresAt: number;
+  /**
+   * True when this caller's subscription grant is on hold and nothing else
+   * grants access. The routes refuse with "your plan is on hold" rather than
+   * the upgrade pitch, because these buyers have already paid and need the
+   * owner, not the pricing page.
+   */
+  paused: boolean;
 }
 
 /**
@@ -169,6 +176,10 @@ export async function resolveEffectivePlan(
   ]);
 
   const entries: Redemption[] = [...redemptions];
+  // A held grant contributes nothing — `readCallerPlan` already withholds its
+  // `planId` while the hold is on. Redeemed codes still count: they are a
+  // separate purchase the buyer made directly, and the owner terminates those
+  // with the code switch, not by holding a subscription.
   if (subscription.planId) {
     // The same shape as a redemption, with `days` unused: what matters here is
     // only the tier and the end date, and a grant has no length attached to it —
@@ -177,6 +188,6 @@ export async function resolveEffectivePlan(
   }
 
   const best = bestPlan(entries, Date.now());
-  if (!best) return { planId: null, expiresAt: 0 };
-  return { planId: best.plan, expiresAt: best.expiresAt };
+  if (!best) return { planId: null, expiresAt: 0, paused: subscription.paused };
+  return { planId: best.plan, expiresAt: best.expiresAt, paused: false };
 }

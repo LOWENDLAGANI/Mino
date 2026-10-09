@@ -20,6 +20,7 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useSubscription } from "@/lib/useSubscription";
+import { isPaused } from "@/lib/subscriptionState";
 import { planById } from "@/lib/plans";
 import { DAY_MS } from "@/lib/durations";
 
@@ -49,6 +50,11 @@ export default function PlanExpiryBanner() {
   }, [expiresAt]);
 
   if (!ready || !subscription || dismissed) return null;
+
+  // A held plan's countdown is frozen, not falling — warning about the end
+  // date while the owner has paused it would be a warning about a number that
+  // is not moving.
+  if (isPaused(subscription)) return null;
 
   const msLeft = subscription.expiresAt - Date.now();
   if (msLeft > WARN_MS) return null;

@@ -24,13 +24,14 @@ import {
   parseRedeemCode,
   type RedeemCode,
 } from "./redeemState";
-import { grantRecord, isActive, parseSubscription, type Subscription } from "./subscriptionState";
 import {
+  grantRecord,
+  isActive,
+  parseSubscription,
+  resumeExpiry,
   type PauseState,
-  type AdminSubscriptionDetail,
-  detailFromRaw,
-} from "./adminSubscription";
-import { parsePauseState as parsePauseStateLocal } from "./subscriptionState";
+  type Subscription,
+} from "./subscriptionState";
 
 /** Maps Firebase's permission failure onto a message worth showing. */
 function isPermissionDenied(cause: unknown): boolean {
@@ -68,10 +69,18 @@ export interface AdminSubscription {
   grantedAt: number;
   expiresAt: number;
   days: number;
-  /** Whether the access is currently paused. */
+  /** Whether the owner has this plan on hold. */
   paused: boolean;
-  /** When the current pause ends, or 0. */
-  pausedUntil: number;
+  /** When the hold began, or 0 when running. */
+  pausedAt: number;
+  /** The owner's reason for the hold, when one was given. */
+  pauseReason: string;
+  /**
+   * Time genuinely left: frozen at the pause instant while held, counting down
+   * from now while running. This is the number the console shows, because it is
+   * the number continuing will actually give back.
+   */
+  remainingMs: number;
 }
 
 export interface AdminChat {
@@ -166,14 +175,16 @@ export async function listUsers(): Promise<AdminUser[]> {
       return updated > latest ? updated : latest;
     }, 0);
 
-    // Only what is still paid for. A lapsed grant is shown to the owner as free
-    // rather than as an expired plan, because "Free" is the thing they can act on.
+    // What is still paid for — plus anything on hold, however long the hold has
+    // lasted. A paused plan whose original end date has passed must stay on this
+    // list: its remaining time is frozen, not spent, and hiding it would leave
+    // the owner with no way to continue it. A lapsed grant with no hold is shown
+    // as free, because "Free" is the thing they can act on.
     const raw = plans[uid];
     const parsed = parseSubscription(raw);
-    const active = isActive(parsed, now) ? parsed : null;
-    const pause = raw ? parsePauseStateLocal((raw as Record<string, unknown>).pause ?? null) : null;
-    const pausedUntil = pause ? pause.pausedAt + (now - pause.setAt) : 0;
-    const paused = Boolean(pause && pausedUntil > now);
+    const hold = parsed?.pause ?? null;
+    const visible = parsed && (hold || isActive(parsed, now)) ? parsed : null;
+    const paused = Boolean(hold);
 
     return {
       uid,
@@ -182,14 +193,18 @@ export async function listUsers(): Promise<AdminUser[]> {
       lastSeen: profile?.lastSeen ?? lastChatAt,
       chats: entries.length,
       messages,
-      subscription: active
+      subscription: visible
         ? {
-            plan: active.plan,
-            grantedAt: active.grantedAt,
-            expiresAt: active.expiresAt,
-            days: active.days,
+            plan: visible.plan,
+            grantedAt: visible.grantedAt,
+            expiresAt: visible.expiresAt,
+            days: visible.days,
             paused,
-            pausedUntil,
+            pausedAt: hold?.pausedAt ?? 0,
+            pauseReason: hold?.reason ?? "",
+            remainingMs: hold
+              ? Math.max(0, visible.expiresAt - hold.pausedAt)
+              : Math.max(0, visible.expiresAt - now),
           }
         : null,
     };
@@ -258,26 +273,18 @@ export async function readSubscription(uid: string): Promise<Subscription | null
   return parseSubscription(snapshot.val());
 }
 
-/** Reads the full detail the console shows for one visitor's plan. */
-export async function readSubscriptionDetail(uid: string): Promise<AdminSubscriptionDetail> {
-  const { database } = await requireAdmin();
-  const snapshot = await get(ref(database, `subscriptions/${uid}`)).catch(rethrow);
-  return detailFromRaw(uid, snapshot.val());
-}
-
-/** Reads the raw records the list/search view needs, newest first. */
-export async function listSubscriptionDetails(
-  uids: string[]
-): Promise<AdminSubscriptionDetail[]> {
-  const { database } = await requireAdmin();
-  const snapshot = await get(ref(database, "subscriptions")).catch(rethrow);
-  const raw = (snapshot.val() ?? {}) as Record<string, unknown>;
-  return uids
-    .map((uid) => detailFromRaw(uid, raw[uid]))
-    .sort((a, b) => (b.subscription?.expiresAt ?? 0) - (a.subscription?.expiresAt ?? 0));
-}
-
-/** Grants a plan to a visitor, extending it if they already have that one. */
+/**
+ * Grants a plan to a visitor, extending it if they already have that one.
+ *
+ * Refused while a hold is on: granting stacks onto `expiresAt`, and a held
+ * record's `expiresAt` is a frozen date, so the two would disagree about how
+ * much time the buyer actually has. Continuing first costs one click and keeps
+ * every number true.
+ *
+ * The buyer's acknowledgement node is carried across verbatim. A grant earns a
+ * fresh celebration because its `announcementId` is one higher — not because
+ * the record of what they had already seen was thrown away.
+ */
 export async function grantSubscription(
   uid: string,
   plan: PlanId,
@@ -285,9 +292,18 @@ export async function grantSubscription(
   note = ""
 ): Promise<Subscription> {
   const { database } = await requireAdmin();
-  const previous = await readSubscription(uid);
+  const snapshot = await get(ref(database, `subscriptions/${uid}`)).catch(rethrow);
+  const raw = snapshot.val();
+  const previous = parseSubscription(raw);
+  if (previous?.pause) {
+    throw new Error("That plan is paused. Continue it before granting more time.");
+  }
   const record = grantRecord({ plan, days: normalizeDays(days), now: Date.now(), note, previous });
-  await set(ref(database, `subscriptions/${uid}`), record).catch(rethrow);
+  const ack = raw && typeof raw === "object" ? (raw as Record<string, unknown>).ack : null;
+  await set(ref(database, `subscriptions/${uid}`), {
+    ...record,
+    ...(ack && typeof ack === "object" ? { ack } : {}),
+  }).catch(rethrow);
   return record;
 }
 
@@ -297,84 +313,77 @@ export async function revokeSubscription(uid: string): Promise<void> {
   await remove(ref(database, `subscriptions/${uid}`)).catch(rethrow);
 }
 
-/** Pauses a visitor's access without spending the time they paid for. */
+/**
+ * Puts a visitor's plan on hold without spending a single day of it.
+ *
+ * The hold is a `pause` child on the record — `expiresAt` is not touched, so
+ * nothing about the stored plan changes except that it is now held. Re-pausing
+ * an already-held plan is a no-op that keeps the original `pausedAt`: moving
+ * that instant would silently shrink the remaining time the hold is protecting.
+ * Pausing a plan that has already run out is refused, because there is no time
+ * left to hold.
+ *
+ * Returns the record now on hold, or null when there was nothing to pause.
+ */
 export async function pauseSubscription(
   uid: string,
-  reason: string,
-  setBy: string
-): Promise<boolean> {
-  const { database } = await requireAdmin();
+  reason: string
+): Promise<Subscription | null> {
+  const { database, auth } = await requireAdmin();
   const snapshot = await get(ref(database, `subscriptions/${uid}`)).catch(rethrow);
-  const existing = parseSubscription(snapshot.val());
-  if (!existing) return false;
+  const raw = snapshot.val();
+  const existing = parseSubscription(raw);
+  if (!existing) return null;
+  if (existing.pause) return existing;
+  if (!isActive(existing, Date.now())) return null;
 
-  const currentPause = snapshot.val() ? parsePauseStateLocal((snapshot.val() as Record<string, unknown>).pause ?? null) : null;
-  const now = Date.now();
-  const previousPausedAt = currentPause?.pausedAt ?? 0;
-
-  // If already paused, extend the pause from its current end rather than from
-  // the original pausedAt, so an owner can re-pause a plan that is already on
-  // hold without losing the remaining time they had set aside.
-  const effectivePausedAt = previousPausedAt > 0
-    ? previousPausedAt + (now - currentPause!.setAt)
-    : now;
-
+  const actor = auth.currentUser?.email || auth.currentUser?.displayName || "admin";
   const pause: PauseState = {
-    pausedAt: effectivePausedAt,
-    setAt: now,
-    setBy: setBy.slice(0, 120),
-    reason: reason.slice(0, 200),
+    pausedAt: Date.now(),
+    setAt: Date.now(),
+    setBy: actor.slice(0, 120),
+    reason: String(reason ?? "").slice(0, 200),
   };
-
-  await set(ref(database, `subscriptions/${uid}`), { ...existing, pause }).catch(rethrow);
-  return true;
+  const ack = raw && typeof raw === "object" ? (raw as Record<string, unknown>).ack : null;
+  const record: Subscription = { ...existing, pause };
+  await set(ref(database, `subscriptions/${uid}`), {
+    ...record,
+    ...(ack && typeof ack === "object" ? { ack } : {}),
+  }).catch(rethrow);
+  return record;
 }
 
-/** Resumes a paused subscription, preserving the remaining time. */
-export async function resumeSubscription(uid: string): Promise<boolean> {
+/**
+ * Continues a held plan, giving back exactly the time the hold protected.
+ *
+ * `resumeExpiry` shifts the end date by the length of the hold alone
+ * (`expiresAt + (now - pausedAt)`), so a buyer with 12 days held who continues
+ * three weeks later still has 12 days from that moment — never a fresh term,
+ * and never earlier than the days they paid for. The hold child is dropped and
+ * the acknowledgement node is carried across, so continuing cannot re-trigger
+ * a celebration the buyer has already dismissed.
+ *
+ * Returns the record as it now stands, or null when nothing was on hold.
+ */
+export async function resumeSubscription(uid: string): Promise<Subscription | null> {
   const { database } = await requireAdmin();
   const snapshot = await get(ref(database, `subscriptions/${uid}`)).catch(rethrow);
   const raw = snapshot.val();
-  if (!raw || typeof raw !== "object") return false;
-
   const existing = parseSubscription(raw);
-  if (!existing) return false;
+  if (!existing?.pause) return null;
 
-  const currentPause = parsePauseStateLocal((raw as Record<string, unknown>).pause ?? null);
-  if (!currentPause) return true; // not paused, nothing to resume
+  const record: Subscription = {
+    ...existing,
+    expiresAt: resumeExpiry(existing, existing.pause, Date.now()),
+  };
+  delete record.pause;
 
-  const now = Date.now();
-  const remainingAtPause = existing.expiresAt - currentPause.pausedAt;
-  const newExpiresAt = currentPause.pausedAt + Math.max(0, remainingAtPause) + (now - currentPause.pausedAt);
-
-  const resumed: Subscription = { ...existing, expiresAt: newExpiresAt };
-
-  await set(ref(database, `subscriptions/${uid}`), resumed).catch(rethrow);
-  return true;
-}
-
-/** Searches subscriptions by name or uid substring. */
-export async function searchSubscriptions(query: string): Promise<AdminSubscriptionDetail[]> {
-  const { database } = await requireAdmin();
-  const snapshot = await get(ref(database, "subscriptions")).catch(rethrow);
-  const raw = (snapshot.val() ?? {}) as Record<string, unknown>;
-  const q = query.trim().toLowerCase();
-  if (!q) {
-    return Object.entries(raw)
-      .map(([uid, value]) => detailFromRaw(uid, value))
-      .sort((a, b) => (b.subscription?.expiresAt ?? 0) - (a.subscription?.expiresAt ?? 0));
-  }
-
-  const matches: AdminSubscriptionDetail[] = [];
-  for (const [uid, value] of Object.entries(raw)) {
-    const detail = detailFromRaw(uid, value);
-    if (!detail.subscription) continue;
-    if (uid.toLowerCase().includes(q)) {
-      matches.push(detail);
-      continue;
-    }
-  }
-  return matches;
+  const ack = raw && typeof raw === "object" ? (raw as Record<string, unknown>).ack : null;
+  await set(ref(database, `subscriptions/${uid}`), {
+    ...record,
+    ...(ack && typeof ack === "object" ? { ack } : {}),
+  }).catch(rethrow);
+  return record;
 }
 
 // ── Redeem codes ─────────────────────────────────────────────────────────────

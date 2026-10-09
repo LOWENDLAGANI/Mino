@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { watchSubscription } from "./subscription";
-import { isActive, type Subscription } from "./subscriptionState";
+import { isActive, isPaused, type Subscription } from "./subscriptionState";
 import { authHeader } from "./firebaseHistory";
 import { DAY_MS } from "./durations";
 import type { PlanId } from "./plans";
@@ -25,8 +25,18 @@ export interface UseSubscription {
   ready: boolean;
   /** The active plan, or null. */
   subscription: Subscription | null;
-  /** Just the id, for the paywall, or null. */
+  /** Just the id, for the paywall, or null. Null while the plan is on hold,
+   *  exactly as the server refuses it — the two must agree, or the page would
+   *  unlock features the routes then reject. */
   planId: PlanId | null;
+  /**
+   * True while the owner has this plan on hold.
+   *
+   * The record is kept (not dropped to Free) so the interface can say "on
+   * hold" to somebody who has paid, rather than showing a pricing page to a
+   * buyer whose time is merely frozen.
+   */
+  paused: boolean;
   /**
    * Re-reads the plan from the server.
    *
@@ -57,7 +67,11 @@ export function useSubscription(): UseSubscription {
         cache: "no-store",
       });
       if (!response.ok) return;
-      const data = (await response.json()) as { planId?: PlanId | null; expiresAt?: number };
+      const data = (await response.json()) as {
+        planId?: PlanId | null;
+        expiresAt?: number;
+        paused?: boolean;
+      };
 
       const planId = data.planId ?? null;
       const expiresAt = Number(data.expiresAt ?? 0);
@@ -66,8 +80,10 @@ export function useSubscription(): UseSubscription {
       setSubscription((current) => {
         if (!live) {
           // The server answering with no plan is the only thing that downgrades
-          // somebody to Free. A lapsed code has to stop counting.
-          return current && isActive(current, Date.now()) ? current : null;
+          // somebody to Free. A lapsed code has to stop counting. A paused
+          // record is kept even past its original end date: the hold froze the
+          // countdown rather than spending it, so this is still their plan.
+          return current && (isActive(current, Date.now()) || isPaused(current)) ? current : null;
         }
         // Keep the real record when it is the same plan and runs at least as
         // long: the celebration and the receipt need `announcementId`, the
@@ -96,7 +112,11 @@ export function useSubscription(): UseSubscription {
     const report = (view: Parameters<Parameters<typeof watchSubscription>[0]>[0]) => {
       if (cancelled) return;
       const current = view?.subscription ?? null;
-      setSubscription(current && isActive(current, Date.now()) ? current : null);
+      // A paused record survives its original end date — the hold froze the
+      // clock, so dropping it would tell the buyer their held time expired.
+      setSubscription(
+        current && (isActive(current, Date.now()) || isPaused(current)) ? current : null
+      );
       setReady(true);
     };
     // Reports the current value on arrival and every change after it, so this
@@ -110,5 +130,11 @@ export function useSubscription(): UseSubscription {
     };
   }, [refresh]);
 
-  return { ready, subscription, planId: subscription?.plan ?? null, refresh };
+  return {
+    ready,
+    subscription,
+    planId: subscription && !isPaused(subscription) ? subscription.plan : null,
+    paused: isPaused(subscription),
+    refresh,
+  };
 }

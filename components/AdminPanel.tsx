@@ -16,6 +16,8 @@ import {
   listRedeemCodes,
   listUsageHistory,
   listUsers,
+  pauseSubscription,
+  resumeSubscription,
   revokeSubscription,
   setRedeemCodeActive,
   wipeAll,
@@ -59,7 +61,11 @@ interface AdminMessage {
   error: string | null;
 }
 
-type View = { name: "users" } | { name: "chats"; uid: string; label: string } | { name: "chat"; uid: string; chatId: string; title: string };
+type View =
+  | { name: "users" }
+  | { name: "subscription" }
+  | { name: "chats"; uid: string; label: string }
+  | { name: "chat"; uid: string; chatId: string; title: string };
 
 const PROVIDER_LABEL: Record<string, string> = { auto: "Mino Auto", code: "Mino Code" };
 
@@ -269,7 +275,9 @@ export default function AdminPanel({
                   expiresAt: record.expiresAt,
                   days: record.days,
                   paused: false,
-                  pausedUntil: 0,
+                  pausedAt: 0,
+                  pauseReason: "",
+                  remainingMs: Math.max(0, record.expiresAt - Date.now()),
                 },
               }
             : user
@@ -334,8 +342,109 @@ export default function AdminPanel({
     }
   };
 
+  // Putting a plan on hold. The record keeps its end date; the hold is a
+  // sibling that freezes where the countdown stood, so continuing later picks
+  // up with exactly the days that were left.
+  const runPause = async (uid: string) => {
+    setBusy(true);
+    setError(null);
+    try {
+      const record = await pauseSubscription(uid, "");
+      if (!record) throw new Error("There is no running plan to pause.");
+      const pausedAt = record.pause?.pausedAt ?? Date.now();
+      setUsers((current) =>
+        (current ?? []).map((user) =>
+          user.uid === uid && user.subscription
+            ? {
+                ...user,
+                subscription: {
+                  ...user.subscription,
+                  paused: true,
+                  pausedAt,
+                  pauseReason: "",
+                  remainingMs: Math.max(0, record.expiresAt - pausedAt),
+                },
+              }
+            : user
+        )
+      );
+      const name = users?.find((user) => user.uid === uid)?.name ?? null;
+      // Written after the hold lands, like every other ledger line, and a
+      // refusal to write it is shown rather than swallowed.
+      const written = await appendAdminAudit({
+        at: pausedAt,
+        action: "pause",
+        uid,
+        name,
+        plan: record.plan,
+        expiresAt: record.expiresAt,
+      }).catch(() => {
+        setAuditBroken(true);
+        return null;
+      });
+      if (written) setAudit((current) => [written, ...(current ?? [])]);
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : "Could not pause the plan.");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  // Continuing a hold: the server shifts the end date by the length of the
+  // hold alone, so the buyer gets the days that were frozen — never a fresh
+  // term, and never earlier than what they paid for.
+  const runResume = async (uid: string) => {
+    setBusy(true);
+    setError(null);
+    try {
+      const target = users?.find((user) => user.uid === uid) ?? null;
+      const record = await resumeSubscription(uid);
+      if (!record) throw new Error("That plan is not on hold.");
+      setUsers((current) =>
+        (current ?? []).map((user) =>
+          user.uid === uid && user.subscription
+            ? {
+                ...user,
+                subscription: {
+                  ...user.subscription,
+                  expiresAt: record.expiresAt,
+                  paused: false,
+                  pausedAt: 0,
+                  pauseReason: "",
+                  remainingMs: Math.max(0, record.expiresAt - Date.now()),
+                },
+              }
+            : user
+        )
+      );
+      const written = await appendAdminAudit({
+        at: Date.now(),
+        action: "resume",
+        uid,
+        name: target?.name ?? null,
+        plan: record.plan,
+        expiresAt: record.expiresAt,
+      }).catch(() => {
+        setAuditBroken(true);
+        return null;
+      });
+      if (written) setAudit((current) => [written, ...(current ?? [])]);
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : "Could not continue the plan.");
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const grantingUser = grantingUid ? users?.find((user) => user.uid === grantingUid) ?? null : null;
-  const subscribed = (users ?? []).filter((user) => user.subscription).length;
+  const subscribed = (users ?? []).filter((user) => user.subscription && !user.subscription.paused).length;
+  const pausedCount = (users ?? []).filter((user) => user.subscription?.paused).length;
+  const endingSoon = (users ?? []).filter(
+    (user) =>
+      user.subscription &&
+      !user.subscription.paused &&
+      user.subscription.expiresAt <= Date.now() + 7 * DAY_MS
+  ).length;
   // Filtering by name, by uid, or by the plan they already hold — the three
   // things an owner has in hand when a transfer needs matching to a person.
   const query = peopleQuery.trim().toLowerCase();
@@ -370,7 +479,13 @@ export default function AdminPanel({
               </button>
             )}
             <h2 className="truncate text-[15px] font-semibold tracking-[-0.02em] text-white">
-              {view.name === "users" ? "Mino console" : view.name === "chats" ? view.label : view.title}
+              {view.name === "users"
+                ? "Mino console"
+                : view.name === "subscription"
+                  ? "Subscriptions"
+                  : view.name === "chats"
+                    ? view.label
+                    : view.title}
             </h2>
           </div>
           <button type="button" onClick={onClose} className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-white/45 transition-colors hover:bg-white/[0.08] hover:text-white" aria-label="Close console">
@@ -396,7 +511,35 @@ export default function AdminPanel({
                 <Stat label="Messages" value={users?.reduce((sum, user) => sum + user.messages, 0)} />
               </div>
 
-              <RevenueSection users={users} />
+              {/* Every control about money and plans lives behind this one
+                  door. The console's first screen is about people and
+                  traffic; granting, holding and codes are a different job
+                  with a different rhythm, and mixing them meant a wipe
+                  button sat three pixels from a grant button. */}
+              <section>
+                <div className="mb-1.5 flex items-center justify-between">
+                  <h3 className="text-[10px] font-semibold uppercase tracking-[0.14em] text-white/35">
+                    Subscription
+                  </h3>
+                  <span className="text-[10px] text-white/25">
+                    {subscribed} active{pausedCount > 0 ? ` · ${pausedCount} on hold` : ""}
+                  </span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setView({ name: "subscription" })}
+                  className="w-full rounded-[14px] border border-[#2f6b48]/25 bg-[#2f6b48]/10 px-3.5 py-3 text-left transition-colors hover:bg-[#2f6b48]/15"
+                >
+                  <span className="block text-[12px] font-semibold text-[#a9d8bb]">
+                    Manage plans, holds and codes
+                  </span>
+                  <span className="mt-0.5 block text-[10px] leading-relaxed text-white/40">
+                    {subscribed} active · {pausedCount} on hold · {endingSoon} ending within 7 days.
+                    Grant time, pause a plan without spending it, continue one back with the days it
+                    kept, make redeem codes, and read the month&apos;s revenue.
+                  </span>
+                </button>
+              </section>
 
               <UsageSection />
 
@@ -426,14 +569,10 @@ export default function AdminPanel({
                 <input
                   value={peopleQuery}
                   onChange={(event) => setPeopleQuery(event.target.value)}
-                  placeholder="Find a name to grant"
+                  placeholder="Find a name"
                   aria-label="Find a visitor by name"
                   className="mb-2 w-full rounded-[10px] border border-white/[0.1] bg-[#0e1613] px-2.5 py-2 text-[11px] text-white/85 outline-none placeholder:text-white/25 focus:border-[#2f6b48]/50"
                 />
-                <p className="mb-2 text-[10px] leading-relaxed text-white/30">
-                  Press <span className="font-semibold text-white/60">Plan</span> beside whoever
-                  paid — including someone who has never sent a message.
-                </p>
                 {users === null ? (
                   <p className="py-2 text-[11px] text-white/35">Loading…</p>
                 ) : users.length === 0 ? (
@@ -458,24 +597,25 @@ export default function AdminPanel({
                               {user.chats} chat{user.chats === 1 ? "" : "s"} · {user.messages} message{user.messages === 1 ? "" : "s"} · {when(user.lastSeen)}
                             </span>
                           </button>
-                          {user.subscription ? (
-                            <button
-                              type="button"
-                              onClick={() => setGrantingUid(grantingUid === user.uid ? null : user.uid)}
-                              className="shrink-0 rounded-[10px] border border-[#2f6b48]/25 bg-[#2f6b48]/10 px-2 py-1.5 text-[10px] font-semibold text-[#a9d8bb]"
-                              aria-label={`${planById(user.subscription.plan).name} until ${new Date(user.subscription.expiresAt).toLocaleDateString()}`}
+                          {/* A quiet badge, not a button: plan controls live
+                              in the Subscription section now, and a passive
+                              label cannot be pressed by accident next to
+                              Wipe. */}
+                          {user.subscription && (
+                            <span
+                              className={`shrink-0 rounded-[10px] border px-2 py-1.5 text-[10px] font-semibold ${
+                                user.subscription.paused
+                                  ? "border-amber-300/25 bg-amber-400/10 text-amber-100/90"
+                                  : "border-[#2f6b48]/25 bg-[#2f6b48]/10 text-[#a9d8bb]"
+                              }`}
+                              aria-label={
+                                user.subscription.paused
+                                  ? `${planById(user.subscription.plan).name} on hold`
+                                  : `${planById(user.subscription.plan).name} until ${new Date(user.subscription.expiresAt).toLocaleDateString()}`
+                              }
                             >
-                              {planById(user.subscription.plan).short}
-                            </button>
-                          ) : (
-                            <button
-                              type="button"
-                              onClick={() => setGrantingUid(grantingUid === user.uid ? null : user.uid)}
-                              className="shrink-0 rounded-[10px] px-2 py-2 text-[10px] text-white/30 hover:bg-white/[0.07] hover:text-white/70"
-                              aria-label={`Grant a plan to ${user.name ?? "this visitor"}`}
-                            >
-                              Plan
-                            </button>
+                              {user.subscription.paused ? "Held" : planById(user.subscription.plan).short}
+                            </span>
                           )}
                           <button
                             type="button"
@@ -487,23 +627,6 @@ export default function AdminPanel({
                           </button>
                         </div>
 
-                        {grantingUid === user.uid && (
-                          <GrantPanel
-                            key={user.uid}
-                            plan={grantPlan}
-                            days={grantDays}
-                            note={grantNote}
-                            busy={busy}
-                            hasPlan={Boolean(grantingUser?.subscription)}
-                            currentExpiresAt={grantingUser?.subscription?.expiresAt ?? null}
-                            onPlan={setGrantPlan}
-                            onDays={setGrantDays}
-                            onNote={setGrantNote}
-                            onCancel={() => setGrantingUid(null)}
-                            onGrant={() => void runGrant(user.uid)}
-                            onRevoke={() => void runRevoke(user.uid)}
-                          />
-                        )}
                       </li>
                     ))}
                   </ul>
@@ -539,10 +662,6 @@ export default function AdminPanel({
                 )}
               </section>
 
-              <CodesSection />
-
-              <AuditSection entries={audit} broken={auditBroken} />
-
               <div className="rounded-[16px] border border-red-400/15 bg-red-500/[0.05] p-3.5">
                 <h3 className="text-[11px] font-semibold text-red-200/90">Danger zone</h3>
                 <p className="mt-1 text-[10px] leading-relaxed text-red-200/60">
@@ -556,6 +675,132 @@ export default function AdminPanel({
                   Wipe all user data
                 </button>
               </div>
+            </div>
+          )}
+
+          {view.name === "subscription" && (
+            <div className="space-y-5">
+              <div className="grid grid-cols-3 gap-2 text-center">
+                <Stat label="Active" value={subscribed} />
+                <Stat label="On hold" value={pausedCount} />
+                <Stat label="Ending 7d" value={endingSoon} />
+              </div>
+
+              <p className="text-[10px] leading-relaxed text-white/35">
+                Pause holds a plan without spending it: the clock stops where it stands, and
+                Continue gives back exactly the days that were left — never a fresh term, and
+                never earlier than what was paid for. Granting more time to a held plan is
+                refused until it is continued.
+              </p>
+
+              <section>
+                <div className="mb-2 flex items-center justify-between">
+                  <h3 className="text-[10px] font-semibold uppercase tracking-[0.14em] text-white/35">
+                    Plans
+                  </h3>
+                  <span className="text-[10px] text-white/25">{subscribed} active</span>
+                </div>
+                <input
+                  value={peopleQuery}
+                  onChange={(event) => setPeopleQuery(event.target.value)}
+                  placeholder="Find a name to grant"
+                  aria-label="Find a visitor by name"
+                  className="mb-2 w-full rounded-[10px] border border-white/[0.1] bg-[#0e1613] px-2.5 py-2 text-[11px] text-white/85 outline-none placeholder:text-white/25 focus:border-[#2f6b48]/50"
+                />
+                {users === null ? (
+                  <p className="py-2 text-[11px] text-white/35">Loading…</p>
+                ) : users.length === 0 ? (
+                  <p className="py-2 text-[11px] leading-relaxed text-white/35">
+                    Nobody has visited yet. Anyone who opens Mino and gives a name appears here,
+                    whether or not they have ever sent a message.
+                  </p>
+                ) : visible.length === 0 ? (
+                  <p className="py-2 text-[11px] text-white/35">No one matches “{peopleQuery}”.</p>
+                ) : (
+                  <ul className="space-y-1.5">
+                    {visible.map((user) => {
+                      const sub = user.subscription;
+                      const heldDays = sub ? Math.max(0, Math.ceil(sub.remainingMs / DAY_MS)) : 0;
+                      return (
+                        <li key={user.uid}>
+                          <div className="flex items-center gap-2">
+                            <div className="min-w-0 flex-1 rounded-[12px] border border-white/[0.06] bg-white/[0.03] px-3 py-2.5">
+                              <span className="block truncate text-[13px] font-semibold text-white/90">
+                                {user.name ?? "Unnamed visitor"}
+                              </span>
+                              <span className="mt-0.5 block text-[10px] text-white/30">
+                                {!sub
+                                  ? "Free"
+                                  : sub.paused
+                                    ? `${planById(sub.plan).name} on hold · ${heldDays} day${heldDays === 1 ? "" : "s"} kept${sub.pauseReason ? ` · ${sub.pauseReason}` : ""}`
+                                    : `${planById(sub.plan).name} · until ${new Date(sub.expiresAt).toLocaleDateString(undefined, { dateStyle: "medium" })} · ${heldDays} day${heldDays === 1 ? "" : "s"} left`}
+                              </span>
+                            </div>
+                            {sub?.paused ? (
+                              <button
+                                type="button"
+                                onClick={() => void runResume(user.uid)}
+                                disabled={busy}
+                                className="shrink-0 rounded-[10px] border border-sky-400/25 bg-sky-400/10 px-2 py-1.5 text-[10px] font-semibold text-sky-200/90 disabled:opacity-50"
+                                aria-label={`Continue ${user.name ?? "this visitor"}'s plan with the ${heldDays} days it kept`}
+                              >
+                                Continue
+                              </button>
+                            ) : sub ? (
+                              <button
+                                type="button"
+                                onClick={() => void runPause(user.uid)}
+                                disabled={busy}
+                                className="shrink-0 rounded-[10px] border border-amber-300/25 bg-amber-400/10 px-2 py-1.5 text-[10px] font-semibold text-amber-100/90 disabled:opacity-50"
+                                aria-label={`Pause ${user.name ?? "this visitor"}'s plan, keeping the ${heldDays} days they have left`}
+                              >
+                                Pause
+                              </button>
+                            ) : null}
+                            <button
+                              type="button"
+                              onClick={() => setGrantingUid(grantingUid === user.uid ? null : user.uid)}
+                              className="shrink-0 rounded-[10px] px-2 py-2 text-[10px] text-white/30 hover:bg-white/[0.07] hover:text-white/70"
+                              aria-label={
+                                sub
+                                  ? `Change the plan for ${user.name ?? "this visitor"}`
+                                  : `Grant a plan to ${user.name ?? "this visitor"}`
+                              }
+                            >
+                              Plan
+                            </button>
+                          </div>
+
+                          {grantingUid === user.uid && (
+                            <GrantPanel
+                              key={user.uid}
+                              plan={grantPlan}
+                              days={grantDays}
+                              note={grantNote}
+                              busy={busy}
+                              hasPlan={Boolean(grantingUser?.subscription)}
+                              currentExpiresAt={grantingUser?.subscription?.expiresAt ?? null}
+                              paused={grantingUser?.subscription?.paused ?? false}
+                              onPlan={setGrantPlan}
+                              onDays={setGrantDays}
+                              onNote={setGrantNote}
+                              onCancel={() => setGrantingUid(null)}
+                              onGrant={() => void runGrant(user.uid)}
+                              onRevoke={() => void runRevoke(user.uid)}
+                            />
+                          )}
+                        </li>
+                      );
+                    })}
+                  </ul>
+                )}
+              </section>
+
+              <RevenueSection users={users} />
+
+              <CodesSection />
+
+              <AuditSection entries={audit} broken={auditBroken} />
             </div>
           )}
 
@@ -848,6 +1093,7 @@ function GrantPanel({
   note,
   busy,
   hasPlan,
+  paused,
   onPlan,
   onDays,
   onNote,
@@ -861,6 +1107,10 @@ function GrantPanel({
   note: string;
   busy: boolean;
   hasPlan: boolean;
+  /** True while this plan is on hold. Granting to a held plan is refused —
+   *  the frozen end date would make the preview a lie — so the button says
+   *  so rather than failing after the press. */
+  paused?: boolean;
   /** When the plan they already hold ends, so the preview can be truthful. */
   currentExpiresAt?: number | null;
   onPlan: (plan: PlanId) => void;
@@ -885,6 +1135,13 @@ function GrantPanel({
       <p className="text-[10px] leading-relaxed text-white/45">
         Payment received? Choose the tier they paid for.
       </p>
+
+      {paused && (
+        <p className="mt-2 rounded-[10px] border border-amber-300/15 bg-amber-400/[0.06] px-2.5 py-2 text-[10px] leading-relaxed text-amber-100/85">
+          This plan is on hold, so its end date is frozen. Continue it first — granting more time
+          to a held plan would be added to a date that is not moving.
+        </p>
+      )}
 
       <div className="mt-2.5 grid grid-cols-2 gap-1.5">
         {PLANS.map((item) => (
@@ -999,7 +1256,8 @@ function GrantPanel({
         <button
           type="button"
           onClick={onGrant}
-          disabled={busy}
+          disabled={busy || paused}
+          title={paused ? "Continue the plan before granting more time" : undefined}
           className="ml-auto rounded-[10px] bg-[#2f6b48] px-3 py-2 text-[11px] font-semibold text-black disabled:opacity-50"
         >
           {busy ? "Granting…" : `Grant ${planById(plan).short} · ${describeDuration(days)}`}
@@ -1056,7 +1314,12 @@ function RevenueSection({ users }: { users: AdminUser[] | null }) {
   for (const user of users) {
     const subscription = user.subscription;
     if (!subscription) continue;
-    if (subscription.expiresAt > now) {
+    // A held plan is still on the books (it was paid for) but it is not
+    // usable right now, and its frozen end date says nothing about when it
+    // will actually end — so it is counted out of "active now" and out of
+    // the expiring-soon figure rather than reported as both present and
+    // about to stop.
+    if (subscription.expiresAt > now && !subscription.paused) {
       active += 1;
       if (subscription.expiresAt <= now + 7 * DAY_MS) expiringSoon += 1;
     }
@@ -1220,7 +1483,7 @@ function AuditSection({
     <section>
       <div className="mb-2 flex items-center justify-between">
         <h3 className="text-[10px] font-semibold uppercase tracking-[0.14em] text-white/35">
-          Grant history
+          History
         </h3>
         <span className="text-[10px] text-white/25">
           {entries === null ? "…" : entries.length}
@@ -1239,8 +1502,8 @@ function AuditSection({
         <p className="py-1 text-[11px] text-white/35">Loading…</p>
       ) : entries.length === 0 ? (
         <p className="py-1 text-[11px] leading-relaxed text-white/35">
-          Nothing recorded yet. Every grant and removal lands here with the payment reference you
-          typed.
+          Nothing recorded yet. Every grant, removal, pause and continuation lands here with the
+          payment reference you typed.
         </p>
       ) : (
         <ul className="space-y-1">
@@ -1253,10 +1516,20 @@ function AuditSection({
                 className={`mt-0.5 shrink-0 rounded px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide ${
                   entry.action === "grant"
                     ? "bg-[#2f6b48]/20 text-[#a9d8bb]"
-                    : "bg-red-500/15 text-red-300"
+                    : entry.action === "revoke"
+                      ? "bg-red-500/15 text-red-300"
+                      : entry.action === "pause"
+                        ? "bg-amber-400/15 text-amber-200/90"
+                        : "bg-sky-400/15 text-sky-200/90"
                 }`}
               >
-                {entry.action === "grant" ? "Grant" : "Removed"}
+                {entry.action === "grant"
+                  ? "Grant"
+                  : entry.action === "revoke"
+                    ? "Removed"
+                    : entry.action === "pause"
+                      ? "Paused"
+                      : "Continued"}
               </span>
               <span className="min-w-0 flex-1">
                 <span className="block truncate text-[12px] text-white/85">

@@ -13,17 +13,24 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import {
+  effectiveExpiry,
   grantRecord,
   grantedSpanDays,
+  heldRemainingMs,
   isActive,
+  isPaused,
   nextExpiry,
   normalizeNote,
+  parsePauseState,
   parseSubscription,
   parseSubscriptionView,
+  pausedAt,
   renewalNote,
+  resumeExpiry,
   shouldCelebrate,
   subscriptionDetails,
   subscriptionHeadline,
+  type PauseState,
   type Subscription,
 } from "../lib/subscriptionState";
 import {
@@ -658,6 +665,235 @@ test("the dialog is mounted once, above every page", () => {
   for (const page of pages) {
     assert.ok(!code(page).includes("SubscriptionCelebration"), `${page} does not mount it`);
   }
+});
+
+console.log("\npausing a plan");
+
+// A hold freezes the countdown where it stands. `expiresAt` is not touched
+// while the hold is on, and continuing shifts it forward by exactly the time
+// held — so the buyer picks up with the days they had, never a fresh term and
+// never early. Every test below guards one of those three promises.
+
+const HELD: PauseState = {
+  pausedAt: NOW + 10 * MS_DAY,
+  setAt: NOW + 10 * MS_DAY,
+  setBy: "owner@example.com",
+  reason: "payment late",
+};
+
+test("a pause rides on the record without rewriting the end date", () => {
+  const paused: Subscription = { ...GRANTED, pause: HELD };
+  // The end date is unchanged: the hold is a sibling record, not a rewrite.
+  assert.equal(paused.expiresAt, GRANTED.expiresAt);
+  const parsed = parseSubscription(paused);
+  assert.deepEqual(parsed?.pause, HELD, "the hold survives the round trip");
+});
+
+test("a plain record has no pause key at all", () => {
+  const parsed = parseSubscription({ ...GRANTED });
+  assert.ok(parsed && !("pause" in parsed), "the key is absent, not null");
+});
+
+test("a pause with no usable timestamps is no pause", () => {
+  assert.equal(parsePauseState({ setAt: 1 }), null, "no pausedAt");
+  assert.equal(parsePauseState({ pausedAt: 1 }), null, "no setAt");
+  assert.equal(parsePauseState("held"), null, "not an object");
+  const parsed = parseSubscription({ ...GRANTED, pause: { pausedAt: "soon" } });
+  assert.ok(parsed && !("pause" in parsed), "a broken hold does not taint the plan");
+});
+
+test("continuing gives back the days that were held — not a fresh term, not early", () => {
+  const paused: Subscription = { ...GRANTED, pause: HELD };
+  // The owner continues twelve days after the hold began. The plan had 20
+  // days left when the clock stopped (30 granted − 10 spent), so twelve days
+  // later the buyer must still have 20 days from that moment.
+  const resumeAt = HELD.pausedAt + 12 * MS_DAY;
+  const newEnd = resumeExpiry(paused, HELD, resumeAt);
+  // Only the hold duration is added — the twelve days the plan was frozen.
+  assert.equal(newEnd, GRANTED.expiresAt + 12 * MS_DAY, "end date shifts by the hold alone");
+  // Which is exactly the days that were left, measured from the moment of
+  // continuing: not a restart of the full 30, and nothing handed over early.
+  assert.equal(newEnd - resumeAt, 20 * MS_DAY, "the buyer gets back what was held");
+  assert.ok(resumeAt < GRANTED.expiresAt, "the original end had not passed when held");
+});
+
+test("continuing the instant the hold began changes nothing", () => {
+  const paused: Subscription = { ...GRANTED, pause: HELD };
+  const newEnd = resumeExpiry(paused, HELD, HELD.pausedAt);
+  assert.equal(newEnd, GRANTED.expiresAt, "a zero-length hold shifts nothing");
+});
+
+test("a plan that had already run out before the hold holds nothing back", () => {
+  // expiresAt is before pausedAt: the purchase lapsed first. Such a record
+  // cannot be created from the console — pausing an expired plan is refused
+  // — so this guards the arithmetic for data that arrives any other way.
+  const lateHold: PauseState = { ...HELD, pausedAt: NOW + 10 * MS_DAY };
+  const lapsed: Subscription = { ...GRANTED, expiresAt: NOW + 5 * MS_DAY, pause: lateHold };
+  assert.equal(
+    heldRemainingMs(lapsed),
+    0,
+    "the end date had already passed when the hold began, so nothing is held"
+  );
+  const resumeAt = NOW + 40 * MS_DAY;
+  assert.ok(
+    resumeExpiry(lapsed, lateHold, resumeAt) >= lapsed.expiresAt,
+    "continuing never moves an end date backwards"
+  );
+});
+
+test("days held are frozen while the clock moves", () => {
+  const paused: Subscription = { ...GRANTED, pause: HELD };
+  // Asked a day after the hold, and a year after: the same answer, because
+  // the measurement is anchored to pausedAt rather than to now.
+  assert.equal(heldRemainingMs(paused), 20 * MS_DAY, "at hold + 1 day");
+  assert.equal(heldRemainingMs(paused), 20 * MS_DAY, "at hold + 1 year");
+});
+
+test("a running plan's remaining time counts down from now", () => {
+  const atTenDays = heldRemainingMs({ ...GRANTED, expiresAt: NOW + 10 * MS_DAY }, NOW);
+  assert.equal(atTenDays, 10 * MS_DAY);
+});
+
+test("the small readers agree with the record", () => {
+  const paused: Subscription = { ...GRANTED, pause: HELD };
+  assert.ok(isPaused(paused), "isPaused sees the hold");
+  assert.ok(!isPaused(GRANTED), "and does not invent one");
+  assert.equal(pausedAt(paused), HELD.pausedAt);
+  assert.equal(pausedAt(GRANTED), 0);
+});
+
+test("effective expiry separates owning a plan from spending it", () => {
+  const paused: Subscription = { ...GRANTED, pause: HELD };
+  const held = effectiveExpiry(paused, NOW + 20 * MS_DAY);
+  assert.equal(held.planId, "lunar", "they still own the plan");
+  assert.equal(held.paused, true);
+  assert.equal(held.remainingMs, 20 * MS_DAY, "the held days are reported, not the wall clock");
+  const running = effectiveExpiry(GRANTED, NOW + 10 * MS_DAY);
+  assert.equal(running.paused, false);
+  assert.equal(running.remainingMs, 20 * MS_DAY);
+  const none = effectiveExpiry(null, NOW);
+  assert.deepEqual(none, { planId: null, expiresAt: 0, paused: false, pausedAt: 0, remainingMs: 0 });
+});
+
+test("a hold survives the node being read back through the view parser", () => {
+  const view = parseSubscriptionView({ ...GRANTED, pause: HELD, ack: { announcementId: 1 } });
+  assert.ok(view.subscription && isPaused(view.subscription), "the hold is visible to the buyer too");
+});
+
+console.log("\nthe console holds and continues plans");
+
+test("the console refuses to pause a plan that has run out", () => {
+  // There is nothing left to hold: pausing an expired grant would freeze a
+  // countdown that has already finished.
+  const admin = code("lib/firebaseAdmin.ts");
+  assert.match(admin, /if \(!isActive\(existing, Date\.now\(\)\)\) return null;/);
+});
+
+test("re-pausing keeps the original freeze point", () => {
+  // Moving pausedAt on a second press would silently shrink the days the
+  // hold is protecting — the buyer would lose time to a double click.
+  const admin = code("lib/firebaseAdmin.ts");
+  assert.match(admin, /if \(existing\.pause\) return existing;/);
+});
+
+test("granting more time to a held plan is refused, not silently mis-dated", () => {
+  // A grant adds to `expiresAt`, and a held plan's end date is frozen —
+  // adding to it would preview a date that is not moving.
+  const admin = code("lib/firebaseAdmin.ts");
+  assert.match(admin, /That plan is paused\. Continue it before granting more time\./);
+});
+
+test("continuing uses the hold's own arithmetic", () => {
+  const admin = code("lib/firebaseAdmin.ts");
+  assert.match(admin, /resumeExpiry\(existing, existing\.pause, Date\.now\(\)\)/);
+});
+
+test("pausing and continuing never wipe the buyer's acknowledgement", () => {
+  // Rewriting the record without `ack` would re-trigger the celebration
+  // dialog for a purchase the buyer was already told about.
+  const admin = code("lib/firebaseAdmin.ts");
+  const carriesAck = /const ack = raw && typeof raw === "object"/g;
+  assert.ok((admin.match(carriesAck) ?? []).length >= 3, "grant, pause and continue each carry it");
+});
+
+test("the people list reports a held plan as held, however long the hold lasts", () => {
+  const admin = code("lib/firebaseAdmin.ts");
+  // A paused plan whose original end date has passed must stay on the list:
+  // its time is frozen, not spent, and hiding it would strand the buyer.
+  assert.match(admin, /const visible = parsed && \(hold \|\| isActive\(parsed, now\)\) \? parsed : null;/);
+  assert.match(admin, /paused,/);
+});
+
+test("the paywall refuses a held plan with the hold sentence, not the upgrade pitch", () => {
+  // These buyers have already paid. Sending them to the pricing page after a
+  // pause would look like Mino lost their record.
+  const plan = code("lib/serverPlan.ts");
+  assert.match(plan, /paused: boolean/, "the read distinguishes a hold from nothing");
+  assert.match(plan, /if \(subscription\.pause\) \{/, "the hold is checked before the clock");
+  const chat = code("app/api/chat/route.ts");
+  assert.match(chat, /Your Mino plan is on hold right now\./);
+  const image = code("app/api/image/route.ts");
+  assert.match(image, /Your Mino plan is on hold right now\./);
+  const resolver = code("lib/serverRedeem.ts");
+  assert.match(resolver, /A held grant contributes nothing/, "a held grant grants nothing");
+  assert.match(resolver, /Redeemed codes still count/, "and codes are their own purchase");
+});
+
+test("the plan endpoint reports the hold so the buyer sees on hold, not Free", () => {
+  const route = code("app/api/plan/route.ts");
+  assert.match(route, /paused: plan\.paused/);
+  const hook = code("lib/useSubscription.ts");
+  assert.match(hook, /isPaused\(subscription\)/, "the hook keeps the held record");
+  assert.match(hook, /subscription && !isPaused\(subscription\) \? subscription\.plan : null/, "but withholds the plan id");
+});
+
+test("the renewal nag stays quiet while the countdown is frozen", () => {
+  const banner = code("components/PlanExpiryBanner.tsx");
+  assert.match(banner, /if \(isPaused\(subscription\)\) return null;/);
+});
+
+console.log("\nthe console's subscription section");
+
+test("plans, holds, codes and revenue live behind one section", () => {
+  const panel = code("components/AdminPanel.tsx");
+  assert.match(panel, /\{ name: "subscription" \}/, "the section has its own view");
+  assert.match(panel, /view\.name === "subscription"/, "and it renders");
+  assert.match(panel, /Manage plans, holds and codes/, "with a way in from the console's first screen");
+});
+
+test("every plan control moved into the section", () => {
+  const panel = code("components/AdminPanel.tsx");
+  // The pinned strings now live inside the section's markup; none of them may
+  // be rendered by the people list, which is about chats and wiping.
+  // Anchored to the view blocks themselves, not the header's title ternary,
+  // which mentions the same view names.
+  const usersView = panel.slice(
+    panel.indexOf('{view.name === "users" && ('),
+    panel.indexOf('{view.name === "subscription" && (')
+  );
+  for (const gone of ["<GrantPanel", "<CodesSection", "<AuditSection", "<RevenueSection", ">Plan<"]) {
+    assert.ok(!usersView.includes(gone), `the people list still renders ${gone}`);
+  }
+  const section = panel.slice(
+    panel.indexOf('{view.name === "subscription" && ('),
+    panel.indexOf('{view.name === "chats" && (')
+  );
+  for (const present of ["<GrantPanel", "<CodesSection", "<AuditSection", "<RevenueSection"]) {
+    assert.ok(section.includes(present), `the section does not render ${present}`);
+  }
+  assert.match(section, /Find a name to grant/, "and people can still be found by name");
+});
+
+test("a held plan can be continued from the console", () => {
+  const panel = code("components/AdminPanel.tsx");
+  assert.match(panel, /runPause/, "the hold has a handler");
+  assert.match(panel, /runResume/, "and so does continuing");
+  assert.match(panel, /pauseSubscription\(uid/, "pausing goes through the admin layer");
+  assert.match(panel, /resumeSubscription\(uid/, "as does continuing");
+  // Continuing must give back held days: the handler shifts the end date the
+  // server returned and reports the new remaining time.
+  assert.match(panel, /action: "pause"/, "a hold lands in the ledger");
+  assert.match(panel, /action: "resume"/, "and so does continuing");
 });
 
 console.log(

@@ -25,11 +25,16 @@ export async function GET(req: NextRequest): Promise<Response> {
   // away to sign in: the free tier is a real answer and the page renders it.
   const plan = identity
     ? await resolveEffectivePlan(authorization, identity.uid)
-    : { planId: null, expiresAt: 0 };
+    : { planId: null, expiresAt: 0, paused: false };
 
   return Response.json({
     planId: plan.planId,
     expiresAt: plan.expiresAt,
+    // So the page can say "on hold" rather than "Free" to somebody who has
+    // paid and whose plan the owner has paused. The time is theirs; it is
+    // simply not spendable right now, and dropping them to a screen that
+    // reads as "nothing" would look like the purchase vanished.
+    paused: plan.paused,
     // So the page can tell "you have nothing" from "we could not check", which
     // are different things to show somebody who has just typed a code.
     checked: Boolean(identity),

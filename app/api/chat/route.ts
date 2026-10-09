@@ -361,9 +361,9 @@ export async function POST(req: NextRequest): Promise<Response> {
   // paywall permits — the code below cannot reintroduce a locked effort.
   let allowedEffort: ReasoningEffort | null = null;
   if (!isCallerAdmin) {
-    const { planId } = identity
+    const { planId, paused } = identity
       ? await resolveEffectivePlan(authorization, identity.uid)
-      : { planId: null };
+      : { planId: null, paused: false };
     const askedFor =
       body.reasoningEffort === "low" || body.reasoningEffort === "medium" || body.reasoningEffort === "high"
         ? body.reasoningEffort
@@ -377,7 +377,15 @@ export async function POST(req: NextRequest): Promise<Response> {
       defaultEffort: requested === "code" ? "medium" : "low",
     });
     if (!entitlement.allowed) {
-      return errorStream(entitlement.error);
+      // A held plan is a different sentence from an absent one. These buyers
+      // have paid; what they need is the owner, not the pricing page, and a
+      // generic upgrade pitch after a pause would read as Mino having lost
+      // their record.
+      return errorStream(
+        paused && !planId
+          ? "Your Mino plan is on hold right now. The time you paid for is saved and will pick up where it left off — message the person who runs this Mino to continue it."
+          : entitlement.error
+      );
     }
     allowedEffort = entitlement.effort;
   }
