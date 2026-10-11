@@ -248,7 +248,6 @@ export default function AdminControls({ users, onError }: AdminControlsProps) {
   const formatDate = (ms: number) =>
     new Date(ms).toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" });
 
-  const usageFor = (uid: string) => usage?.find((entry) => entry.uid === uid);
 
   return (
     <section>

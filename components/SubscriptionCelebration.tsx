@@ -155,7 +155,7 @@ export default function SubscriptionCelebration() {
   const [celebration, setCelebration] = useState<Subscription | null>(null);
 
   useEffect(() => {
-    let cancelled = false;
+    const cancelled = false;
     const report = (view: SubscriptionView | null) => {
       if (cancelled) return;
       setCelebration(shouldCelebrate(view, { local: readLocalAck(), now: Date.now() }));

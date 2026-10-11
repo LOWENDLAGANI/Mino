@@ -1,3 +1,4 @@
+import Link from "next/link";
 // ── 404 ──────────────────────────────────────────────────────────────────────
 // Mino has no marketing sitemap, so almost every unknown URL is a typo or a
 // link that aged out. A bare Next 404 reads as a broken site; this says which
@@ -23,18 +24,18 @@ export default function NotFound() {
       </p>
 
       <div className="mt-6 flex items-center gap-2.5">
-        <a
+        <Link
           href="/"
           className="rounded-full bg-[#2f6b48] px-5 py-2.5 text-[13px] font-semibold text-black transition-colors hover:bg-[#3a7d55]"
         >
           Back to chat
-        </a>
-        <a
+        </Link>
+        <Link
           href="/about"
           className="rounded-full border border-white/10 px-5 py-2.5 text-[13px] font-medium text-white/70 transition-colors hover:bg-white/[0.06] hover:text-white"
         >
           About Mino
-        </a>
+        </Link>
       </div>
     </div>
   );

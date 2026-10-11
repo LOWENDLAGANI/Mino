@@ -9,7 +9,7 @@ interface MinoMarkProps {
   src?: string;
 }
 
-function SparkleMark({ className, title }: { className: string; title: string }) {
+function SparkleMark({ title }: { title: string }) {
   return (
     <svg viewBox="0 0 48 48" className="h-full w-full overflow-visible" role="img" aria-label={title}>
       <defs>
@@ -61,7 +61,7 @@ export default function MinoMark({ className = "h-7 w-7", title = "Mino", src = 
           onError={() => setFailed(true)}
         />
       ) : (
-        <SparkleMark className={className} title={title} />
+        <SparkleMark title={title} />
       )}
     </span>
   );

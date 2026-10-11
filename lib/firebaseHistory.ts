@@ -62,7 +62,10 @@ export async function getServices(): Promise<FirebaseServices | null> {
   const auth = getAuth(app);
   await setPersistence(auth, browserLocalPersistence);
   const restoredUser = auth.currentUser ?? (await auth.authStateReady());
-  const user = restoredUser ?? (await signInAnonymously(auth)).user;
+  // The sign-in is the point; the returned user is not read here — `services`
+  // exposes `auth.currentUser` live, so binding it would only ever hold a
+  // value that goes stale the moment the account is linked.
+  if (!restoredUser) await signInAnonymously(auth);
   services = {
     auth,
     database: getDatabase(app),

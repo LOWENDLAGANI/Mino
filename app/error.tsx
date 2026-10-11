@@ -1,4 +1,5 @@
 "use client";
+import Link from "next/link";
 
 // ── Render failures ──────────────────────────────────────────────────────────
 // A client-side exception used to reach the visitor as Next's development
@@ -53,12 +54,12 @@ export default function ErrorBoundary({
         >
           Try again
         </button>
-        <a
+        <Link
           href="/"
           className="rounded-full border border-white/10 px-5 py-2.5 text-[13px] font-medium text-white/70 transition-colors hover:bg-white/[0.06] hover:text-white"
         >
           Back to chat
-        </a>
+        </Link>
       </div>
     </div>
   );

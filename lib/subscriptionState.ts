@@ -10,7 +10,7 @@
 // showing the person their purchase landed exactly once.
 
 import { formatRinggit, planById, termForDays, type PlanId } from "./plans";
-import { DAY_MS, MAX_DAYS, MIN_DAYS, describeDuration, normalizeDays } from "./durations";
+import { DAY_MS, describeDuration, normalizeDays } from "./durations";
 
 export type { PlanId } from "./plans";
 

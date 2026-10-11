@@ -16,6 +16,7 @@ import { useRouter } from "next/navigation";
 import { isUnlocked } from "@/lib/paywallState";
 import { useSubscription } from "@/lib/useSubscription";
 import { useEffect, useRef, useState, type ClipboardEvent, type DragEvent, type KeyboardEvent } from "react";
+import Link from "next/link";
 
 // ── ChatInput: floating composer with attachments — minimal, mobile-first ───
 
@@ -493,7 +494,7 @@ export default function ChatInput({
                   </span>
                   <span className="min-w-0 flex-1 text-[15px] font-semibold leading-tight tracking-[-0.01em] text-white">Files</span>
                 </button>
-                <a
+                <Link
                   href="/donate"
                   onClick={() => setShowTools(false)}
                   className="flex w-full items-center gap-3.5 rounded-[18px] px-2 py-2.5 text-left transition-colors hover:bg-white/[0.06] active:bg-white/[0.09]"
@@ -509,7 +510,7 @@ export default function ChatInput({
                       Donate
                     </span>
                   </span>
-                </a>
+                </Link>
                 <button
                   type="button"
                   onClick={toggleVoice}
@@ -731,7 +732,7 @@ export default function ChatInput({
         <p className="hidden pt-2.5 text-center text-[10px] text-white/25 md:block">
           Created by Minetallest
           <span className="mx-1.5 text-white/15">·</span>
-          <a
+          <Link
             href="/donate"
             className="inline-flex items-center gap-1 rounded-full px-1.5 py-0.5 align-middle text-white/35 transition-colors hover:text-rose-200"
           >
@@ -739,7 +740,7 @@ export default function ChatInput({
               <path d="M12 20.7s-7.6-4.7-7.6-10A4.5 4.5 0 0 1 12 7.9a4.5 4.5 0 0 1 7.6 2.8c0 5.3-7.6 10-7.6 10Z" />
             </svg>
             Support Mino
-          </a>
+          </Link>
         </p>
         <div className="safe-bottom md:hidden" />
       </div>

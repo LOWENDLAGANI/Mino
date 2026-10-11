@@ -115,7 +115,7 @@ export default function SplashScreen() {
         // before anything paints.
         <picture>
           <source media={WIDE_QUERY} srcSet={DESKTOP_IMAGE} />
-          {/* eslint-disable-next-line @next/next/no-img-element */}
+          { }
           <img
             src={MOBILE_IMAGE}
             onError={() => setStage(nextStage)}

@@ -14,7 +14,7 @@
 
 import { GoogleAuthProvider, signInWithPopup, signOut } from "firebase/auth";
 import { get, push, ref, remove, set } from "firebase/database";
-import { firebaseConfigured, getServices } from "./firebaseHistory";
+import { getServices } from "./firebaseHistory";
 import type { AppConfig } from "./appConfig";
 import type { PlanId } from "./plans";
 import { normalizeDays } from "./durations";

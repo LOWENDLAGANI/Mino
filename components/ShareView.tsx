@@ -15,6 +15,7 @@ import { useEffect, useState } from "react";
 import MinoMark from "./MinoMark";
 import Markdown from "./Markdown";
 import { parseShareLink, type SharedChat } from "@/lib/shareLink";
+import Link from "next/link";
 
 type ViewState =
   | { status: "reading" }
@@ -28,12 +29,12 @@ function Notice({ title, body }: { title: string; body: string }) {
       <MinoMark className="mb-6 h-12 w-12" />
       <h1 className="text-[22px] font-semibold tracking-[-0.03em] text-white">{title}</h1>
       <p className="mt-2 max-w-sm text-[13.5px] leading-relaxed text-white/50">{body}</p>
-      <a
+      <Link
         href="/"
         className="mt-6 rounded-full bg-[#2f6b48] px-5 py-2.5 text-[13px] font-semibold text-black transition-colors hover:bg-[#3a7d55]"
       >
         Open Mino
-      </a>
+      </Link>
     </div>
   );
 }
@@ -102,12 +103,12 @@ export default function ShareView() {
               {chat.t || "A conversation"}
             </h1>
           </div>
-          <a
+          <Link
             href="/"
             className="shrink-0 rounded-full bg-[#2f6b48] px-4 py-2 text-[12.5px] font-semibold text-black transition-colors hover:bg-[#3a7d55]"
           >
             Open Mino
-          </a>
+          </Link>
         </div>
       </header>
 
@@ -145,7 +146,7 @@ export default function ShareView() {
         <p className="mx-auto max-w-3xl text-[11.5px] leading-relaxed text-white/35">
           This conversation travelled inside the link itself — the fragment of a URL is never
           sent to a server, so Mino holds no copy of it and nobody needs an account to read it.
-          Start your own at <a href="/" className="text-[#a9d8bb] hover:underline">mino</a>.
+          Start your own at <Link href="/" className="text-[#a9d8bb] hover:underline">mino</Link>.
         </p>
       </footer>
     </div>

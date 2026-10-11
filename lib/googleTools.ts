@@ -70,10 +70,6 @@ function num(params: Record<string, unknown>, key: string, fallback: number): nu
   return typeof value === "number" && Number.isFinite(value) ? value : fallback;
 }
 
-function requireLogin(): string {
-  return "Error: the user has not connected their Google account. Ask them to open Settings and use Connect Google, then try again.";
-}
-
 async function googleFetch(
   session: GoogleSession,
   url: string,

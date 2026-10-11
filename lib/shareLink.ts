@@ -145,7 +145,7 @@ export async function buildShareLink(
   // adds a third, so 0.8 of the ceiling is a deliberately conservative guess
   // that the measurement below corrects if it is wrong.
   const budget = Math.floor(MAX_URL_LENGTH * 0.8);
-  let picked: SharedMessage[] = [];
+  const picked: SharedMessage[] = [];
   let size = 96 + (title?.length ?? 0);
   for (let index = rows.length - 1; index >= 0; index -= 1) {
     const row = rows[index];

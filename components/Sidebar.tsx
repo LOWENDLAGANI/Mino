@@ -21,6 +21,7 @@ import MinoMark from "@/components/MinoMark";
 import SearchOverlay from "@/components/SearchOverlay";
 import TrashOverlay from "@/components/TrashOverlay";
 import GalleryOverlay from "@/components/GalleryOverlay";
+import Link from "next/link";
 
 interface SidebarProps {
   activeChatId: string | null;
@@ -482,7 +483,7 @@ export default function Sidebar({
         </div>
 
         <div className="mt-3 space-y-1 px-4">
-          <a
+          <Link
             href="/plus"
             aria-label={hasLunar ? "Your Mino Lunar plan" : "Mino Lunar — upgrade"}
             className="group relative flex w-full items-center gap-2 overflow-hidden rounded-2xl border border-[#2f6b48]/30 bg-gradient-to-r from-[#2f6b48]/[0.14] via-[#a9d8bb]/[0.07] to-transparent px-2.5 py-2 text-[13px] font-medium text-white shadow-[0_0_26px_-10px_rgba(47,107,72,0.85)] transition-shadow hover:shadow-[0_0_34px_-8px_rgba(47,107,72,1)]"
@@ -510,8 +511,8 @@ export default function Sidebar({
                 </span>
               )}
             </span>
-          </a>
-          <a
+          </Link>
+          <Link
             href="/donate"
             className="group relative flex w-full items-center gap-2 overflow-hidden rounded-2xl border border-rose-300/20 bg-gradient-to-r from-rose-400/[0.13] via-rose-300/[0.06] to-transparent px-2.5 py-2 text-[13px] font-medium text-white shadow-[0_0_26px_-12px_rgba(251,113,133,0.9)] transition-shadow hover:shadow-[0_0_30px_-8px_rgba(251,113,133,1)]"
           >
@@ -525,7 +526,7 @@ export default function Sidebar({
               </svg>
             </span>
             <span className="relative truncate">Support Mino</span>
-          </a>
+          </Link>
         </div>
 
         {(folders?.length ?? 0) > 0 && (
@@ -851,8 +852,8 @@ export default function Sidebar({
             <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-[#c9e6d4] via-[#4a8a67] to-[#1f4a33] text-[11px] font-bold text-black">{nameInitial(displayName)}</div>
             <span className="min-w-0 flex-1 truncate text-[12px] text-white/55">{displayName || "Guest"}</span>
             <span className="flex shrink-0 items-center gap-1">
-              <a href="/notes" className="rounded-lg px-1.5 py-1 text-[10px] text-white/35 transition-colors hover:bg-white/[0.06] hover:text-white" title="News from the developers">News</a>
-              <a href="/about" className="rounded-lg px-1.5 py-1 text-[10px] text-white/35 transition-colors hover:bg-white/[0.06] hover:text-white" title="About Mino">About</a>
+              <Link href="/notes" className="rounded-lg px-1.5 py-1 text-[10px] text-white/35 transition-colors hover:bg-white/[0.06] hover:text-white" title="News from the developers">News</Link>
+              <Link href="/about" className="rounded-lg px-1.5 py-1 text-[10px] text-white/35 transition-colors hover:bg-white/[0.06] hover:text-white" title="About Mino">About</Link>
             </span>
           </div>
         </div>
