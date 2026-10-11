@@ -1,9 +1,15 @@
 "use client";
 
+import dynamic from "next/dynamic";
+
 import { useState } from "react";
 import MinoMark from "./MinoMark";
 import AdminGate from "./AdminGate";
-import AdminPanel from "./AdminPanel";
+// The console is ~2,400 lines of admin UI that no visitor ever sees. Loading
+// it on demand rather than in the page bundle keeps it off every visitor's
+// first paint; it is only reachable after ten taps on the logo and a Google
+// sign-in, so the deferred fetch is invisible in practice.
+const AdminPanel = dynamic(() => import("./AdminPanel"), { ssr: false });
 import { useAdminTaps } from "@/lib/useAdminTaps";
 
 /** The About page logo. Ten taps opens the admin console. */

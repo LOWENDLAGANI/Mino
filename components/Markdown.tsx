@@ -4,10 +4,70 @@ import { useState } from "react";
 import type { ReactNode } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
-import { Prism as SyntaxHighlighterBase } from "react-syntax-highlighter";
-import { oneDark } from "react-syntax-highlighter/dist/cjs/styles/prism";
+import { PrismLight as SyntaxHighlighterBase } from "react-syntax-highlighter";
+import { oneDark } from "react-syntax-highlighter/dist/esm/styles/prism";
 import { parseFenceInfo } from "@/lib/codeFence";
 import ArtifactFrame from "./ArtifactFrame";
+
+// ── Markdown renderer with syntax-highlighted code blocks + copy button ─────
+//
+// `PrismLight` rather than the full `Prism`: the full build bundles a grammar
+// for every language Prism knows — a few hundred of them, most of which this
+// app will never be handed — and every one of them lands in the visitor's first
+// download. The light build ships none and registers only the ones below.
+//
+// The set is deliberately "languages a coding assistant actually emits", plus
+// the markup and config formats that turn up in answers constantly. Anything
+// outside it still renders, just as plain text: Prism falls back rather than
+// failing, so an unfamiliar language costs a little colour and nothing else.
+// That is the right trade against carrying a grammar nobody has asked for.
+//
+// `registerLanguage` reads each grammar's own exported name and aliases rather
+// than the first argument, so registering `typescript` also serves `ts`, and
+// `bash` also serves `sh` and `shell`.
+import typescript from "react-syntax-highlighter/dist/esm/languages/prism/typescript";
+import tsx from "react-syntax-highlighter/dist/esm/languages/prism/tsx";
+import jsx from "react-syntax-highlighter/dist/esm/languages/prism/jsx";
+import javascript from "react-syntax-highlighter/dist/esm/languages/prism/javascript";
+import python from "react-syntax-highlighter/dist/esm/languages/prism/python";
+import bash from "react-syntax-highlighter/dist/esm/languages/prism/bash";
+import json from "react-syntax-highlighter/dist/esm/languages/prism/json";
+import css from "react-syntax-highlighter/dist/esm/languages/prism/css";
+// Prism names the markup grammar `markup`; its aliases are html, xml, svg,
+// mathml, ssml, atom and rss, so this one import serves every tag soup a
+// model writes. There is no `xml.js` to import — that was the trap.
+import markup from "react-syntax-highlighter/dist/esm/languages/prism/markup";
+import yaml from "react-syntax-highlighter/dist/esm/languages/prism/yaml";
+import sql from "react-syntax-highlighter/dist/esm/languages/prism/sql";
+import rust from "react-syntax-highlighter/dist/esm/languages/prism/rust";
+import go from "react-syntax-highlighter/dist/esm/languages/prism/go";
+import java from "react-syntax-highlighter/dist/esm/languages/prism/java";
+import c from "react-syntax-highlighter/dist/esm/languages/prism/c";
+import cpp from "react-syntax-highlighter/dist/esm/languages/prism/cpp";
+import csharp from "react-syntax-highlighter/dist/esm/languages/prism/csharp";
+import php from "react-syntax-highlighter/dist/esm/languages/prism/php";
+import ruby from "react-syntax-highlighter/dist/esm/languages/prism/ruby";
+import swift from "react-syntax-highlighter/dist/esm/languages/prism/swift";
+import kotlin from "react-syntax-highlighter/dist/esm/languages/prism/kotlin";
+import markdown from "react-syntax-highlighter/dist/esm/languages/prism/markdown";
+import docker from "react-syntax-highlighter/dist/esm/languages/prism/docker";
+import diff from "react-syntax-highlighter/dist/esm/languages/prism/diff";
+import graphql from "react-syntax-highlighter/dist/esm/languages/prism/graphql";
+import powershell from "react-syntax-highlighter/dist/esm/languages/prism/powershell";
+import toml from "react-syntax-highlighter/dist/esm/languages/prism/toml";
+import r from "react-syntax-highlighter/dist/esm/languages/prism/r";
+import perl from "react-syntax-highlighter/dist/esm/languages/prism/perl";
+import lua from "react-syntax-highlighter/dist/esm/languages/prism/lua";
+import scala from "react-syntax-highlighter/dist/esm/languages/prism/scala";
+
+for (const grammar of [
+typescript, tsx, jsx, javascript, python, bash, json, css, markup, yaml, sql, rust, go, java, c, cpp, csharp, php, ruby, swift, kotlin, markdown, docker, diff, graphql, powershell, toml, r, perl, lua, scala,
+]) {
+  const name = (grammar as { displayName?: string; name?: string }).displayName ??
+    (grammar as { name?: string }).name ??
+    "";
+  SyntaxHighlighterBase.registerLanguage(name, grammar);
+}
 
 // ── Markdown renderer with syntax-highlighted code blocks + copy button ─────
 
