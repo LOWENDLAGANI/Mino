@@ -154,6 +154,9 @@ export function sanitizeProviderDetail(detail: string): string {
     .replace(/\b(?:made|created|developed|built|designed|trained)\s+by\s+[\w\s.]{2,30}/gi, "created by Minetallest");
 }
 
+/** A fenced code block's opening or closing marker: ``` or ~~~. */
+const FENCE_MARKER = /^(?:`{3,}|~{3,})/;
+
 /**
  * Streaming-safe identity filter.
  *
@@ -163,13 +166,82 @@ export function sanitizeProviderDetail(detail: string): string {
  *
  * The hold is larger than the longest self-reference phrase the rewrites match,
  * so a phrase is never only half-visible when the rewrite runs.
+ *
+ * ── Why code is left alone ───────────────────────────────────────────────────
+ * The rewrites above are tuned for English prose, and a code block is not
+ * prose. A comment reading `# I am gemini` is somebody's example, a string
+ * holding "I'm not ChatGPT" is test fixture, and a variable called
+ * `powered_by_openai` is a name — rewriting any of them changes what the code
+ * does, and the reader has no way to tell the file was altered on the way
+ * through. So the filter tracks fence state and passes anything between the
+ * markers through untouched. It still holds the stream back by the same tail,
+ * so timing is identical; only the rewrite is skipped.
+ *
+ * Indented code (four spaces) is deliberately *not* treated as code. Prose
+ * wrapped at a column boundary would be indented too, and silently disabling
+ * the persona inside ordinary paragraphs to protect a rare indented snippet is
+ * the wrong trade.
  */
 export class IdentityFilter {
   private carry = "";
   private readonly hold: number;
+  /**
+   * Whether the text currently being emitted sits inside a fenced block.
+   *
+   * Carried across `push()` calls because a fence marker can arrive in one
+   * chunk and the code it opens in the next.
+   */
+  private inFence = false;
+  /**
+   * Which character opened the current fence — a backtick or a tilde.
+   *
+   * CommonMark requires a closing fence to match the opening one, so a block
+   * opened with ```` ``` ```` is never closed by `~~~`, and forgetting this
+   * would leave the filter passing a whole rest-of-answer through unwritten.
+   */
+  private fenceChar = "";
 
   constructor(hold = 64) {
     this.hold = hold;
+  }
+
+  /** Emits a slice of the stream, rewriting only what is outside a fence. */
+  private emit(text: string): string {
+    if (!text) return "";
+    if (!this.inFence && !text.includes("`") && !text.includes("~")) {
+      // The common case: no fence marker anywhere near, so the whole slice is
+      // prose and is rewritten in one pass.
+      return sanitizeIdentity(text);
+    }
+
+    let out = "";
+    let index = 0;
+    while (index < text.length) {
+      const lineEnd = text.indexOf("\n", index);
+      const end = lineEnd === -1 ? text.length : lineEnd + 1;
+      const line = text.slice(index, end);
+      if (this.inFence) {
+        // Inside a fence only a matching close marker changes anything, and
+        // the marker itself is passed through as authored. A close is the same
+        // character, at least as long as the opener, with nothing after it —
+        // so an info string, or a longer marker, never ends the block early.
+        const trimmed = line.trimStart();
+        const run = trimmed.match(FENCE_MARKER)?.[0] ?? "";
+        if (run[0] === this.fenceChar && trimmed.slice(run.length).trim() === "") {
+          this.inFence = false;
+          this.fenceChar = "";
+        }
+        out += line;
+      } else if (FENCE_MARKER.test(line.trimStart())) {
+        this.inFence = true;
+        this.fenceChar = line.trimStart()[0];
+        out += line;
+      } else {
+        out += sanitizeIdentity(line);
+      }
+      index = end;
+    }
+    return out;
   }
 
   push(delta: string): string {
@@ -189,12 +261,12 @@ export class IdentityFilter {
 
     const safe = this.carry.slice(0, cut);
     this.carry = this.carry.slice(cut);
-    return sanitizeIdentity(safe);
+    return this.emit(safe);
   }
 
   flush(): string {
     const rest = this.carry;
     this.carry = "";
-    return rest ? sanitizeIdentity(rest) : "";
+    return rest ? this.emit(rest) : "";
   }
 }
