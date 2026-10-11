@@ -23,6 +23,17 @@ import {
 } from "../lib/paywallServer";
 import { isUnlocked } from "../lib/paywallState";
 import type { PlanId } from "../lib/plans";
+import {
+  DEW_PRICING,
+  IMAGE_DEW_COST,
+  TRIAL_DEW,
+  calcDewCost,
+  dewBalanceFrom,
+  formatDew,
+  nextSpent,
+  roundDew,
+  tierForRequest,
+} from "../lib/dew";
 
 const PLANS: (PlanId | null)[] = [null, "mini", "lunar"];
 const PAID: (PlanId | null)[] = ["mini", "lunar"];
@@ -32,9 +43,12 @@ const PAID: (PlanId | null)[] = ["mini", "lunar"];
 // Low is the free tier's answer. Anything above it is the thing Mini sells, so
 // this single assertion is the difference between an honest paywall and a
 // decorative one.
-assert.equal(maxReasoningEffort(null), "low", "no plan must be limited to low reasoning");
-assert.equal(maxReasoningEffort("mini"), "high", "Mini must unlock high reasoning");
-assert.equal(maxReasoningEffort("lunar"), "high", "Lunar must unlock high reasoning");
+// Under Dew, effort is priced rather than gated, so every plan and no plan can
+// ask for anything. These replace the old clamp assertions on purpose: the
+// clamp logic survives, but nothing under Dew produces a lowered effort.
+assert.equal(maxReasoningEffort(null), "high", "effort is priced, never gated");
+assert.equal(maxReasoningEffort("mini"), "high", "effort is priced, never gated");
+assert.equal(maxReasoningEffort("lunar"), "high", "effort is priced, never gated");
 
 for (const effort of ["low", "medium", "high"] as ReasoningEffort[]) {
   for (const plan of PAID) {
@@ -45,8 +59,8 @@ for (const effort of ["low", "medium", "high"] as ReasoningEffort[]) {
     );
   }
 }
-assert.equal(clampReasoningEffort("high", null), "low", "high must be clamped for no plan");
-assert.equal(clampReasoningEffort("medium", null), "low", "medium must be clamped for no plan");
+assert.equal(clampReasoningEffort("high", null), "high", "requests are billed, not clamped");
+assert.equal(clampReasoningEffort("medium", null), "medium", "requests are billed, not clamped");
 assert.equal(clampReasoningEffort("low", null), "low", "low must never be clamped");
 
 // ── Chat requests ────────────────────────────────────────────────────────────
@@ -76,36 +90,27 @@ for (const plan of PLANS) {
   });
   assert.equal(result.allowed, true, `Code mode's own default must never be refused (${plan})`);
   if (result.allowed) {
-    const expected = isUnlocked("reasoning", plan) ? "medium" : "low";
-    assert.equal(result.effort, expected, `Code default effort must be clamped to ${expected} (${plan})`);
-    assert.equal(result.clamped, !isUnlocked("reasoning", plan), `clamped flag must match reality (${plan})`);
+    assert.equal(result.effort, "medium", `Code mode's own default medium survives (${plan})`);
+    assert.equal(result.clamped, false, `nothing under Dew gets clamped (${plan})`);
   }
 }
 
-// Asking for paid reasoning without a plan is refused, in every mode.
+// Explicit reasoning requests, with or without a plan, are allowed — they are
+// billed at the pro tier now rather than gated. The refusal tests that used to
+// live here are inverted on purpose: the whole point of the Dew refactor is
+// that the answer to "can I think harder" is "yes, for more Dew".
 for (const effort of ["medium", "high"] as const) {
-  const result = checkChatEntitlement(null, {
-    mode: "auto",
-    requestedEffort: effort,
-    defaultEffort: "low",
-  });
-  assert.equal(result.allowed, false, `an explicit ${effort} request without a plan must be refused`);
-  assert.equal(result.allowed === false && result.feature, "reasoning", "the refusal must name the feature");
-  assert.ok(
-    result.allowed === false && result.error.includes("/plus"),
-    "the refusal must say where to go, not just that it is refused"
-  );
-}
-
-// Asking for paid reasoning *with* Mini is allowed — the whole point of the tier.
-for (const effort of ["medium", "high"] as const) {
-  for (const plan of PAID) {
+  for (const plan of PLANS) {
     const result = checkChatEntitlement(plan, {
       mode: "auto",
       requestedEffort: effort,
       defaultEffort: "low",
     });
-    assert.equal(result.allowed, true, `${plan} must be allowed ${effort} reasoning`);
+    assert.equal(result.allowed, true, `${effort} reasoning is priced, not gated (${plan})`);
+    if (result.allowed) {
+      assert.equal(result.effort, effort, `the requested effort survives untouched (${plan}, ${effort})`);
+      assert.equal(result.clamped, false, `nothing under Dew is clamped down (${plan}, ${effort})`);
+    }
   }
 }
 
@@ -127,35 +132,24 @@ const freeAzure = checkChatEntitlement(null, {
   requestedEffort: null,
   defaultEffort: "low",
 });
-assert.equal(freeAzure.allowed, false, "Mino Azure must be refused without a plan");
-assert.equal(
-  freeAzure.allowed === false && freeAzure.feature,
-  "azure",
-  "the Azure refusal must name the feature"
-);
-
-// Mini pays for reasoning and images, but explicitly *not* for Azure.
-const miniAzure = checkChatEntitlement("mini", {
-  mode: "self",
-  requestedEffort: null,
-  defaultEffort: "low",
-});
-assert.equal(miniAzure.allowed, false, "Mini must not reach Mino Azure");
-
-const lunarAzure = checkChatEntitlement("lunar", {
-  mode: "self",
-  requestedEffort: null,
-  defaultEffort: "low",
-});
-assert.equal(lunarAzure.allowed, true, "Lunar must reach Mino Azure");
+assert.equal(freeAzure.allowed, true, "Azure is a pro-tier price, not a plan lock");
+assert.equal(freeAzure.effort, "low", "an unrequested effort keeps the route default");
+for (const plan of PAID) {
+  const paid = checkChatEntitlement(plan, {
+    mode: "self",
+    requestedEffort: null,
+    defaultEffort: "low",
+  });
+  assert.equal(paid.allowed, true, `${plan} can reach Azure, billed at the pro tier`);
+}
 
 for (const mode of ["auto", "code"] as const) {
   const result = checkModeEntitlement(mode, null);
   assert.equal(result.allowed, true, `free ${mode} must not be gated`);
 }
-assert.equal(checkModeEntitlement("self", null).allowed, false, "free Azure must be refused");
-assert.equal(checkModeEntitlement("self", "mini").allowed, false, "Mini must not reach Azure");
-assert.equal(checkModeEntitlement("self", "lunar").allowed, true, "Lunar must reach Azure");
+assert.equal(checkModeEntitlement("self", null).allowed, true, "Azure is priced at the pro tier");
+assert.equal(checkModeEntitlement("self", "mini").allowed, true, "Azure is priced at the pro tier");
+assert.equal(checkModeEntitlement("self", "lunar").allowed, true, "Azure is priced at the pro tier");
 
 // ── Images ───────────────────────────────────────────────────────────────────
 
@@ -163,8 +157,7 @@ for (const plan of PAID) {
   assert.equal(checkImageEntitlement(plan).allowed, true, `${plan} must be allowed to generate images`);
 }
 const freeImage = checkImageEntitlement(null);
-assert.equal(freeImage.allowed, false, "image creation must be refused without a plan");
-assert.equal(freeImage.feature, "images", "the image refusal must name the feature");
+assert.equal(freeImage.allowed, true, "images are priced per generation, not plan-locked");
 
 /**
  * A file with its comments removed.
@@ -192,16 +185,30 @@ const routeSource = (name: string): string => code(join(process.cwd(), "app", "a
 // after enough attempts they would be told to come back tomorrow rather than
 // told what to buy. The ordering is the whole difference between a paywall and a
 // dead end, so it is pinned here rather than left to review.
-for (const route of ["chat", "image"]) {
-  const source = routeSource(route);
-  const paywallAt = source.search(/check(Chat|Image)Entitlement\(/);
-  const quotaAt = source.indexOf("consumeUsage(");
-  assert.ok(paywallAt !== -1 && quotaAt !== -1, `${route} must have both a paywall and a quota check`);
-  assert.ok(
-    paywallAt < quotaAt,
-    `${route} must check the paywall before spending any daily allowance`
-  );
-}
+// The Dew pre-flight must come before any model call in the chat route, and the
+// image route must refuse a dust-balance caller before spending quota.
+const chatSource = routeSource("chat");
+const imageSource = routeSource("image");
+assert.ok(
+  chatSource.includes("canStartRequest(") && chatSource.includes("deductDew("),
+  "the chat route must pre-flight the Dew balance and deduct on completion"
+);
+assert.ok(
+  chatSource.includes("resolveDew("),
+  "the chat route must read the balance from the server-side resolver"
+);
+assert.ok(
+  imageSource.includes("DEDW_PLACEHOLDER") === false && imageSource.includes("deductDew("),
+  "the image route must charge Dew on success"
+);
+assert.ok(
+  !chatSource.includes("consumeUsage("),
+  "the daily message cap is retired: the chat route must not count messages"
+);
+assert.ok(
+  !imageSource.includes("consumeUsage("),
+  "the daily image cap is retired: the image route must not count images"
+);
 
 // ── The client is never the authority ────────────────────────────────────────
 //
@@ -214,20 +221,16 @@ for (const route of ["chat", "image"]) {
 for (const route of ["chat", "image"]) {
   const source = routeSource(route);
   assert.ok(
-    source.includes("resolveEffectivePlan("),
-    `${route} must resolve the plan server-side before enforcing anything`
+    source.includes("resolveDew("),
+    `${route} must resolve the Dew balance server-side before enforcing anything`
   );
   assert.ok(
-    source.includes("checkChatEntitlement(") || source.includes("checkImageEntitlement("),
-    `${route} must consult the shared paywall check`
+    !/body\.(dewBalance|balance)\b/.test(source),
+    `${route} must never read a balance from the request body`
   );
   assert.ok(
-    !/body\.(plan|planId|subscription)\b/.test(source),
-    `${route} must never read a plan from the request body`
-  );
-  assert.ok(
-    !/query\.(plan|planId)\b/.test(source) && !/searchParams\.get\(\s*["'`]plan/.test(source),
-    `${route} must never read a plan from the query string`
+    !/query\.(dewBalance|balance)\b/.test(source) && !/searchParams\.get\(\s*["'`]balance/.test(source),
+    `${route} must never read a balance from the query string`
   );
 }
 
@@ -272,16 +275,26 @@ assert.ok(
 // `active`, would hand out a plan the owner has since terminated.
 const resolver = code(join(process.cwd(), "lib", "serverRedeem.ts"));
 assert.ok(
-  resolver.includes("readCallerPlan("),
-  "the resolver must build on the subscription read, not replace it"
-);
-assert.ok(
   resolver.includes("checkRedeemable("),
   "every code must be re-checked for termination on each request"
 );
 assert.ok(
   resolver.includes("?auth="),
   "the code read must be made with the caller's token so the rules judge it"
+);
+// The Dew reader must be fail-closed and CAS-based.
+const serverDew = code(join(process.cwd(), "lib", "serverDew.ts"));
+assert.ok(
+  serverDew.includes("dewBalanceFrom("),
+  "the Dew reader must derive the balance from credits and spend"
+);
+assert.ok(
+  serverDew.includes("If-Match") || serverDew.includes("If-Match\": \"\"") || serverDew.includes('"If-Match"'),
+  "the deduction must be a conditional write, not a blind put"
+);
+assert.ok(
+  serverDew.includes("412"),
+  "a lost race must be detected and reported rather than assumed"
 );
 
 // ── The client gate stays, and stays advisory ────────────────────────────────
@@ -304,3 +317,46 @@ assert.ok(
 );
 
 console.log("paywall-server: all checks passed");
+// ── Dew arithmetic ──────────────────────────────────────────────────────────
+
+// The pricing table is the whole contract with the buyer, so it is pinned.
+assert.deepEqual(DEW_PRICING.fast, { input: 0.015, output: 0.06 }, "fast tier prices");
+assert.deepEqual(DEW_PRICING.pro, { input: 0.25, output: 1.0 }, "pro tier prices");
+assert.equal(IMAGE_DEW_COST, 1, "one image costs one Dew");
+assert.equal(TRIAL_DEW, 25, "the welcome grant is 25 Dew");
+
+// Token arithmetic — exact, not approximate.
+assert.equal(calcDewCost("fast", { prompt: 1000, completion: 1000 }), 0.075);
+assert.equal(calcDewCost("pro", { prompt: 1000, completion: 1000 }), 1.25);
+assert.equal(calcDewCost("fast", { prompt: 0, completion: 0 }), 0);
+assert.equal(calcDewCost("pro", { prompt: 20000, completion: 4000 }), 9);
+
+// Balances derive from credits minus spend, and never go negative.
+assert.equal(dewBalanceFrom(null), 0);
+assert.equal(dewBalanceFrom({ credits: { TRIAL: 25 }, spent: 0 }), 25);
+assert.equal(dewBalanceFrom({ credits: { TRIAL: 25, DEW100: 100 }, spent: 12.5 }), 112.5);
+assert.equal(dewBalanceFrom({ credits: { TRIAL: 25 }, spent: 900 }), 0, "spend past credits floors at zero");
+
+// Spend only grows.
+assert.equal(nextSpent(10, 1.25), 11.25);
+assert.equal(nextSpent(10, 0), 10);
+assert.equal(nextSpent(-1, 5), 5, "a corrupt negative spend is treated as zero, never as credit");
+
+// Formatting: no floating dust on the interface.
+assert.equal(formatDew(25), "25");
+assert.equal(formatDew(12.5), "12.5");
+assert.equal(roundDew(0.1 + 0.2), 0.3);
+
+// Tiers: Azure and heavy reasoning bill as pro; everything else is fast.
+assert.equal(tierForRequest("self", null), "pro");
+assert.equal(tierForRequest("auto", "high"), "pro");
+assert.equal(tierForRequest("code", "medium"), "pro");
+assert.equal(tierForRequest("code", null), "fast");
+assert.equal(tierForRequest("auto", "low"), "fast");
+
+// The interface gate is advisory only now: it opens everything.
+for (const plan of PLANS) {
+  assert.equal(isUnlocked("reasoning", plan), true);
+  assert.equal(isUnlocked("images", plan), true);
+  assert.equal(isUnlocked("azure", plan), true);
+}

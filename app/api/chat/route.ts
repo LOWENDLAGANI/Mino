@@ -11,9 +11,16 @@ import { callSpace, isSpaceConfigured, SpaceError } from "@/lib/gradioSpace";
 import { CODE_SYSTEM_PROMPT } from "@/lib/codePrompt";
 import { formatSearchContext, searchWeb, shouldUseWebSearch } from "@/lib/webSearch";
 import { IdentityFilter, sanitizeProviderDetail } from "@/lib/identity";
-import { checkRateLimit, consumeUsage, identityGate, isAdmin, readConfig, verifyCaller } from "@/lib/serverControl";
-import { resolveEffectivePlan } from "@/lib/serverRedeem";
-import { checkChatEntitlement } from "@/lib/paywallServer";
+import { checkRateLimit, identityGate, isAdmin, readConfig, verifyCaller, writeAsCaller } from "@/lib/serverControl";
+import { resolveDew } from "@/lib/serverRedeem";
+import {
+  DUST_THRESHOLD,
+  calcDewCost,
+  estimateTokenUsage,
+  outOfDewMessage,
+  tierForRequest,
+} from "@/lib/dew";
+import { deductDew, type DewState } from "@/lib/serverDew";
 import {
   extractActionBlocks,
   googleToolsPrompt,
@@ -159,6 +166,24 @@ function textStream(text: string): Response {
     },
   });
   return new Response(stream, { headers: sseHeaders() });
+}
+
+/**
+ * The pre-flight check: does this balance cover starting a request?
+ *
+ * The only price known before the model answers is that the cheapest possible
+ * answer is not free — so the threshold is a floor of dust rather than a quote.
+ * A balance at or above it may start; the exact tokens are billed when the
+ * answer is known. Running dry mid-answer is preferable to refusing to
+ * finish one: the charge lands either way, and half an answer is worse than
+ * a small negative.
+ */
+function canStartRequest(state: DewState, mode: ModeId): boolean {
+  // Mino Azure is the pro tier, whose smallest plausible answer is roughly a
+  // tenth of a Dew; refusing a fraction above zero there still burns request
+  // slots on callers who could never afford the output anyway.
+  const floor = mode === "self" ? 0.25 : DUST_THRESHOLD;
+  return state.balance >= floor;
 }
 
 /** Stream an operational error separately from assistant output. */
@@ -399,69 +424,54 @@ export async function POST(req: NextRequest): Promise<Response> {
     body.mode === "code" ? "code" : body.mode === "self" ? "self" : "auto";
   const searchMode: SearchMode = body.searchMode === "always" || body.searchMode === "off" ? body.searchMode : "auto";
 
-  // ── The paywall ───────────────────────────────────────────────────────────
-  // Decided here, from the plan the server read for this caller, and not from
-  // anything the body claims. The client locks the same features, but a client
-  // that was edited — or a request sent with curl — reaches this check, which is
-  // the only version of it that can be relied on.
+  // ── The Dew ledger ────────────────────────────────────────────────────────
+  // Decided here, from the balance the server read with this caller's verified
+  // token, and not from anything the body claims. The client shows the chip,
+  // but a client that was edited — or a request sent with curl — reaches this
+  // check, which is the only version of it that can be relied on.
   //
-  // Ahead of the daily cap, deliberately. A refusal that first spends a message
-  // of someone's allowance would mean an unpaid caller burns the messages they
-  // do get to use on being told they cannot have this one, and eventually meets
-  // "limit reached, try again tomorrow" instead of the sentence explaining why.
-  // The cap is for messages they may send; this is for messages they may not.
+  // Ahead of any model call, deliberately: a refusal that first spends the
+  // deployment's provider quota would bill the owner for a request nobody
+  // could pay for.
   //
-  // The administrator is exempt. They granted the plans, they are the one
-  // account that should be able to see what a plan unlocks, and their exemption
-  // is derived from the verified identity like every other decision here.
-  const isCallerAdmin = isAdmin(identity);
-  // What a provider will actually be asked for. Computed here, from the caller's
-  // verified plan, so the value that leaves this function is already the one the
-  // paywall permits — the code below cannot reintroduce a locked effort.
+  // The administrator is exempt. They mint the credits, they are the one
+  // account that should always get through, and their exemption is derived
+  // from the verified identity like every other decision here.
   let allowedEffort: ReasoningEffort | null = null;
-  if (!isCallerAdmin) {
-    const { planId, paused } = identity
-      ? await resolveEffectivePlan(authorization, identity.uid)
-      : { planId: null, paused: false };
+  const isCallerAdmin = isAdmin(identity);
+
+  // ── The Dew balance ───────────────────────────────────────────────────────
+  // Every request is paid for in Dew, by the tokens it actually spends. The
+  // balance is read from the database with this caller's own verified token —
+  // never from anything the request carries — and a caller below the dust
+  // threshold is refused here rather than after the model has run and the
+  // deployment has paid for tokens nobody could bill.
+  //
+  // The old daily message cap and the plan paywall are gone. What remains of
+  // the paywall is pricing, enforced after the fact: reasoning effort and
+  // Mino Azure still cost what they always did, now paid in Dew rather than
+  // rationed by plan. A held plan is no longer a state this route can answer
+  // with — balances do not pause — and nobody holding one is refused here.
+  let dewState: DewState | null = null;
+  const dewTier = tierForRequest(requested, body.reasoningEffort === "low" || body.reasoningEffort === "medium" || body.reasoningEffort === "high" ? body.reasoningEffort : null);
+  if (!isCallerAdmin && identity) {
+    dewState = await resolveDew(authorization, identity.uid);
+    if (!canStartRequest(dewState, requested)) {
+      return errorStream(outOfDewMessage());
+    }
+    // Effort and mode are now a matter of what the balance is billed at, not
+    // of what a plan permits. High effort is not gated, it just costs.
     const askedFor =
       body.reasoningEffort === "low" || body.reasoningEffort === "medium" || body.reasoningEffort === "high"
         ? body.reasoningEffort
         : null;
-    const entitlement = checkChatEntitlement(planId, {
-      mode: requested,
-      requestedEffort: askedFor,
-      // Code is the mode where thinking before answering pays for itself, so it
-      // defaults one notch above the chat default. That default is clamped rather
-      // than refused for anyone who has not paid — see lib/paywallServer.ts.
-      defaultEffort: requested === "code" ? "medium" : "low",
-    });
-    if (!entitlement.allowed) {
-      // A held plan is a different sentence from an absent one. These buyers
-      // have paid; what they need is the owner, not the pricing page, and a
-      // generic upgrade pitch after a pause would read as Mino having lost
-      // their record.
-      return errorStream(
-        paused && !planId
-          ? "Your Mino plan is on hold right now. The time you paid for is saved and will pick up where it left off — message the person who runs this Mino to continue it."
-          : entitlement.error
-      );
-    }
-    allowedEffort = entitlement.effort;
+    // Kept as the shape the entitlement function returns, so a future gate
+    // would slot straight in — but nothing here is refused any more.
+    allowedEffort = askedFor ?? (requested === "code" ? "medium" : "low");
   }
 
-  if (identity && config.dailyChatCap > 0) {
-    // The mode rides along so the console can break messages down by what
-    // people actually use; the cap itself still counts every message alike.
-    const { used, allowed } = await consumeUsage(authorization, identity.uid, "chat", requested);
-    if (!allowed) {
-      return errorStream("Mino could not verify this device. Please try again shortly.");
-    }
-    if (used > config.dailyChatCap) {
-      return errorStream(
-        `Mino's daily limit of ${config.dailyChatCap} messages has been reached on this device. It resets tomorrow.`
-      );
-    }
-  }
+  // The administrator pays nothing, as they always have. Everybody else pays
+  // for exactly the tokens they spend, checked against a real balance.
 
   const providers = getProviders(requested);
 
@@ -661,7 +671,7 @@ export async function POST(req: NextRequest): Promise<Response> {
         provider: ProviderConfig,
         attemptMessages: ApiMessage[],
         openBody: ReadableStream<Uint8Array> | null
-      ): Promise<{ text: string; truncated: boolean }> => {
+      ): Promise<{ text: string; truncated: boolean; lastUsage: { prompt: number; completion: number } | null }> => {
         let source = openBody;
         if (!source) {
           const continuation = await callProvider(
@@ -683,6 +693,7 @@ export async function POST(req: NextRequest): Promise<Response> {
         let buffer = "";
         let text = "";
         let truncated = false;
+        let lastUsage: { prompt: number; completion: number } | null = null;
 
         const processLine = (line: string) => {
         const trimmed = line.trim();
@@ -732,12 +743,18 @@ export async function POST(req: NextRequest): Promise<Response> {
           }
 
           if (chunk.usage) {
+            lastUsage = {
+              prompt: chunk.usage.prompt_tokens ?? 0,
+              completion: chunk.usage.completion_tokens ?? 0,
+            };
+            // The raw counts still reach the interface, where the per-message
+            // token readout lives. Billing is decided once, on the totals.
             controller.enqueue(
               encodeEvent({
                 usage: {
-                  prompt: chunk.usage.prompt_tokens ?? 0,
-                  completion: chunk.usage.completion_tokens ?? 0,
-                  total: chunk.usage.total_tokens ?? 0,
+                  prompt: lastUsage.prompt,
+                  completion: lastUsage.completion,
+                  total: chunk.usage.total_tokens ?? lastUsage.prompt + lastUsage.completion,
                 },
               })
             );
@@ -771,7 +788,7 @@ export async function POST(req: NextRequest): Promise<Response> {
         }
 
         reader.releaseLock();
-        return { text, truncated };
+        return { text, truncated, lastUsage };
       };
 
       // One answer, however many models it takes. The user sees a single
@@ -783,9 +800,12 @@ export async function POST(req: NextRequest): Promise<Response> {
       let firstBody: ReadableStream<Uint8Array> | null = providerBody;
       let answer = "";
       let truncated = false;
+      // The bill. Accumulated across every attempt and continuation, because
+      // each of those is real provider usage the caller asked for.
+      const totalUsage = { prompt: 0, completion: 0 };
 
       for (let attempt = 0; ; attempt += 1) {
-        let result: { text: string; truncated: boolean };
+        let result: { text: string; truncated: boolean; lastUsage: { prompt: number; completion: number } | null };
         try {
           result = await pump(attemptProvider, attemptMessages, firstBody);
         } catch (error) {
@@ -805,8 +825,17 @@ export async function POST(req: NextRequest): Promise<Response> {
         }
         firstBody = null;
         answer += result.text;
+        if (result.lastUsage) {
+          totalUsage.prompt += result.lastUsage.prompt;
+          totalUsage.completion += result.lastUsage.completion;
+        } else {
+          // This attempt's provider never reported usage. Fall back to an
+          // estimate of what it wrote, so quiet providers are still billed —
+          // under-billing here would turn the ledger into decoration.
+          const estimated = estimateTokenUsage(result.text);
+          totalUsage.completion += estimated.completion;
+        }
         if (!result.truncated) {
-          truncated = false;
           break;
         }
 
@@ -824,6 +853,35 @@ export async function POST(req: NextRequest): Promise<Response> {
             model: getModelDisplayName(toMinoName(next.model)),
           })
         );
+      }
+
+      // ── The deduction ────────────────────────────────────────────────────
+      // Charged once, after the answer is fully known, so continuations and
+      // retries are billed as the single request they were to the caller.
+      // The tier was fixed before the model ran; the tokens decide the size.
+      if (!isCallerAdmin && identity && dewState && totalUsage.completion + totalUsage.prompt > 0) {
+        const charge = calcDewCost(dewTier, totalUsage);
+        if (charge > 0) {
+          const billedTokens = totalUsage;
+          const billedTier = dewTier;
+          void deductDew(authorization, identity.uid, dewState.spent, charge)
+            .then((deduct) => {
+              if (!deduct.ok) {
+                // A missed charge is logged, not hidden: it is a real
+                // shortfall in the ledger and the only way it gets noticed.
+                console.warn(`[mino dew] charge of ${charge} Dew not recorded for uid ${identity.uid} (conflict=${deduct.conflict})`);
+                return;
+              }
+              // The write-once log entry, best effort — rules refuse junk, so
+              // a failure here costs only the history, never the balance.
+              void writeAsCaller(
+                authorization,
+                `dew/${identity.uid}/tx/${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+                { type: "usage", at: Date.now(), dew: charge, tier: billedTier, prompt: billedTokens.prompt, completion: billedTokens.completion }
+              );
+            })
+            .catch(() => undefined);
+        }
       }
 
       // Only now, after every model has had its turn, is the answer known to be

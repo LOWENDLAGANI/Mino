@@ -2,11 +2,12 @@
 
 import { useState } from "react";
 import { claimRedeemCode } from "@/lib/redeem";
-import { useSubscription } from "@/lib/useSubscription";
+import { useDew } from "@/lib/useDew";
 
 // ── Claiming a code ──────────────────────────────────────────────────────────
 // The buyer's side of a manual sale. The owner hands over a word, and this is
-// where it becomes a plan.
+// where it becomes Dew on their balance (or, for a legacy plan code, the plan
+// it always granted — redemption is shared, the resolution differs).
 //
 // It says plainly that claiming is not instant, because it is not: the claim is
 // written to their own account and the server works out what the word was worth
@@ -18,7 +19,7 @@ import { useSubscription } from "@/lib/useSubscription";
 // between them and the box would be a support message waiting to happen.
 
 export default function RedeemCodeBox() {
-  const { refresh } = useSubscription();
+  const { refresh } = useDew();
   const [open, setOpen] = useState(false);
   const [code, setCode] = useState("");
   const [busy, setBusy] = useState(false);
@@ -39,7 +40,7 @@ export default function RedeemCodeBox() {
           ok: true,
           message: claim.alreadyClaimed
             ? "You have already used that code — it is on your account."
-            : "Code accepted. Your plan is now active.",
+            : "Code accepted. Your Dew balance has been topped up.",
         });
         setCode("");
       } else {

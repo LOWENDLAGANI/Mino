@@ -1,7 +1,8 @@
 import { NextRequest } from "next/server";
-import { checkRateLimit, consumeUsage, identityGate, isAdmin, readConfig, verifyCaller } from "@/lib/serverControl";
-import { resolveEffectivePlan } from "@/lib/serverRedeem";
-import { checkImageEntitlement } from "@/lib/paywallServer";
+import { checkRateLimit, identityGate, isAdmin, readConfig, verifyCaller, writeAsCaller } from "@/lib/serverControl";
+import { resolveDew } from "@/lib/serverRedeem";
+import { IMAGE_DEW_COST, outOfDewMessage } from "@/lib/dew";
+import { deductDew } from "@/lib/serverDew";
 import { optimizePrompt } from "@/lib/promptOptimizer";
 import { planPoster, type PosterPlan } from "@/lib/posterText";
 import { renderPoster } from "@/lib/posterRender";
@@ -94,6 +95,32 @@ async function imageResponse(bytes: Buffer, mime: string, spec: ModelSpec, plan:
       ...(plan.isPoster ? { "X-Mino-Poster-Text": "1" } : {}),
     },
   });
+}
+
+/**
+ * Charges the flat image price, once, on a succeeded generation.
+ *
+ * Called with the state this request read; a conflict is logged rather than
+ * retried, because a retry inside a request that has already produced its
+ * payload cannot be made reliable, and a missed flat charge is a smaller
+ * honest defect than a double one.
+ */
+async function chargeImageDew(
+  authorization: string | null,
+  identity: { uid: string } | null,
+  state: Awaited<ReturnType<typeof resolveDew>> | null
+): Promise<void> {
+  if (!identity || !state) return;
+  const deduct = await deductDew(authorization, identity.uid, state.spent, IMAGE_DEW_COST);
+  if (!deduct.ok) {
+    console.warn(`[mino dew] image charge of ${IMAGE_DEW_COST} not recorded for uid ${identity.uid}`);
+    return;
+  }
+  void writeAsCaller(
+    authorization,
+    `dew/${identity.uid}/tx/${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+    { type: "usage", at: Date.now(), dew: IMAGE_DEW_COST, what: "image" }
+  );
 }
 
 interface ImageRequestBody {
@@ -208,53 +235,29 @@ export async function POST(req: NextRequest): Promise<Response> {
   if (!gate.allowed) {
     return Response.json({ error: gate.error }, { status: 403 });
   }
-  // ── The paywall ───────────────────────────────────────────────────────────
-  // Image creation is a paid capability, and this is the check that makes it so.
-  // The composer hides the button, but a modified bundle reaches this route
-  // anyway, and Workers AI quota is not free to spend on a caller who has not
-  // paid for it. The plan comes from the database, read with the caller's own
-  // verified token — never from the request.
-  //
-  // Ahead of the daily cap, deliberately. A refusal that first spends a quota
-  // slot would mean an unpaid caller burns their allowance on every attempt and
-  // then meets "limit reached, try again tomorrow" instead of the sentence that
-  // tells them what to do about it. The cap is for images they may actually
-  // have; this is for images they may not.
-  if (!isAdmin(identity)) {
-    const { planId, paused } = identity
-      ? await resolveEffectivePlan(authorization, identity.uid)
-      : { planId: null, paused: false };
-    const entitlement = checkImageEntitlement(planId);
-    if (!entitlement.allowed) {
-      // 402 rather than 403: the request was understood and authenticated, and
-      // what is missing is payment. A client that reads the status learns the
-      // feature is genuinely paid, which is the point of selling it.
-      // A held plan gets the hold sentence rather than the upgrade pitch —
-      // see the chat route, which refuses the same callers for the same
-      // reason and with the same words.
-      return Response.json(
-        {
-          error:
-            paused && !planId
-              ? "Your Mino plan is on hold right now. The time you paid for is saved and will pick up where it left off — message the person who runs this Mino to continue it."
-              : entitlement.error,
-        },
-        { status: 402 }
-      );
+  // ── The Dew pre-flight ───────────────────────────────────────────────────
+  // An image costs a flat IMAGE_DEW_COST, charged only after it has actually
+  // been generated — an image that fails is never billed. What this route
+  // checks before spending the deployment's Cloudflare quota is only that
+  // the caller can afford the price once it is owed. The plan paywall and
+  // the daily image cap are gone; the same person who buys images now pays
+  // per image, in Dew, from a balance the server read with their verified
+  // token.
+  const isCallerAdmin = isAdmin(identity);
+  let dewStateForCharge: Awaited<ReturnType<typeof resolveDew>> | null = null;
+  if (!isCallerAdmin) {
+    if (!identity) {
+      return Response.json({ error: outOfDewMessage() }, { status: 402 });
     }
-  }
-
-  if (identity && controls.dailyImageCap > 0) {
-    const { used, allowed } = await consumeUsage(authorization, identity.uid, "image");
-    if (!allowed) {
-      return Response.json({ error: "Mino could not verify this device. Please try again shortly." }, { status: 403 });
+    const dewState = await resolveDew(authorization, identity.uid);
+    if (dewState.balance < IMAGE_DEW_COST) {
+      // 402 rather than 403: the request was understood and authenticated,
+      // and what is missing is balance. A client that reads the status
+      // learns the feature is genuinely paid, which is the point of
+      // charging for it.
+      return Response.json({ error: outOfDewMessage() }, { status: 402 });
     }
-    if (used > controls.dailyImageCap) {
-      return Response.json(
-        { error: `Mino's daily limit of ${controls.dailyImageCap} images has been reached on this device. It resets tomorrow.` },
-        { status: 429 }
-      );
-    }
+    dewStateForCharge = dewState;
   }
 
   const prompt = typeof body.prompt === "string" ? body.prompt.trim() : "";
@@ -349,6 +352,7 @@ export async function POST(req: NextRequest): Promise<Response> {
     if (!bytes.length) {
       return Response.json({ error: "Cloudflare returned an empty image. Try again." }, { status: 502 });
     }
+    await chargeImageDew(authorization, identity, dewStateForCharge);
     return imageResponse(bytes, contentType || "image/png", spec, plan);
   }
 
@@ -394,5 +398,6 @@ export async function POST(req: NextRequest): Promise<Response> {
     return Response.json({ error: "Cloudflare returned an empty image. Try again." }, { status: 502 });
   }
 
+  await chargeImageDew(authorization, identity, dewStateForCharge);
   return imageResponse(bytes, mime, spec, plan);
 }

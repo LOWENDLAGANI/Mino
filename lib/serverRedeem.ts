@@ -26,12 +26,15 @@
 // claims made before the switch.
 
 import { readCallerPlan } from "./serverPlan";
+import { readDewState, type DewState } from "./serverDew";
 import {
   bestPlan,
   checkRedeemable,
+  dewRedemptionValue,
   normalizeCode,
   parseRedeemCode,
   redeemValue,
+  type DewRedemption,
   type Redemption,
 } from "./redeemState";
 import type { PlanId } from "./plans";
@@ -113,6 +116,28 @@ export async function readClaimedCodes(authorization: string | null, uid: string
  * nothing" rather than as "worth everything", which is the same fail-closed
  * choice `lib/serverPlan.ts` makes and for the same reason.
  */
+export async function readDewRedemptions(
+  authorization: string | null,
+  uid: string
+): Promise<DewRedemption[]> {
+  const claims = await readClaimedCodes(authorization, uid);
+  if (claims.length === 0) return [];
+
+  const now = Date.now();
+  const values = await Promise.all(
+    claims.map(async (claim) => {
+      const code = parseRedeemCode(await readCodeAsCaller(authorization, claim.code));
+      const status = checkRedeemable(code, now);
+      // Only Dew codes become credits here. Legacy plan codes are folded into
+      // a plan by `readRedemptions`, exactly as they always were — the two
+      // shapes of code are resolved by their own kind, never by whichever the
+      // reader expected.
+      return status.ok ? dewRedemptionValue(status.code) : null;
+    })
+  );
+  return values.filter((value): value is DewRedemption => value !== null);
+}
+
 export async function readRedemptions(
   authorization: string | null,
   uid: string
@@ -125,18 +150,12 @@ export async function readRedemptions(
     claims.map(async (claim) => {
       const code = parseRedeemCode(await readCodeAsCaller(authorization, claim.code));
       const status = checkRedeemable(code, now);
-      // Measured from when the code was **claimed**, not from now.
-      //
-      // This is the difference between a code being worth a month and a code
-      // being worth a month forever. Anchoring to the current instant meant the
-      // expiry slid forward on every single request, so an unused claim was
-      // perpetually a full term away and redeeming the same word repeatedly
-      // granted infinite time. The claim's own `claimedAt` is the only timestamp
-      // here that does not move.
       return status.ok ? redeemValue(status.code, claim.claimedAt) : null;
     })
   );
-  return values.filter((value): value is Redemption => value !== null);
+  // A Dew code has no plan and no duration, so its redemption value reads as
+  // zero days — filtered out below rather than counted as an expired access.
+  return values.filter((value): value is Redemption => value !== null && value.days > 0);
 }
 
 export interface EffectivePlan {
@@ -166,6 +185,25 @@ export interface EffectivePlan {
  * grant happens to run for longer — that would mean paying more and receiving
  * less, which is the single most damaging thing this file could do.
  */
+/**
+ * This caller's Dew balance, derived from their credits and their spend.
+ *
+ * Combines the trial/code credits in `dew/{uid}` with any claims on Dew codes
+ * that the rules have already accepted, then subtracts what has been spent.
+ * A read that fails answers zero — fail-closed, like every plan read here.
+ *
+ * Legacy plan codes are deliberately NOT converted here: they remain what they
+ * always were, a plan with an end date. The conversion of old codes to Dew is
+ * the owner's one-time release decision; the code that honours a claim must
+ * not pick a second meaning for it.
+ */
+export async function resolveDew(
+  authorization: string | null,
+  uid: string
+): Promise<DewState> {
+  return readDewState(authorization, uid);
+}
+
 export async function resolveEffectivePlan(
   authorization: string | null,
   uid: string

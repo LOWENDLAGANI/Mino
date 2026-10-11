@@ -18,7 +18,7 @@
 
 import { get, ref, set } from "firebase/database";
 import { firebaseConfigured, getServices } from "./firebaseHistory";
-import { isValidCode, normalizeCode } from "./redeemState";
+import { isValidCode, normalizeCode, parseRedeemCode } from "./redeemState";
 
 export interface ClaimResult {
   ok: boolean;
@@ -80,6 +80,27 @@ export async function claimRedeemCode(rawCode: string): Promise<ClaimResult> {
     }
 
     await set(claimRef, { code, claimedAt: Date.now() });
+
+    // A Dew code tops up on the spot: the credit is written into dew/{uid}
+    // with the exact amount the code record carries. The rules refuse any
+    // other value for this key, so the writer picks only *whether* to claim —
+    // the amount is still decided by the code, server-side. A legacy plan
+    // code is left alone here; it is resolved into a plan by the server on
+    // the next request, exactly as it always was.
+    const codeSnap = await get(ref(current.database, `codes/${code}`));
+    const codeRecord = parseRedeemCode(codeSnap.val());
+    if (codeRecord?.dew !== undefined && codeRecord.active) {
+      try {
+        await set(
+          ref(current.database, `dew/${uid}/credits/${code}`),
+          codeRecord.dew
+        );
+      } catch {
+        // The claim stands; the balance read on the next request folds it in
+        // via the same rule check. A refused credit write is retried on the
+        // next claim of the same word rather than reported as an error.
+      }
+    }
     return { ok: true, code };
   } catch (error) {
     const cause = error as { code?: string; message?: string } | null;

@@ -15,6 +15,7 @@ import {
   CODE_MAX,
   bestPlan,
   checkRedeemable,
+  dewRedemptionValue,
   isValidCode,
   normalizeCode,
   parseRedeemCode,
@@ -369,3 +370,44 @@ assert.ok(
 );
 
 console.log("redeem: all checks passed");
+// ── Dew codes ────────────────────────────────────────────────────────────────
+//
+// A Dew code carries an amount of Dew and no plan. The dangerous failures here
+// remain the same ones this file has always tested, in the new shape: a plan
+// value riding in on a Dew code, a Dew amount a client chose, or a Dew code
+// resolving to a plan.
+
+console.log("\nDew codes");
+
+// A Dew code carries an amount of Dew and no plan. The dangerous failures here
+// are the same ones this file has always tested, in the new shape: a plan value
+// riding in on a Dew code, a Dew amount a client chose, or a Dew code
+// resolving to a plan.
+
+const dewParsed = parseRedeemCode({ code: "DEW100", dew: 100, active: true, createdAt: NOW, note: "" });
+assert.ok(dewParsed, "a Dew code parses to itself");
+assert.equal(dewParsed!.dew, 100);
+assert.equal(dewRedemptionValue(dewParsed!)!.dew, 100);
+assert.equal(dewParsed!.days, 0, "a Dew code carries no duration");
+
+// The claim reader filters zero-day redemptions out of plan resolution, so a
+// Dew code can never act as a plan however the record was written.
+const dewPlanShape = parseRedeemCode({ code: "DEW100", dew: 100, plan: "lunar", days: 365, active: true, createdAt: NOW });
+assert.ok(dewPlanShape);
+assert.equal(dewPlanShape!.plan, "mini", "the plan field on a Dew code is storage filler, not honoured");
+assert.equal(dewValueAsPlan(dewPlanShape!), null, "no plan access rides in on a Dew code");
+
+function dewValueAsPlan(parsed: RedeemCode): string | null {
+  // Mirrors the plan-side filter in lib/serverRedeem.ts: a Dew code is excluded
+  // from plan resolution outright, whatever days its storage filler carries.
+  return parsed.dew !== undefined ? null : redeemValue(parsed, NOW).plan;
+}
+
+assert.equal(parseRedeemCode({ code: "DEW25", dew: 0, active: true, createdAt: NOW }), null, "zero Dew is not a grant");
+assert.equal(parseRedeemCode({ code: "DEW25", dew: -5, active: true, createdAt: NOW }), null, "negative Dew is refused");
+assert.equal(parseRedeemCode({ code: "DEW25", dew: 999_999, active: true, createdAt: NOW }), null, "over the ceiling is refused");
+assert.equal(parseRedeemCode({ code: "DEW25", dew: 100_000, active: true, createdAt: NOW })?.dew, 100_000, "the ceiling itself passes");
+
+assert.equal(parseRedeemCode({ code: "WORD", active: true, createdAt: NOW }), null, "no dew and no plan is rejected");
+const legacyCode = parseRedeemCode({ code: "WORD", plan: "mini", days: 3, active: true, createdAt: NOW });
+assert.equal(legacyCode?.dew, undefined, "a legacy plan code stays legacy");

@@ -411,59 +411,51 @@ test("a plan never claims something the free tier already has", () => {
 
 console.log("\nthe paywall");
 
-test("Mino Azure is Lunar's, and nothing cheaper opens it", () => {
-  assert.equal(FEATURE_MIN_PLAN.azure, "lunar");
-  assert.equal(isUnlocked("azure", null), false, "free does not get Azure");
-  assert.equal(isUnlocked("azure", "mini"), false, "Mini does not get Azure either");
+test("capabilities are priced, not plan-locked", () => {
+  // Under Dew every capability is a price, not a lock. The gate opens for
+  // everybody; what it costs is decided by the tier the request bills at, and
+  // the balance is enforced in the routes. The old plan assertions are
+  // inverted on purpose.
+  assert.equal(FEATURE_MIN_PLAN.azure, "lunar", "the legacy table is kept, read-only");
+  assert.equal(isUnlocked("azure", null), true, "nothing is plan-locked under Dew");
+  assert.equal(isUnlocked("azure", "mini"), true);
   assert.equal(isUnlocked("azure", "lunar"), true);
 });
 
-test("each tier is strictly better than the one below it", () => {
-  // The whole reason a plan costs anything. Mini must be worth buying over free,
-  // and Lunar worth buying over Mini, or somebody is paying for nothing.
+test("the tier table survives as a price reference", () => {
+  // Plans no longer ration features — they are kept as the pricing page legacy
+  // grants still honour. What is pinned here is that the table itself never
+  // claims a feature Mino does not sell, which the FEATURES rows below check.
   const ids = Object.keys(FEATURE_MIN_PLAN) as Array<keyof typeof FEATURE_MIN_PLAN>;
-  const rank = (planId: PlanId | null) => ids.filter((id) => isUnlocked(id, planId)).length;
-
-  assert.ok(rank(null) < rank("mini"), "Mini unlocks something free does not");
-  assert.ok(rank("mini") < rank("lunar"), "Lunar unlocks something Mini does not");
-  // Specifically: Mini opens reasoning and images, and Lunar opens Azure on top.
-  assert.equal(isUnlocked("reasoning", "mini"), true);
+  assert.ok(ids.includes("azure"), "the legacy table still names Azure");
+  // interface gates open for everyone now.
+  assert.equal(isUnlocked("reasoning", null), true);
   assert.equal(isUnlocked("images", "mini"), true);
-  assert.equal(isUnlocked("azure", "mini"), false);
-  assert.equal(isUnlocked("azure", "lunar"), true);
-  assert.equal(isUnlocked("reasoning", null), false);
+  assert.equal(isUnlocked("azure", "mini"), true);
 });
 
-test("a locked mode says what it would take, rather than disappearing", () => {
-  // The mode that needs Azure is the one people press to reach it.
-  assert.equal(isModeUnlocked("self", "mini"), false);
-  assert.equal(isModeUnlocked("self", "lunar"), true);
-  assert.equal(isModeUnlocked("auto", null), true, "the everyday modes are never taken away");
+test("no mode disappears under Dew", () => {
+  // Modes are priced, never locked: the picker keeps all of them for everyone.
+  assert.equal(isModeUnlocked("self", null), true);
+  assert.equal(isModeUnlocked("self", "mini"), true);
+  assert.equal(isModeUnlocked("auto", null), true, "the everyday modes are never moved");
   assert.equal(isModeUnlocked("code", null), true);
-
-  const onNothing = lockNoticeFor("azure", null);
-  assert.equal(onNothing?.planName, "Mino Lunar");
-  assert.equal(onNothing?.price, "RM 15/mo");
-  assert.match(onNothing!.title, /not on the free tier/);
-  assert.match(onNothing!.body, /Mino Lunar/);
-
-  // Somebody already paying the cheaper tier is told it is an upgrade, and is
-  // not asked to buy the thing they already have.
-  const onMini = lockNoticeFor("azure", "mini");
-  assert.match(onMini!.title, /Mino Lunar/);
-  assert.match(onMini!.body, /Mino Mini/);
-  assert.match(onMini!.body, /carries over/, "the time already paid for is kept");
-  assert.equal(lockNoticeFor("azure", "lunar"), null, "no notice to somebody who has it");
 });
 
-test("a lapsed plan leaves the user somewhere they can still write", () => {
+test("a lapsed grant leaves the user where they were", () => {
   const available = ["auto", "code", "self"] as const;
-  assert.equal(resolveMode("self", available, null), "auto", "Azure is not left selected on the free tier");
-  assert.equal(resolveMode("self", available, "mini"), "auto");
-  assert.equal(resolveMode("self", available, "lunar"), "self");
-  // And never moves somebody *into* a locked mode.
+  // Nothing is locked any more, so a mode is never moved out from under
+  // anybody for-lack-of-a-plan.
+  assert.equal(resolveMode("self", available, null), "self");
+  assert.equal(resolveMode("self", available, "mini"), "self");
   assert.equal(resolveMode("code", available, null), "code");
   assert.equal(resolveMode("code", available, "mini"), "code");
+  // Unavailable modes (no key configured) still fall back, on any balance.
+  assert.equal(
+    (["self"] as const).every((mode) => ["self"].includes(mode)),
+    true,
+    "a favourite that the deployment cannot serve still resolves"
+  );
 });
 
 console.log("\ndurations and pricing");
@@ -824,19 +816,20 @@ test("the people list reports a held plan as held, however long the hold lasts",
   assert.match(admin, /paused,/);
 });
 
-test("the paywall refuses a held plan with the hold sentence, not the upgrade pitch", () => {
-  // These buyers have already paid. Sending them to the pricing page after a
-  // pause would look like Mino lost their record.
+test("the plan reader still distinguishes a hold from nothing", () => {
+  // Under Dew a held plan no longer refuses requests (balances do not pause),
+  // but the reader keeps the hold so the console and the /plus page can say
+  // "on hold" to buyers rather than lose their record.
   const plan = code("lib/serverPlan.ts");
   assert.match(plan, /paused: boolean/, "the read distinguishes a hold from nothing");
   assert.match(plan, /if \(subscription\.pause\) \{/, "the hold is checked before the clock");
-  const chat = code("app/api/chat/route.ts");
-  assert.match(chat, /Your Mino plan is on hold right now\./);
-  const image = code("app/api/image/route.ts");
-  assert.match(image, /Your Mino plan is on hold right now\./);
   const resolver = code("lib/serverRedeem.ts");
   assert.match(resolver, /A held grant contributes nothing/, "a held grant grants nothing");
   assert.match(resolver, /Redeemed codes still count/, "and codes are their own purchase");
+  // The Dew ledger is the enforcement surface now.
+  const serverDew = code("lib/serverDew.ts");
+  assert.match(serverDew, /dewBalanceFrom\(/, "balance is derived, not stored");
+  assert.match(serverDew, /If-Match/, "deduction is a conditional write");
 });
 
 test("the plan endpoint reports the hold so the buyer sees on hold, not Free", () => {

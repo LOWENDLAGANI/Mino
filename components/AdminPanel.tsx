@@ -905,8 +905,12 @@ export default function AdminPanel({
 function CodesSection() {
   const [codes, setCodes] = useState<RedeemCode[] | null>(null);
   const [word, setWord] = useState("");
+  // What the new code carries. "plan" keeps the legacy subscription shape; a
+  // positive number is a Dew top-up code granting exactly that much balance.
+  const [kind, setKind] = useState<"plan" | "dew">("dew");
   const [plan, setPlan] = useState<PlanId>(DEFAULT_PLAN.id);
   const [days, setDays] = useState<number>(30);
+  const [dewAmount, setDewAmount] = useState<number>(100);
   const [note, setNote] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -943,7 +947,11 @@ function CodesSection() {
 
   const create = () =>
     run(async () => {
-      await createRedeemCode({ code: word, plan, days, note });
+      if (kind === "dew") {
+        await createRedeemCode({ code: word, dew: dewAmount, note });
+      } else {
+        await createRedeemCode({ code: word, plan, days, note });
+      }
       setWord("");
       setNote("");
     });
@@ -955,8 +963,9 @@ function CodesSection() {
         <span className="text-[10px] text-white/25">{codes?.length ?? 0}</span>
       </div>
       <p className="text-[10px] leading-relaxed text-white/30">
-        A word you choose, carrying a plan and how long it lasts. The buyer types it on the pricing page. Switching
-        one off stops it for everyone, including anyone who already used it.
+        A word you choose. A Dew code tops up the buyer&apos;s balance by the amount on it; a legacy plan code still
+        grants plan time. The buyer types it on the pricing page. Switching one off stops it for everyone,
+        including anyone who already used it.
       </p>
 
       <div className="mt-2 rounded-[12px] border border-white/[0.06] bg-white/[0.03] p-3">
@@ -981,33 +990,70 @@ function CodesSection() {
         ) : null}
 
         <div className="mt-2 flex flex-wrap items-center gap-1.5">
-          {PLANS.map((option) => (
-            <button
-              key={option.id}
-              type="button"
-              onClick={() => setPlan(option.id)}
-              className={`rounded-[9px] px-2.5 py-1.5 text-[11px] font-medium transition ${
-                plan === option.id
-                  ? "bg-white/15 text-white"
-                  : "bg-white/[0.04] text-white/55 hover:bg-white/[0.09]"
-              }`}
-            >
-              {option.short}
-            </button>
-          ))}
-          <span className="text-[10px] text-white/25">for</span>
-          <select
-            value={days}
-            onChange={(event) => setDays(Number(event.target.value))}
-            className="rounded-[9px] border border-white/[0.08] bg-black/25 px-2 py-1.5 text-[11px] text-white/80"
+          <button
+            type="button"
+            onClick={() => setKind("dew")}
+            className={`rounded-[9px] px-2.5 py-1.5 text-[11px] font-medium transition ${
+              kind === "dew" ? "bg-white/15 text-white" : "bg-white/[0.04] text-white/55 hover:bg-white/[0.09]"
+            }`}
           >
-            {DURATIONS.map((duration) => (
-              <option key={duration.days} value={duration.days} className="bg-[#0e1614]">
-                {describeDuration(duration.days)}
-              </option>
-            ))}
-          </select>
+            💧 Dew top-up
+          </button>
+          <button
+            type="button"
+            onClick={() => setKind("plan")}
+            className={`rounded-[9px] px-2.5 py-1.5 text-[11px] font-medium transition ${
+              kind === "plan" ? "bg-white/15 text-white" : "bg-white/[0.04] text-white/55 hover:bg-white/[0.09]"
+            }`}
+          >
+            Legacy plan
+          </button>
         </div>
+
+        {kind === "dew" ? (
+          <div className="mt-2 flex flex-wrap items-center gap-1.5">
+            {[25, 100, 500, 1000].map((amount) => (
+              <button
+                key={amount}
+                type="button"
+                onClick={() => setDewAmount(amount)}
+                className={`rounded-[9px] px-2.5 py-1.5 text-[11px] font-medium transition ${
+                  dewAmount === amount ? "bg-white/15 text-white" : "bg-white/[0.04] text-white/55 hover:bg-white/[0.09]"
+                }`}
+              >
+                {amount}
+              </button>
+            ))}
+            <span className="text-[10px] text-white/25">Dew</span>
+          </div>
+        ) : (
+          <div className="mt-2 flex flex-wrap items-center gap-1.5">
+            {PLANS.map((option) => (
+              <button
+                key={option.id}
+                type="button"
+                onClick={() => setPlan(option.id)}
+                className={`rounded-[9px] px-2.5 py-1.5 text-[11px] font-medium transition ${
+                  plan === option.id ? "bg-white/15 text-white" : "bg-white/[0.04] text-white/55 hover:bg-white/[0.09]"
+                }`}
+              >
+                {option.short}
+              </button>
+            ))}
+            <span className="text-[10px] text-white/25">for</span>
+            <select
+              value={days}
+              onChange={(event) => setDays(Number(event.target.value))}
+              className="rounded-[9px] border border-white/[0.08] bg-black/25 px-2 py-1.5 text-[11px] text-white/80"
+            >
+              {DURATIONS.map((duration) => (
+                <option key={duration.days} value={duration.days} className="bg-[#0e1614]">
+                  {describeDuration(duration.days)}
+                </option>
+              ))}
+            </select>
+          </div>
+        )}
 
         <input
           value={note}
@@ -1046,7 +1092,7 @@ function CodesSection() {
                     {!code.active ? <span className="ml-2 text-[10px] font-normal text-red-300/80">off</span> : null}
                   </p>
                   <p className="text-[10px] text-white/35">
-                    {planById(code.plan).short} · {describeDuration(code.days)}
+                    {code.dew !== undefined ? `💧 ${code.dew} Dew` : `${planById(code.plan).short} · ${describeDuration(code.days)}`}
                   </p>
                 </div>
                 <div className="flex shrink-0 gap-1">

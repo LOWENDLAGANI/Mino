@@ -3,9 +3,11 @@
 // what claiming one does, and what happens when it is terminated can be tested
 // without a browser or a network.
 //
-// A code is a word the owner chooses, carrying a plan and a number of days. The
-// owner can switch any code off and back on again from the console. A visitor
-// types the word, and the server works out what they got from the code itself.
+// A code is a word the owner chooses, carrying either a legacy plan + number of
+// days (the old subscription model, still honoured by the claimer) or a Dew
+// amount — the pay-as-you-go currency. The owner can switch any code off and
+// back on again from the console. A visitor types the word, and the server
+// reads what the code is worth from the code itself.
 //
 // The important rule, and the reason this is not just "write the plan to the
 // user": **a claim never carries a plan or a duration.** It records which code
@@ -44,8 +46,17 @@ export interface RedeemCode {
   /** The word, normalized. */
   code: string;
   plan: PlanId;
-  /** What redeeming it grants, in days. */
+  /** What redeeming it granted, in days (legacy plan codes only). */
   days: number;
+  /**
+   * What redeeming it grants, in Dew.
+   *
+   * Present only on Dew codes; legacy plan codes leave this undefined. The
+   * distinction is what the rest of the file branches on: a code with `dew`
+   * tops up a balance and never touches a plan, and a code with `plan` does
+   * the reverse.
+   */
+  dew?: number;
   /**
    * Off means the code cannot be redeemed and grants nothing to anyone.
    *
@@ -70,22 +81,49 @@ export function parseRedeemCode(raw: unknown): RedeemCode | null {
   const value = raw as Record<string, unknown>;
   const code = normalizeCode(value.code ?? value.__name);
   if (!isValidCode(code)) return null;
-  if (value.plan !== "mini" && value.plan !== "lunar") return null;
+  // A Dew amount is read strictly: whole-or-three-decimal, positive, and at
+  // most 100,000. Anything else is not a Dew code — and a record with a
+  // malformed `dew` is not silently downgraded to a plan code, because a code
+  // whose meaning cannot be read must not resolve to whatever the reader
+  // assumed. It resolves to nothing.
+  const rawDew = Number(value.dew ?? NaN);
+  let dew: number | undefined = undefined;
+  if (Number.isFinite(rawDew)) {
+    if (rawDew <= 0 || rawDew > 100_000) return null;
+    dew = Math.round(rawDew * 1000) / 1000;
+  }
+  let plan: PlanId;
+  if (dew === undefined) {
+    // Legacy shape: a plan code must name a plan.
+    if (value.plan !== "mini" && value.plan !== "lunar") return null;
+    plan = value.plan;
+  } else {
+    // A Dew code carries no plan. Anything stored in that field is ignored
+    // rather than honoured, so a plan value cannot ride in on a Dew code and
+    // unlock something it was never sold for.
+    plan = "mini";
+  }
 
   const createdAt = Number(value.createdAt);
   if (!Number.isFinite(createdAt) || createdAt <= 0) return null;
 
-  // The length is required, and refused rather than defaulted. `normalizeDays`
-  // maps a nonsense number to one day, so letting a missing `days` through would
-  // hand somebody a single day and call it a month — the kind of mistake that is
-  // invisible in the console and infuriating to the buyer.
-  const rawDays = Number(value.days);
-  if (!Number.isFinite(rawDays) || rawDays <= 0) return null;
-  const days = normalizeDays(rawDays);
+  // The length is required on a legacy plan code, and refused rather than
+  // defaulted. `normalizeDays` maps a nonsense number to one day, so letting a
+  // missing `days` through would hand somebody a single day and call it a
+  // month — the kind of mistake that is invisible in the console and
+  // infuriating to the buyer. A Dew code carries `dew` instead and needs no
+  // days at all.
+  let days = 0;
+  if (dew === undefined) {
+    const rawDays = Number(value.days);
+    if (!Number.isFinite(rawDays) || rawDays <= 0) return null;
+    days = normalizeDays(rawDays);
+  }
 
   return {
     code,
-    plan: value.plan,
+    plan,
+    dew,
     days,
     // Absent `active` means created, which is what every code written by the
     // console carries. Defaulting the other way would silently kill every code
@@ -142,6 +180,11 @@ export function checkRedeemable(code: RedeemCode | null, now: number): RedeemSta
 
 // ── What a claim is worth ────────────────────────────────────────────────────
 
+/** What redeeming a Dew code produces: a top-up to the balance. */
+export interface DewRedemption {
+  dew: number;
+}
+
 /** What redeeming a code produces: the plan, and how long it runs from now. */
 export interface Redemption {
   plan: PlanId;
@@ -157,6 +200,11 @@ export interface Redemption {
  * owner's console already previews when it shows a stacking grant — is the same
  * in both places.
  */
+export function dewRedemptionValue(code: RedeemCode): DewRedemption | null {
+  if (code.dew === undefined) return null;
+  return { dew: code.dew };
+}
+
 export function redeemValue(code: RedeemCode, now: number): Redemption {
   const days = normalizeDays(code.days);
   return { plan: code.plan, days, expiresAt: now + days * DAY_MS };

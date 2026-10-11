@@ -1,7 +1,8 @@
 "use client";
 
 import { useLiveQuery } from "dexie-react-hooks";
-import { useSubscription } from "@/lib/useSubscription";
+import { useDew } from "@/lib/useDew";
+import { formatDew } from "@/lib/dew";
 import {
   db,
   createFolder,
@@ -156,12 +157,10 @@ export default function Sidebar({
   const trashCount = useLiveQuery(() => db.trash.count(), [], 0);
   const scheduledCount = useLiveQuery(() => db.scheduled.count(), [], 0);
 
-  // What this visitor has paid for. The promotion at the bottom of the sidebar
-  // changes shape entirely once they have: selling Mino Lunar to somebody who
-  // already has it is the kind of small dishonesty that makes a pricing page
-  // stop being believed.
-  const { subscription } = useSubscription();
-  const hasLunar = subscription?.plan === "lunar";
+  // What this visitor can still spend. The Dew chip at the bottom of the
+  // sidebar is their live wallet: balance now, amber when it runs low, and a
+  // straight path to topping up on /plus.
+  const { ready: dewReady, balance, low } = useDew();
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [confirmClear, setConfirmClear] = useState(false);
@@ -485,31 +484,34 @@ export default function Sidebar({
         <div className="mt-3 space-y-1 px-4">
           <Link
             href="/plus"
-            aria-label={hasLunar ? "Your Mino Lunar plan" : "Mino Lunar — upgrade"}
-            className="group relative flex w-full items-center gap-2 overflow-hidden rounded-2xl border border-[#2f6b48]/30 bg-gradient-to-r from-[#2f6b48]/[0.14] via-[#a9d8bb]/[0.07] to-transparent px-2.5 py-2 text-[13px] font-medium text-white shadow-[0_0_26px_-10px_rgba(47,107,72,0.85)] transition-shadow hover:shadow-[0_0_34px_-8px_rgba(47,107,72,1)]"
+            aria-label={low ? "Dew balance is running low — top up" : "Your Dew balance"}
+            className={`group relative flex w-full items-center gap-2 overflow-hidden rounded-2xl border px-2.5 py-2 text-[13px] font-medium text-white transition-shadow ${
+              low
+                ? "border-amber-300/30 bg-gradient-to-r from-amber-400/[0.14] via-amber-300/[0.07] to-transparent shadow-[0_0_26px_-10px_rgba(251,191,36,0.85)] hover:shadow-[0_0_34px_-8px_rgba(251,191,36,1)]"
+                : "border-[#2f6b48]/30 bg-gradient-to-r from-[#2f6b48]/[0.14] via-[#a9d8bb]/[0.07] to-transparent shadow-[0_0_26px_-10px_rgba(47,107,72,0.85)] hover:shadow-[0_0_34px_-8px_rgba(47,107,72,1)]"
+            }`}
           >
-            {/* Slow sheen so the row reads as the live one without moving. */}
             <span
               aria-hidden
               className="animate-sheen pointer-events-none absolute inset-y-0 -left-1/2 w-1/3 bg-gradient-to-r from-transparent via-white/[0.14] to-transparent"
             />
-            <span className="relative flex h-7 w-7 shrink-0 items-center justify-center rounded-xl bg-[#2f6b48]/15 text-[#a9d8bb] shadow-[0_0_16px_-4px_rgba(47,107,72,0.9)]">
+            <span className={`relative flex h-7 w-7 shrink-0 items-center justify-center rounded-xl shadow-[0_0_16px_-4px_rgba(47,107,72,0.9)] ${low ? "bg-amber-400/15 text-amber-200" : "bg-[#2f6b48]/15 text-[#a9d8bb]"}`}>
+              {/* The drop: Mino's unit of currency. */}
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M4 18h16L14.4 8.6a1.4 1.4 0 0 0-2.4 0L9.6 12 6.8 6.6a1.2 1.2 0 0 0-2.2.5L4 18Z" />
-                <path d="M4 18h16" />
+                <path d="M12 2.7s6.6 7.1 6.6 11.6a6.6 6.6 0 1 1-13.2 0C5.4 9.8 12 2.7 12 2.7Z" />
               </svg>
             </span>
             <span className="relative flex min-w-0 flex-1 items-center gap-1.5">
-              <span className="truncate">Mino Lunar</span>
-              {hasLunar ? (
-                <span className="shrink-0 rounded-full bg-[#2f6b48]/20 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-[#a9d8bb]">
-                  ✓ Your plan
-                </span>
-              ) : (
-                <span className="animate-breathe shrink-0 rounded-full bg-[#2f6b48]/20 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-[#a9d8bb]">
-                  {subscription?.plan === "mini" ? "Upgrade" : "New"}
-                </span>
-              )}
+              <span className="truncate">
+                {dewReady ? `${formatDew(balance)} Dew` : "Dew"}
+              </span>
+              <span
+                className={`shrink-0 rounded-full px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide ${
+                  low ? "bg-amber-400/20 text-amber-200" : "bg-[#2f6b48]/20 text-[#a9d8bb]"
+                }`}
+              >
+                {low ? "Top up" : "Balance"}
+              </span>
             </span>
           </Link>
           <Link

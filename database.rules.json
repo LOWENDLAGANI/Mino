@@ -34,7 +34,7 @@
       ".write": "auth != null && auth.token.email == 'myrealmetvreal@gmail.com'",
       "$code": {
         ".read": "auth != null",
-        ".validate": "newData.hasChildren(['code','plan','days','active','createdAt']) && newData.child('code').val() === $code && (newData.child('plan').val() === 'mini' || newData.child('plan').val() === 'lunar') && newData.child('days').isNumber() && newData.child('days').val() > 0 && newData.child('createdAt').isNumber() && newData.child('active').isBoolean()"
+        ".validate": "newData.child('code').val() === $code && newData.child('code').isString() && newData.child('createdAt').isNumber() && newData.child('active').isBoolean() && ((newData.hasChildren(['plan','days']) && (newData.child('plan').val() === 'mini' || newData.child('plan').val() === 'lunar') && newData.child('days').isNumber() && newData.child('days').val() > 0)|| (newData.hasChildren(['dew']) && newData.child('dew').isNumber() && newData.child('dew').val() > 0 && newData.child('dew').val() <= 100000))"
       }
     },
     "redeems": {
@@ -77,6 +77,30 @@
           ".read": "auth != null && auth.uid === $uid",
           "$memoryId": {
             ".validate": "newData.hasChildren(['id','text','createdAt','updatedAt']) && newData.child('text').isString() && newData.child('text').val().length > 0 && newData.child('text').val().length <= 200"
+          }
+        }
+      }
+    },
+    "dew": {
+      ".read": "auth != null && auth.token.email === 'myrealmetvreal@gmail.com'",
+      ".write": "auth != null && auth.token.email === 'myrealmetvreal@gmail.com'",
+      "$uid": {
+        ".read": "auth != null && auth.uid === $uid",
+        "credits": {
+          "$key": {
+            ".write": "auth != null && (auth.uid === $uid || auth.token.email === 'myrealmetvreal@gmail.com')",
+            ".invalidate": "auth != null && auth.token.email === 'myrealmetvreal@gmail.com'",
+            ".validate": "!data.exists() && newData.isNumber() && newData.val() > 0 && newData.val() <= 100000 && (($key === 'TRIAL' && newData.val() === 25) || (($key !== 'TRIAL') && root.child('codes').child($key).child('active').val() === true && root.child('codes').child($key).child('dew').val() === newData.val()))"
+          }
+        },
+        "spent": {
+          ".write": "auth != null && auth.uid === $uid",
+          ".validate": "newData.isNumber() && newData.val() >= 0 && (!data.exists() || newData.val() >= data.val() || auth.token.email === 'myrealmetvreal@gmail.com')"
+        },
+        "tx": {
+          "$txId": {
+            ".write": "auth != null && (auth.uid === $uid || auth.token.email === 'myrealmetvreal@gmail.com')",
+            ".validate": "newData.hasChildren(['type','at','dew']) && newData.child('type').val() === 'usage' && newData.child('at').isNumber() && newData.child('dew').isNumber() && newData.child('dew').val() > 0"
           }
         }
       }

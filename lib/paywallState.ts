@@ -19,22 +19,20 @@
 // which modes disappear — is derived. Adding a paywalled feature means adding
 // one row here and nothing else.
 
-import { planById, planRank, type FeatureId, type PlanId } from "./plans";
+import { planById, type FeatureId, type PlanId } from "./plans";
 import type { ModeId } from "./models";
 
 export type { FeatureId };
 
 /**
- * The cheapest plan that unlocks each capability, and `null` for free.
+ * Under Dew, capabilities are priced, not locked: everything costs what its
+ * tier charges, and the check that matters is the balance, enforced in the
+ * routes. This table survives only as the *interface* price hint — what the
+ * lock badge used to say — and the plan gates in the interface read it as
+ * "always open" now.
  *
- * The whole paywall, in one table, in order of price. Free is what somebody who
- * has never paid for gets, which is why it is `null` rather than a plan: the
- * honest reason a free visitor cannot use a feature is that they have no plan.
- *
- * Every id here must appear as a `feature` on a row of `FEATURES`, and nothing
- * there may be gated without appearing here. A test enforces both directions,
- * which is the only reason a capability cannot quietly drift into being
- * advertised, sold, and never actually locked.
+ * Kept for compatibility with the tests that pin the plan tables; nothing on
+ * the enforcement side reads `FEATURE_MIN_PLAN` any more.
  */
 export const FEATURE_MIN_PLAN: Record<FeatureId, PlanId | null> = {
   reasoning: "mini",
@@ -70,10 +68,16 @@ export const MODE_FEATURE: Record<ModeId, FeatureId | null> = {
   self: "azure",
 };
 
-/** True when `planId` — or having no plan at all — opens this capability. */
-export function isUnlocked(feature: FeatureId, planId: PlanId | null | undefined): boolean {
-  const needed = FEATURE_MIN_PLAN[feature];
-  return planRank(planId) >= planRank(needed);
+/**
+ * True when this capability may be used — which under Dew is: always, subject
+ * to the balance the routes enforce. A signed-out visitor with no account has
+ * no balance and will be refused at /api/chat; the interface still shows the
+ * controls rather than hiding them, and the refusal sentence does the
+ * explaining.
+ */
+export function isUnlocked(feature: FeatureId, _planId: PlanId | null | undefined): boolean {
+  void _planId;
+  return true;
 }
 
 /** True when this mode may be picked on this plan. */

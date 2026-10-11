@@ -398,21 +398,55 @@ export async function resumeSubscription(uid: string): Promise<Subscription | nu
 /** Writes a new code, replacing any that already had the same word. */
 export async function createRedeemCode(input: {
   code: string;
-  plan: PlanId;
-  days: number;
+  /** Legacy plan shape. Omitted together with `days` on a Dew code. */
+  plan?: PlanId;
+  /** Legacy plan shape. Omitted together with `plan` on a Dew code. */
+  days?: number;
+  /** The Dew amount a Dew code grants. A Dew code has no plan and no days. */
+  dew?: number;
   note?: string;
 }): Promise<RedeemCode> {
   const { database } = await requireAdmin();
   const code = normalizeCode(input.code);
   if (!isValidCode(code)) throw new Error("A code needs at least 4 letters or numbers.");
 
+  const note = String(input.note ?? "").trim().slice(0, 120);
+  const createdAt = Date.now();
+
+  // A Dew code carries exactly the Dew, and no plan or days: the two shapes
+  // are mutually exclusive, so a value in the wrong field can never be read
+  // as the other kind of grant.
+  if (input.dew !== undefined) {
+    if (typeof input.dew !== "number" || !Number.isFinite(input.dew) || input.dew <= 0 || input.dew > 100_000) {
+      throw new Error("A Dew code needs a positive Dew amount of at most 100,000.");
+    }
+    if (input.plan !== undefined || input.days !== undefined) {
+      throw new Error("A Dew code carries Dew only — leave the plan and days empty.");
+    }
+    const record: RedeemCode = {
+      code,
+      plan: "mini", // ignored by the reader for Dew codes; required by the stored shape
+      days: 0, // likewise ignored
+      dew: Math.round(input.dew * 1000) / 1000,
+      active: true,
+      createdAt,
+      note,
+    };
+    await set(ref(database, `codes/${code}`), record).catch(rethrow);
+    return record;
+  }
+
+  // Legacy shape, unchanged: a plan and a number of days.
+  if (input.plan === undefined || input.days === undefined) {
+    throw new Error("A code needs either a plan with days, or a Dew amount.");
+  }
   const record: RedeemCode = {
     code,
     plan: input.plan,
     days: normalizeDays(input.days),
     active: true,
-    createdAt: Date.now(),
-    note: String(input.note ?? "").trim().slice(0, 120),
+    createdAt,
+    note,
   };
   await set(ref(database, `codes/${code}`), record).catch(rethrow);
   return record;

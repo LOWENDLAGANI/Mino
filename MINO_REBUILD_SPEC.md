@@ -1184,117 +1184,108 @@ regex; invalid → UTC). Failures degrade silently: the answer simply has no too
 
 ## 11. Monetisation
 
-### 11.1 Plans (`lib/plans.ts` — the single source of truth)
+### 11.1 Dew — the currency (as of the Dew refactor)
 
-| | Mino Mini | Mino Lunar (featured) |
+Mino has **no subscriptions and no daily caps** any more. Everything is paid for with
+**Dew (💧)**, a pay-as-you-go currency charged from a server-side balance:
+
+- **Unit:** 1 Dew ≈ **US $0.01** of value (100 Dew = $1).
+- **Trial:** every account receives **25 Dew** once, at `/api/dew` POST — the value is
+  pinned by the database rules, not by any client.
+- **Precision:** balances and charges are kept to **3 decimal places** (`roundDew`).
+- **Image generation:** flat **1 Dew** per successful generation.
+- **Thresholds:** a request is refused below **0.05 Dew** (0.25 for Mino Azure);
+  the UI chip turns amber below **10 Dew**.
+
+### 11.2 Pricing per token (`lib/dew.ts` — the single source of truth)
+
+Usage is billed on the tokens the provider actually reports
+(`prompt_tokens + completion_tokens`), accumulated across every attempt and
+continuation of one request:
+
+| Tier | Input (per 1k tokens) | Output (per 1k tokens) |
 |---|---|---|
-| Monthly headline | **RM 10** | **RM 15** |
-| A day (1 day) | RM 1 | RM 1.50 |
-| A month (30 days) | RM 10 | RM 15 |
-| A year (365 days) | RM 100 | RM 150 |
-| Blurb | Everything you need to chat | Maximum access to the whole brain |
-| QR | `/mino-donate-qr.png` (static DuitNow, any amount) | same |
+| **fast** | **0.015 Dew** | **0.06 Dew** |
+| **pro** | **0.25 Dew** | **1.00 Dew** |
 
-- Currency formatting is centralised: `RM 10` / `RM 1.50`; `monthlyLabel` → `RM 15/mo`.
-- **A year is ten months** (365 days at the year price). 30-day months, 365-day years
-  — explicitly *not* calendar arithmetic, and the exact end date is printed rather
-  than hidden.
-- Durations are stored as a **number of days** (legacy records with `months` read as
-  30-day months).
+Tier selection (`tierForRequest`): Mino Azure (`self`) is always **pro**; a request
+that asked for **medium or high** reasoning bills **pro**; everything else (Auto, Code
+at low/none) bills **fast**.
 
-### 11.2 Feature table & paywall
+Worked examples: 1k in + 1k out fast = **0.075 Dew**; pro = **1.25 Dew**; a typical
+20k-in/4k-out pro request = **9 Dew**.
 
-`FEATURE_MIN_PLAN` (client **and** server read the same table):
+If a provider stream never reports usage, the completion side is estimated at
+**4 characters per token** — under-billing is never silently accepted.
 
-| Feature id | Cheapest plan |
-|---|---|
-| `reasoning` (medium/high) | **mini** |
-| `images` (Mino Canvas) | **mini** |
-| `azure` (Mino Azure mode) | **lunar** |
+### 11.3 Enforcement order (chat)
 
-Free for everyone: Auto + Code modes, attachments, voice input, uploads, chat history,
-web search with sources.
+1. Verify identity → read config → maintenance → kill switch → rate limit → ban gate
+   (all unchanged from §4.5).
+2. **Dew pre-flight:** read `dew/{uid}` with the caller's verified token; refuse with
+   the out-of-Dew sentence if `balance` cannot cover the request floor. Admin exempt.
+3. Provider call (chain, continuations, identity filter — all unchanged).
+4. **Deduction once**, after the final answer: compute the exact cost from the
+   accumulated token counts, deduce under ETag conditional write, log a `tx/` entry
+   best-effort. A missed write is logged server-side, never retried in-stream (a
+   double charge is worse than a logged shortfall).
 
-Marketing table `FEATURES` in `plans.ts` mirrors this and carries an `enforced` flag;
-a test fails if something is advertised as paid without a paywall row (or vice versa).
+Deduction failures never un-answer a request: an answer already paid for in compute is
+delivered regardless; the ledger records what it could.
 
-**Client gate** (`paywallState.ts`): `isUnlocked`, `isModeUnlocked`, `MODE_FEATURE`
-(`auto: null, code: null, self: "azure"`), `lockNoticeFor`, `unlockedModes`,
-`resolveMode`. Lock copy is two distinct sentences:
-- no plan → `{Label} is not on the free tier` + `{Plan} adds {blurb}, from RM {n} a month. It attaches to your account, so it is still here on your next device.`
-- already paying → `{Label} is part of {Plan}` + `… upgrade to switch it on, and the time you have left carries over.`
+### 11.4 Modes and effort are priced, not gated
 
-Locked things are **visible with a padlock**, never hidden (the Azure mode keeps its
-slot in the selector; the Create image item keeps its `Mini` pill).
+The plan-era `FEATURE_MIN_PLAN` table survives only as a marketing/legacy reference.
+Under Dew:
 
-**Server gate** (`paywallServer.ts`): plan from `subscriptions/{uid}` read with the
-caller's own verified token; failed read ⇒ free; admin exempt; `checkChatEntitlement`
-and `checkImageEntitlement`; reasoning is **clamped** for implicit asks and **refused**
-for explicit paid asks.
+- `isUnlocked(feature)` is **always true** — the interface shows every control, and
+  what it costs is the tier the request bills at.
+- Mode selector: no padlocks; Azure is simply the pro-priced mode.
+- Reasoning effort: no clamp; medium/high simply bill pro.
+- The server (`paywallServer.ts`) keeps its function shapes but refuses nothing; the
+  route's balance check is the gate.
 
-### 11.3 `/plus` pricing page
+### 11.5 Top-ups and codes (`codes/` + `dew/{uid}/credits`)
 
-- Back-to-Mino button; hero headline; current-plan receipt at the top (tick, plan,
-  length, price, days left, **exact end date**) when the visitor already holds one.
-- Term selector (`day` / `month` / `year`) → exact amount beside the QR.
-- Plan cards: name, headline `RM n/mo`, blurb, feature comparison (tick ✓ / hairline −)
-  built from `FEATURES`, buy button reading **Get Mini/Get Lunar** or
-  **Add a month of Mini** when already on that plan (renewals *add* days).
-- **Sign-in gate before the QR**: a signed-out visitor pressing a plan gets
-  `SubscribeGate` → Google sign-in via `linkWithPopup` (UID never changes) → only then
-  does `PayQrDialog` open.
-- `PayQrDialog`: QR image + exact amount + `Scan with your banking app · DuitNow` +
-  what happens next. **Closes only via its button** (no backdrop/Escape/outside tap).
-- Under it: **"Got a code?"** → `RedeemCodeBox` (plain field on the page, not behind a
-  dialog), with the honest note that claiming is not instant.
+- A **Dew code** is a word at `codes/{word}` = `{ code, dew, active, createdAt, note }`.
+  Stored values carry a legacy `plan:"mini", days:0` filler (required by the storage
+  shape) that every reader **ignores for Dew codes** — a plan value can never ride in
+  on a Dew code.
+- Claiming (same `redeems/{uid}/{word}` claim as ever, still carrying only
+  `{ code, claimedAt }`): after the claim write, the client writes the credit
+  `dew/{uid}/credits/{word} = codes/{word}.dew` — the rules accept **only** that value
+  for that key, so the client chooses *whether* to claim, never *what it is worth*.
+  The credit is immutable once written.
+- **Legacy plan codes** (`plan`+`days`) still work exactly as before, resolving to a
+  plan with an end date via the existing resolver (`resolveEffectivePlan`). They are
+  not auto-converted; the owner retires them by switching them off.
+- **Admin grants:** the admin (the only other writer of `dew/`) can write any credit
+  or adjust balances from the console — via the rules' admin grant on `dew/`.
 
-### 11.4 Redeem codes
+### 11.6 The wallet UI
 
-- A code is a **word** the owner chooses: normalised to upper case, no spaces,
-  minimum 4 characters. `mino-lunar` and `MINO LUNAR` are the same code.
-- Stored at `codes/{word}` = `{ code, plan, days, active, createdAt }`.
-- The claim at `redeems/{uid}/{word}` holds **only** `{ code, claimedAt }` — never
-  plan/days/expiry (a test fails if they ever appear), because anything that can write
-  a claim could otherwise write itself a plan.
-- **A code is a switch, not a deletion**: turning `active` off stops it for everyone,
-  enforced twice — the rules refuse the *write* of a claim against an inactive code,
-  and the server re-checks `active` on **every** request.
-- Codes are not enumerable (parent not readable) and not counted (no redeem limit —
-  a counter the rules can't update would be a fake control). No expiry; the owner's
-  switch is the lifetime.
-- Redeeming and paying **stack**: higher tier wins; same tier → later end date.
+- **Sidebar chip** (replaces the Lunar promotion row): `💧 {balance} Dew`, green when
+  healthy, **amber below 10 Dew** with a `Top up` badge; links to `/plus`.
+- **`/plus` page** opens with the Dew wallet panel (balance + price framing,
+  `1 Dew ≈ US$0.01 of model use`), and claims the trial on first signed-in visit.
+  Plan tabs remain below for legacy grants; `RedeemCodeBox` is unchanged in shape and
+  now says *"Your Dew balance has been topped up."*
+- Balance reads go through **`GET /api/dew`**, never a client-side guess, so the chip
+  and the enforcement cannot disagree. `lib/useDew.ts` is the one hook.
+- **Settings → Reasoning effort**: the same three options, no padlocks — the copy on
+  each pill notes the pro tier rather than plan names.
 
-### 11.5 Subscription lifecycle (`subscriptions/{uid}`)
+### 11.7 Legacy subscription surface (still honoured, no longer sold)
 
-```ts
-interface Subscription {
-  plan: "mini"|"lunar";
-  grantedAt: number;
-  expiresAt: number;
-  days: number;          // length of THIS grant
-  note: string;          // owner's payment reference, ≤120 — shown to the buyer
-  announcementId: number;// +1 per grant → drives the one-shot celebration
-  pause?: { pausedAt: number; … };  // omitted entirely when not paused
-}
-```
-
-Rules:
-- Granting the **same tier while active adds** days to the current `expiresAt`.
-- Switching tier **starts from today** (no proration).
-- Expired ⇒ treated as no plan (no dialog, no paywall, shown as Free in the console).
-- **Pause** (admin): freezes the countdown without rewriting `expiresAt`; **continue**
-  shifts `expiresAt` forward by exactly the held time.
-- The buyer sees **Payment received** exactly once per grant (`announcementId` vs the
-  acknowledged value, stored both in RTDB `ack` **and** in `localStorage`), containing
-  plan, what they paid, length, activation time, exact end date, payment reference.
-  The dialog closes **only** on its button.
-- Live subscription node → `useSubscription()` / `watchSubscription()` feed the whole UI.
-- **Plan expiry banner**: appears when the plan crosses **3 days** left; dismissal is
-  keyed **per grant (by end date)** so a renewal earns a fresh reminder.
-- The console can grant any number of days (preset spans + −/+ free-day field) and
-  **Remove plan**; the tier is chosen first and granted second on purpose.
-
----
+- `subscriptions/{uid}` grants still parse, still celebrate, still pause/continue —
+  an existing buyer's time is not deleted by the refactor. `/api/plan` still reports
+  the effective plan.
+- The routes no longer *enforce* plans: a held or lapsed grant does not refuse
+  requests, because everything is now a matter of balance. The hold state survives
+  only so the `/plus`/console UI can tell a buyer their time is frozen.
+- New sales are Dew top-ups: the console's code creator defaults to the Dew shape
+  with presets **25 / 100 / 500 / 1000**; the legacy plan shape remains available but
+  secondary.
 
 ## 12. Admin console
 

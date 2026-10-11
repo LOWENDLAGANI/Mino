@@ -11,6 +11,8 @@ import type { AccountView } from "@/lib/accountState";
 import { useSubscription } from "@/lib/useSubscription";
 import { describeDuration } from "@/lib/durations";
 import { subscriptionDetails, type Subscription } from "@/lib/subscriptionState";
+import { useDew } from "@/lib/useDew";
+import { formatDew } from "@/lib/dew";
 import {
   DEFAULT_PLAN,
   FEATURES,
@@ -164,6 +166,37 @@ function UpgradeFor({ from, to }: { from: PlanId | null; to: PlanId }) {
   );
 }
 
+/** This person's Dew wallet, as the /plus header shows it. */
+function DewPanel() {
+  const { ready, balance, low, refresh } = useDew();
+  // The trial is claimed on the first visit signed in, which is also the first
+  // time anybody can have one. A failed ensure is silent: the rules refused,
+  // and re-asking changes nothing.
+  useEffect(() => {
+    void (async () => {
+      try {
+        const { authHeader } = await import("@/lib/firebaseHistory");
+        await fetch("/api/dew", { method: "POST", headers: await authHeader(), cache: "no-store" });
+        await refresh();
+      } catch {
+        // Balance still shows; the absence of the trial is a balance of 0.
+      }
+    })();
+  }, [refresh]);
+
+  return (
+    <section className="relative overflow-hidden rounded-[26px] border border-[#2f6b48]/30 bg-[#2f6b48]/[0.07] p-5 shadow-[0_0_50px_-20px_rgba(47,107,72,0.7)] sm:p-6">
+      <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-[#a9d8bb]/80">Your Dew</p>
+      <h2 className="mt-1 text-[30px] font-semibold leading-tight tracking-tight">
+        💧 {ready ? formatDew(balance) : "…"} <span className="text-[15px] font-normal text-white/50">Dew</span>
+      </h2>
+      <p className="mt-1 text-[14px] leading-snug text-white/55">
+        1 Dew ≈ US$0.01 of model use. {low ? "Running low — top up below." : "Every message is billed for the tokens it actually uses."}
+      </p>
+    </section>
+  );
+}
+
 export default function MinoPlusPage() {
   const [plan, setPlan] = useState<PlanId>(DEFAULT_PLAN.id);
   // Which length is being bought. Drives the price, the amount printed in the
@@ -181,6 +214,7 @@ export default function MinoPlusPage() {
   // same as signed out: the gate opens, and it opens for a good reason.
   const [account, setAccount] = useState<AccountView | null>(null);
   const { subscription } = useSubscription();
+  const canShowWallet = Boolean(account?.isLinked);
 
   useEffect(() => watchAccount((view) => setAccount(view)), []);
 
@@ -242,6 +276,7 @@ export default function MinoPlusPage() {
           {/* What you have comes first. A pricing page that opens by asking for
               money from somebody who already paid is a page that has not read
               who is reading it. */}
+          {canShowWallet && <DewPanel />}
           {subscription && <CurrentPlan subscription={subscription} />}
 
           {!subscription && (

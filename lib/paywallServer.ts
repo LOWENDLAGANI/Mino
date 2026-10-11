@@ -36,9 +36,16 @@ export type ReasoningEffort = "low" | "medium" | "high";
 /** Ordered so a lower index means "less thinking", which is what clamping needs. */
 const EFFORT_ORDER: readonly ReasoningEffort[] = ["low", "medium", "high"];
 
-/** The most effort this plan is entitled to. Unpaid means the cheapest one. */
-export function maxReasoningEffort(planId: PlanId | null | undefined): ReasoningEffort {
-  return isUnlocked("reasoning", planId) ? "high" : "low";
+/**
+ * The most effort a request may run at.
+ *
+ * Under Dew reasoning is priced, not gated: whatever effort was asked for is
+ * billed at its tier. The cap remains an argument so the signature survives,
+ * and it returns "high" unconditionally.
+ */
+export function maxReasoningEffort(_planId: PlanId | null | undefined): ReasoningEffort {
+  void _planId;
+  return "high";
 }
 
 function effortRank(effort: ReasoningEffort): number {
@@ -77,9 +84,11 @@ export type ChatEntitlement =
 /**
  * Whether this request may proceed, and with what.
  *
- * Only the two paid capabilities in the chat route are decided here. Auto and
- * Code are free, so the ordinary request is untouched by any of this.
+ * Under Dew nothing here is refused: mode and effort are billing tiers, and
+ * the balance check in the route is the gate. Kept with the same signature so
+ * callers and tests keep their shape.
  */
+
 export function checkChatEntitlement(
   planId: PlanId | null | undefined,
   request: ChatRequest
