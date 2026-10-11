@@ -10,10 +10,10 @@ import { FAMILY_MODE, getProviders, type ProviderConfig } from "@/lib/providers"
 import { callSpace, isSpaceConfigured, SpaceError } from "@/lib/gradioSpace";
 import { CODE_SYSTEM_PROMPT } from "@/lib/codePrompt";
 import { formatSearchContext, searchWeb, shouldUseWebSearch } from "@/lib/webSearch";
-import { IdentityFilter, sanitizeIdentity, sanitizeProviderDetail } from "@/lib/identity";
+import { IdentityFilter, sanitizeProviderDetail } from "@/lib/identity";
 import { checkRateLimit, consumeUsage, identityGate, isAdmin, readConfig, verifyCaller } from "@/lib/serverControl";
 import { resolveEffectivePlan } from "@/lib/serverRedeem";
-import { checkChatEntitlement, clampReasoningEffort } from "@/lib/paywallServer";
+import { checkChatEntitlement } from "@/lib/paywallServer";
 import {
   extractActionBlocks,
   googleToolsPrompt,
@@ -109,6 +109,21 @@ function encodeEvent(event: Record<string, unknown>): Uint8Array {
 
 /** How many other models Mino will try before settling for a cut-off answer. */
 const MAX_CONTINUATION_ATTEMPTS = 2;
+
+/**
+ * Ceilings on what a single request may contain.
+ *
+ * Roughly 30k tokens of context at the top end, which is far more than any
+ * ordinary turn needs and still leaves room for a long document attachment.
+ * These are deliberately generous: the point is to stop one request being
+ * unbounded, not to truncate a conversation somebody is legitimately in.
+ */
+/** Messages in one request, including both roles. */
+const MAX_MESSAGES_IN_REQUEST = 120;
+/** Characters in a single message's text. ~8k tokens. */
+const MAX_MESSAGE_CHARS = 32_000;
+/** Characters across every message in the request. ~50k tokens. */
+const MAX_TOTAL_CHARS = 200_000;
 
 const CONTINUE_INSTRUCTION = [
   "Your previous answer was cut off mid-sentence because it reached the output limit.",
@@ -310,6 +325,50 @@ export async function POST(req: NextRequest): Promise<Response> {
     return Response.json({ error: "`messages` must be a non-empty array" }, { status: 400 });
   }
 
+  // ── Payload ceilings ──────────────────────────────────────────────────────
+  // One request is one completion, so the daily cap charges one message for it
+  // no matter how much work it contains. Without a ceiling on the body itself,
+  // that means the whole conversation — or a few hundred megabytes of pasted
+  // text — can be charged as a single message, and the deployment pays for the
+  // input tokens while the caller's allowance barely moves. These caps bound
+  // what one unit of quota can buy; they are a cost control, not a message
+  // count, so they sit ahead of the rate limit and never spend allowance.
+  if (body.messages.length > MAX_MESSAGES_IN_REQUEST) {
+    return Response.json(
+      { error: `Too much conversation at once. Mino keeps at most ${MAX_MESSAGES_IN_REQUEST} messages in a request.` },
+      { status: 413 }
+    );
+  }
+
+  let totalChars = 0;
+  for (const message of body.messages) {
+    // Content may be a string or a list of parts (text + image). Only the text
+    // is sized here: an image is already capped client-side at 1024px JPEG and
+    // again by the provider, and measuring a data URL's base64 length tells us
+    // nothing about the tokens it costs.
+    const text =
+      typeof message?.content === "string"
+        ? message.content
+        : Array.isArray(message?.content)
+          ? message.content
+              .map((part) => (part?.type === "text" && typeof part.text === "string" ? part.text : ""))
+              .join("")
+          : "";
+    if (text.length > MAX_MESSAGE_CHARS) {
+      return Response.json(
+        { error: "One message in this conversation is too long for Mino to read. Shorten it and try again." },
+        { status: 413 }
+      );
+    }
+    totalChars += text.length;
+  }
+  if (totalChars > MAX_TOTAL_CHARS) {
+    return Response.json(
+      { error: "This conversation is too long for Mino to send at once. Start a new chat, or edit the oldest messages to be shorter." },
+      { status: 413 }
+    );
+  }
+
   // ── Administrator's runtime controls ─────────────────────────────────────
   // The kill switch and the ban list are decided here, on the server, from the
   // signed-in identity rather than anything the page claims. A visitor who
@@ -326,7 +385,7 @@ export async function POST(req: NextRequest): Promise<Response> {
   }
   // A backstop that does not depend on anything the caller sends, so the
   // deployment's provider quota cannot be drained by one client.
-  const limit = checkRateLimit(req, identity, 30);
+  const limit = await checkRateLimit(req, identity, 30);
   if (!limit.allowed) {
     return errorStream(`Too many messages at once. Please wait ${limit.retryAfterSeconds}s and try again.`);
   }

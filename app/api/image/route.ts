@@ -194,7 +194,7 @@ export async function POST(req: NextRequest): Promise<Response> {
   // Deliberately tighter than chat: each call spends image quota, and the free
   // allowance is small enough that a handful of parallel clients would use it
   // up for everyone.
-  const limit = checkRateLimit(req, identity, 8);
+  const limit = await checkRateLimit(req, identity, 8);
   if (!limit.allowed) {
     return Response.json(
       { error: `Too many images at once. Please wait ${limit.retryAfterSeconds}s and try again.` },

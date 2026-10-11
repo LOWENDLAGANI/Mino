@@ -56,7 +56,7 @@ export async function POST(req: NextRequest): Promise<Response> {
   // request silently spends a message's allowance and a heavy user starts
   // seeing "too many messages at once" for reasons that have nothing to do with
   // how many messages they sent.
-  const limit = checkRateLimit(req, identity, 20, "memory");
+  const limit = await checkRateLimit(req, identity, 20, "memory");
   if (!limit.allowed) {
     return Response.json({ suggestions: [] });
   }

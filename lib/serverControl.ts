@@ -72,6 +72,35 @@ export function invalidateConfig(): void {
 }
 
 /**
+ * Verified identities, keyed by a hash of the token.
+ *
+ * Without this every request pays for a round trip to Google before it can do
+ * anything at all — a chat message waits on an auth lookup it does not need,
+ * because the same token arrives with the next message a second later. Five
+ * minutes is the ceiling: long enough to remove the latency, short enough that
+ * a revoked or newly-signed-in token is forgotten almost immediately. The
+ * token itself is never stored as a key, only its hash, so a memory dump of
+ * this process does not hand out usable credentials.
+ */
+const verified = new Map<string, { identity: CallerIdentity; at: number }>();
+const VERIFY_CACHE_MS = 5 * 60_000;
+const VERIFY_CACHE_MAX = 2000;
+
+/** A short, non-reversible key for a token. Not a secret — just not the token. */
+async function tokenKey(token: string): Promise<string> {
+  try {
+    const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(token));
+    return Array.from(new Uint8Array(digest))
+      .map((byte) => byte.toString(16).padStart(2, "0"))
+      .join("");
+  } catch {
+    // A runtime with no Web Crypto (some test harnesses) still has to work;
+    // the token is only held for the duration of this process either way.
+    return token;
+  }
+}
+
+/**
  * Verifies a Firebase ID token and returns who it belongs to.
  *
  * The API key below is the project's public web key, which is already in the
@@ -84,6 +113,15 @@ export async function verifyCaller(authorization: string | null): Promise<Caller
   if (!token) return fail("no-token");
   if (!apiKey) return fail("no-api-key");
   if (!restBase()) return fail("no-database-url");
+
+  // A repeat of a token seen in the last few minutes is answered locally. This
+  // is the common case — one token covers a whole session — so it is checked
+  // before any network call is made.
+  const key = await tokenKey(token);
+  const remembered = verified.get(key);
+  if (remembered && Date.now() - remembered.at < VERIFY_CACHE_MS) {
+    return remembered.identity;
+  }
 
   let response: Response;
   try {
@@ -127,11 +165,28 @@ export async function verifyCaller(authorization: string | null): Promise<Caller
   const googleLinked = Array.isArray(user?.providerUserInfo)
     ? user.providerUserInfo.some((provider) => provider?.providerId === "google.com")
     : false;
-  return {
+  const identity: CallerIdentity = {
     uid,
     email: typeof user?.email === "string" ? user.email.toLowerCase() : "",
     googleLinked,
   };
+  // Only a verified identity is cached. A failure is not, because the next
+  // request with the same token deserves its own look — and because caching a
+  // refusal would mean a token that becomes valid mid-session stays refused.
+  if (verified.size >= VERIFY_CACHE_MAX) {
+    const cutoff = Date.now() - VERIFY_CACHE_MS;
+    for (const [entryKey, entry] of verified) {
+      if (entry.at < cutoff) verified.delete(entryKey);
+    }
+    // Still full of live entries: drop the oldest rather than grow without
+    // bound. A dropped entry is simply looked up again on its next request.
+    if (verified.size >= VERIFY_CACHE_MAX) {
+      const oldest = verified.keys().next().value;
+      if (oldest !== undefined) verified.delete(oldest);
+    }
+  }
+  verified.set(key, { identity, at: Date.now() });
+  return identity;
 }
 
 /**
@@ -193,7 +248,7 @@ export async function requireAdmin(headers: Headers): Promise<AdminCheck> {
 }
 
 /**
- * A small in-process rate limiter, keyed by client address.
+ * Rate limiting, with a shared store when one is configured.
  *
  * This exists because the identity controls above can be switched off: with no
  * ban list and no cap configured, anyone can post to the routes and spend the
@@ -201,11 +256,24 @@ export async function requireAdmin(headers: Headers): Promise<AdminCheck> {
  * since the attacker controls the device, so there needs to be a backstop that
  * does not depend on anything they send.
  *
- * In-process means per instance, so a serverless deployment resets it on cold
- * start and scales it out. It is a speed bump against a casual flood, not a
- * defence against a determined one; making it exact needs a shared store such
- * as Redis or Upstash, which this project deliberately does not have.
+ * Two backends, chosen once at startup from the environment:
+ *
+ *   - `UPSTASH_REDIS_REST_URL` + `UPSTASH_REDIS_REST_TOKEN` set → a shared Redis
+ *     counter, so the limit holds across cold starts and across every instance
+ *     serving the deployment. This is the one that actually means "per minute".
+ *   - neither set → an in-process Map, which is per instance and resets on cold
+ *     start. It is a speed bump against a casual flood, not a defence against a
+ *     determined one, and the code says so rather than pretending otherwise.
+ *
+ * The Redis path is optional on purpose: a deployment that has never heard of
+ * Upstash must still run, and adding a required dependency for a limiter would
+ * make the whole app fail to start over a control that is a backstop anyway.
  */
+const redisUrl = process.env.UPSTASH_REDIS_REST_URL?.trim() ?? "";
+const redisToken = process.env.UPSTASH_REDIS_REST_TOKEN?.trim() ?? "";
+/** Whether requests go to a shared store rather than this process alone. */
+export const sharedRateLimit = Boolean(redisUrl && redisToken);
+
 const buckets = new Map<string, { count: number; resetAt: number }>();
 const BUCKET_WINDOW_MS = 60_000;
 
@@ -223,7 +291,76 @@ function clientKey(req: { headers: Headers }, identity: CallerIdentity | null): 
   return `ip:${address}`;
 }
 
-export function checkRateLimit(
+/**
+ * One increment against the shared counter, or null when the store could not
+ * be reached.
+ *
+ * Null is deliberately "no answer" rather than "allowed": the caller falls
+ * back to the in-process bucket, so a Redis outage degrades the limiter to the
+ * weaker backend instead of removing it entirely. Refusing every request
+ * because the limiter's own dependency is down would turn a protection layer
+ * into the single point of failure it was meant to protect against.
+ */
+async function redisIncrement(key: string): Promise<{ count: number; ttlMs: number } | null> {
+  try {
+    // INCR creates the counter; PEXPIRE only runs when it was just created, so
+    // the window slides from the first request and never leaks a key.
+    const response = await fetch(`${redisUrl}/pipeline`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${redisToken}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify([
+        ["INCR", key],
+        ["PTTL", key],
+      ]),
+      cache: "no-store",
+      signal: AbortSignal.timeout(2000),
+    });
+    if (!response.ok) return null;
+    const payload = (await response.json()) as Array<{ result?: number | string }>;
+    const count = Number(payload?.[0]?.result);
+    let ttlMs = Number(payload?.[1]?.result);
+    if (!Number.isFinite(count)) return null;
+    // A fresh key reports -2 from PTTL before its first expire is set. The
+    // pipeline cannot branch, so the expire is issued by the caller when it
+    // sees that, and this one attempt reports the full window.
+    if (ttlMs < 0) {
+      ttlMs = BUCKET_WINDOW_MS;
+      void fetch(`${redisUrl}/pexpire/${encodeURIComponent(key)}`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${redisToken}` },
+        body: String(BUCKET_WINDOW_MS),
+        cache: "no-store",
+        signal: AbortSignal.timeout(2000),
+      }).catch(() => undefined);
+    }
+    return { count, ttlMs };
+  } catch {
+    return null;
+  }
+}
+
+/** The in-process bucket, used on its own or when the shared store is quiet. */
+function localIncrement(key: string, now: number): { count: number; ttlMs: number } {
+  const bucket = buckets.get(key);
+  if (!bucket || bucket.resetAt <= now) {
+    buckets.set(key, { count: 1, resetAt: now + BUCKET_WINDOW_MS });
+    // Drop expired buckets occasionally so the map cannot grow without bound
+    // on a long-lived instance.
+    if (buckets.size > 5000) {
+      for (const [entryKey, entry] of buckets) {
+        if (entry.resetAt <= now) buckets.delete(entryKey);
+      }
+    }
+    return { count: 1, ttlMs: BUCKET_WINDOW_MS };
+  }
+  bucket.count += 1;
+  return { count: bucket.count, ttlMs: bucket.resetAt - now };
+}
+
+export async function checkRateLimit(
   req: { headers: Headers },
   identity: CallerIdentity | null,
   max: number,
@@ -236,30 +373,19 @@ export function checkRateLimit(
    * function of how often Mino noticed something — a number nobody can explain.
    */
   scope = "chat"
-): RateLimit {
+): Promise<RateLimit> {
   const now = Date.now();
-  const key = `${clientKey(req, identity)}:${scope}`;
-  const bucket = buckets.get(key);
-  if (!bucket || bucket.resetAt <= now) {
-    buckets.set(key, { count: 1, resetAt: now + BUCKET_WINDOW_MS });
-    // Drop expired buckets occasionally so the map cannot grow without bound
-    // on a long-lived instance.
-    if (buckets.size > 5000) {
-      for (const [entryKey, entry] of buckets) {
-        if (entry.resetAt <= now) buckets.delete(entryKey);
-      }
-    }
-    return { allowed: true, remaining: max - 1, retryAfterSeconds: 0 };
-  }
-  bucket.count += 1;
-  if (bucket.count > max) {
+  const key = `mino:rl:${clientKey(req, identity)}:${scope}`;
+  const shared = sharedRateLimit ? await redisIncrement(key) : null;
+  const { count, ttlMs } = shared ?? localIncrement(key, now);
+  if (count > max) {
     return {
       allowed: false,
       remaining: 0,
-      retryAfterSeconds: Math.max(1, Math.ceil((bucket.resetAt - now) / 1000)),
+      retryAfterSeconds: Math.max(1, Math.ceil(ttlMs / 1000)),
     };
   }
-  return { allowed: true, remaining: max - bucket.count, retryAfterSeconds: 0 };
+  return { allowed: true, remaining: max - count, retryAfterSeconds: 0 };
 }
 /** The bans still in force at `now`. Expired ones lift by themselves. */
 export function activeBans(config: AppConfig, now = Date.now()): BanRecord[] {
