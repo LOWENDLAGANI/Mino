@@ -1,0 +1,517 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  color-scheme: dark;
+  --bg: #0b1310;
+  --bg-raised: #111a16;
+  --bg-hover: #17221c;
+  --bg-elevated: #1a2520;
+  --line: rgba(233, 245, 236, 0.08);
+  --line-strong: rgba(233, 245, 236, 0.14);
+  --text-hi: #eef5f0;
+  --text: #cddfd4;
+  --text-mid: #8ba396;
+  --text-low: #5d7167;
+  --accent: #6ec294;
+  --accent-soft: rgba(110, 194, 148, 0.15);
+  --azure: #5b9bd5;
+  --azure-soft: rgba(91, 155, 213, 0.15);
+  --code: #e08e6b;
+  --code-soft: rgba(224, 142, 107, 0.15);
+}
+
+/* Light mode is the same design on paper: warm off-white rather than a cool
+   grey, and the same sage family, only deep enough to read as text on white. */
+html.light {
+  color-scheme: light;
+  --bg: #f4f1e9;
+  --bg-raised: #fffdf7;
+  --bg-hover: #eae5d9;
+  --bg-elevated: #ffffff;
+  --line: rgba(46, 62, 48, 0.11);
+  --line-strong: rgba(46, 62, 48, 0.2);
+  --text-hi: #16281c;
+  --text: #33453a;
+  --text-mid: #6b7d71;
+  --text-low: #9ba89e;
+  --accent: #2f6b48;
+  --accent-soft: rgba(47, 107, 72, 0.12);
+  --azure: #2c5aa0;
+  --azure-soft: rgba(44, 90, 160, 0.12);
+  --code: #8a4f2a;
+  --code-soft: rgba(138, 79, 42, 0.12);
+  --on-accent: #f7f5ee;
+}
+
+html.light body { background: var(--bg); }
+html.light .app-surface {
+  background:
+    radial-gradient(ellipse 80% 42% at 50% 100%, rgba(201, 221, 190, 0.5) 0%, rgba(226, 231, 209, 0.4) 40%, transparent 72%),
+    linear-gradient(180deg, #fbf9f2 0%, #f3f0e6 55%, #e9e6d6 100%);
+}
+html.light .surface-glow {
+  background:
+    radial-gradient(circle at 50% 42%, rgba(47, 107, 72, 0.06), transparent 30%),
+    radial-gradient(ellipse 70% 30% at 50% 100%, rgba(120, 156, 108, 0.16), transparent 72%);
+}
+html.light aside { background: #faf7ef !important; }
+
+/* ── Light mode, inverted utility classes ────────────────────────────────────
+   The components are written once against the dark palette — white text on
+   translucent white. Paper mode is that same set of classes turned over, and
+   these rules do the turning, so no component needs a second light variant. */
+html.light .text-white { color: #16281c !important; }
+html.light [class*="text-white/"] { color: rgba(51, 69, 58, 0.78) !important; }
+html.light [class*="bg-white/"] { background-color: rgba(46, 62, 48, 0.055) !important; }
+html.light [class*="border-white/"] { border-color: rgba(46, 62, 48, 0.14) !important; }
+html.light [class*="bg-black/"] { background-color: rgba(46, 62, 48, 0.055) !important; }
+html.light [class*="shadow-black"] { box-shadow: 0 18px 40px -24px rgba(28, 46, 34, 0.5) !important; }
+
+/* Prose and controls that carry their own colours rather than a token. */
+html.light .prose-chat a { color: #2f6b48; text-decoration-color: rgba(47, 107, 72, 0.35); }
+html.light .prose-chat a:hover { text-decoration-color: rgba(47, 107, 72, 0.9); }
+html.light .prose-chat :not(pre) > code {
+  background: rgba(47, 107, 72, 0.1);
+  color: #1f4a33;
+}
+html.light .copy-btn:hover { background: rgba(46, 62, 48, 0.07); }
+html.light :hover { scrollbar-color: rgba(46, 62, 48, 0.22) transparent; }
+html.light *:hover::-webkit-scrollbar-thumb { background: rgba(46, 62, 48, 0.2); }
+
+/* Code keeps its deep well on paper: a syntax-highlighted block that flipped to
+   white-on-white stops being readable, and one dark island reads as deliberate
+   rather than as a leftover. */
+html.light .code-block { border-color: rgba(46, 62, 48, 0.16); }
+html.light .stream-cursor > :last-child::after {
+  background: linear-gradient(180deg, #7fc39b, #2f6b48);
+  box-shadow: 0 0 10px rgba(47, 107, 72, 0.3);
+}
+
+html,
+body {
+  height: 100%;
+}
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  font-feature-settings: "cv11", "ss01";
+  letter-spacing: -0.011em;
+  overscroll-behavior: none;
+}
+
+.app-surface {
+  background:
+    radial-gradient(ellipse 80% 48% at 50% 100%, rgba(23, 74, 46, 0.5) 0%, rgba(11, 38, 25, 0.34) 34%, transparent 70%),
+    linear-gradient(180deg, #070c0a 0%, #0a120e 55%, #0a1a12 100%);
+}
+
+.surface-glow {
+  background:
+    radial-gradient(circle at 50% 42%, rgba(110, 194, 148, 0.07), transparent 30%),
+    radial-gradient(ellipse 70% 30% at 50% 100%, rgba(47, 107, 72, 0.18), transparent 72%);
+}
+
+/* Model-specific glows for identity visualization */
+.model-azure-glow {
+  box-shadow: 0 0 20px rgba(91, 155, 213, 0.15), 0 0 40px rgba(91, 155, 213, 0.05);
+}
+.model-code-glow {
+  box-shadow: 0 0 20px rgba(224, 142, 107, 0.15), 0 0 40px rgba(224, 142, 107, 0.05);
+}
+.model-auto-glow {
+  box-shadow: 0 0 20px rgba(110, 194, 148, 0.15), 0 0 40px rgba(110, 194, 148, 0.05);
+}
+
+/* Neutralize iOS tap highlight + inputs */
+* {
+  -webkit-tap-highlight-color: transparent;
+}
+input,
+textarea,
+button {
+  font: inherit;
+}
+
+/* ── Scrollbars: invisible until needed ───────────────────────────────── */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: transparent transparent;
+}
+:hover {
+  scrollbar-color: rgba(255, 255, 255, 0.12) transparent;
+}
+*::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+*::-webkit-scrollbar-thumb {
+  background: transparent;
+  border-radius: 99px;
+}
+*:hover::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.1);
+}
+
+/* ── Chat prose: quiet, generous, bubble-less ──────────────────────────── */
+.prose-chat {
+  font-size: 15.5px;
+  line-height: 1.75;
+  color: var(--text);
+}
+.prose-chat p {
+  margin: 0.75rem 0;
+}
+.prose-chat > :first-child {
+  margin-top: 0;
+}
+.prose-chat > :last-child {
+  margin-bottom: 0;
+}
+.prose-chat h1,
+.prose-chat h2,
+.prose-chat h3,
+.prose-chat h4 {
+  margin: 1.5rem 0 0.5rem;
+  font-weight: 550;
+  letter-spacing: -0.015em;
+  color: var(--text-hi);
+}
+.prose-chat h1 { font-size: 1.25rem; }
+.prose-chat h2 { font-size: 1.1rem; }
+.prose-chat h3 { font-size: 1rem; }
+.prose-chat ul,
+.prose-chat ol {
+  margin: 0.75rem 0;
+  padding-left: 1.375rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.375rem;
+}
+.prose-chat ul { list-style: disc; }
+.prose-chat ol { list-style: decimal; }
+.prose-chat li::marker {
+  color: var(--text-low);
+}
+.prose-chat a {
+  color: #7fc9a0;
+  text-decoration: underline;
+  text-decoration-color: rgba(127, 201, 160, 0.3);
+  text-underline-offset: 3px;
+  transition: text-decoration-color 0.15s;
+}
+.prose-chat a:hover {
+  text-decoration-color: rgba(127, 201, 160, 0.8);
+}
+.prose-chat blockquote {
+  margin: 0.75rem 0;
+  padding-left: 0.875rem;
+  border-left: 2px solid var(--line-strong);
+  color: var(--text-mid);
+}
+.prose-chat hr {
+  margin: 1.5rem 0;
+  border-color: var(--line);
+}
+.prose-chat table {
+  width: 100%;
+  margin: 0.75rem 0;
+  border-collapse: collapse;
+  font-size: 0.875rem;
+  display: block;
+  overflow-x: auto;
+}
+.prose-chat th,
+.prose-chat td {
+  border: 1px solid var(--line);
+  padding: 0.5rem 0.75rem;
+  text-align: left;
+}
+.prose-chat th {
+  background: var(--bg-raised);
+  font-weight: 550;
+  color: var(--text-hi);
+}
+.prose-chat :not(pre) > code {
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 0.84em;
+  padding: 0.15em 0.4em;
+  border-radius: 5px;
+  background: rgba(255, 255, 255, 0.06);
+  color: #cfe8d8;
+}
+
+/* Code block: flat, quiet */
+.code-block {
+  margin: 1rem 0;
+  overflow: hidden;
+  border-radius: 12px;
+  border: 1px solid var(--line);
+  background: #0e1613;
+}
+.code-block-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.4rem 0.75rem;
+  border-bottom: 1px solid var(--line);
+}
+.code-block-lang {
+  font-family: ui-monospace, monospace;
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  color: var(--text-low);
+  flex-shrink: 0;
+}
+/* The filename a code block belongs to. Truncated from the left so the
+   informative tail — the file name — stays visible on a narrow screen. */
+.code-block-file {
+  font-family: ui-monospace, monospace;
+  font-size: 11.5px;
+  color: var(--text-hi);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  direction: rtl;
+  text-align: left;
+  min-width: 0;
+}
+.copy-btn {
+  padding: 0.25rem 0.5rem;
+  border-radius: 6px;
+  font-family: ui-monospace, monospace;
+  font-size: 11px;
+  color: var(--text-mid);
+  transition: color 0.15s, background 0.15s;
+}
+.copy-btn:hover {
+  color: var(--text-hi);
+  background: rgba(255, 255, 255, 0.05);
+}
+
+/* Streaming caret. A soft glow with an eased fade rather than a hard blink,
+   so the leading edge of an answer breathes instead of flickering. */
+.stream-cursor > :last-child::after {
+  content: "";
+  display: inline-block;
+  width: 7px;
+  height: 15px;
+  margin-left: 3px;
+  vertical-align: text-bottom;
+  border-radius: 2px;
+  background: linear-gradient(180deg, #9fd8bb, var(--accent));
+  box-shadow: 0 0 10px rgba(47, 107, 72, 0.45);
+  animation: caret 1.1s ease-in-out infinite;
+}
+@keyframes caret {
+  0%, 100% { opacity: 1; transform: scaleY(1); }
+  50% { opacity: 0.25; transform: scaleY(0.82); }
+}
+
+/* Each block that arrives during a stream settles in rather than appearing at
+   full contrast, which is what makes a finished answer look like it was
+   placed there instead of written. Transform and opacity only, so a long answer
+   streaming on a phone never forces a repaint per frame. */
+.stream-cursor > * {
+  animation: stream-block 0.32s cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
+@keyframes stream-block {
+  from { opacity: 0.35; transform: translateY(3px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+/* ── Model badge styles ────────────────────────────────────────────────── */
+.model-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.375rem;
+  padding: 0.125rem 0.5rem 0.125rem 0.375rem;
+  border-radius: 9999px;
+  font-size: 11px;
+  font-weight: 500;
+  transition: all 0.2s ease;
+}
+.model-badge-azure {
+  background: var(--azure-soft);
+  color: var(--azure);
+  border: 1px solid rgba(91, 155, 213, 0.2);
+}
+.model-badge-code {
+  background: var(--code-soft);
+  color: var(--code);
+  border: 1px solid rgba(224, 142, 107, 0.2);
+}
+.model-badge-auto {
+  background: var(--accent-soft);
+  color: var(--accent);
+  border: 1px solid rgba(110, 194, 148, 0.2);
+}
+.model-badge-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+}
+.model-badge-azure .model-badge-dot {
+  animation: pulse-azure 2s ease-in-out infinite;
+}
+.model-badge-code .model-badge-dot {
+  animation: pulse-code 2s ease-in-out infinite;
+}
+.model-badge-auto .model-badge-dot {
+  animation: pulse-auto 2s ease-in-out infinite;
+}
+@keyframes pulse-azure {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.5; transform: scale(0.8); }
+}
+@keyframes pulse-code {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.5; transform: scale(0.8); }
+}
+@keyframes pulse-auto {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.5; transform: scale(0.8); }
+}
+
+/* ── Utilities ──────────────────────────────────────────────────────────── */
+.hairline-b { border-bottom: 1px solid var(--line); }
+.hairline-t { border-top: 1px solid var(--line); }
+.hairline-r { border-right: 1px solid var(--line); }
+
+.safe-bottom {
+  padding-bottom: max(1rem, env(safe-area-inset-bottom));
+}
+.safe-top {
+  padding-top: env(safe-area-inset-top);
+}
+
+@keyframes rise {
+  from { opacity: 0; transform: translateY(4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.animate-rise {
+  animation: rise 0.3s cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
+
+/* ── Motion ─────────────────────────────────────────────────────────────────
+   Every animation here moves only `transform` and `opacity`, the two
+   properties a browser can animate on the compositor without measuring
+   layout. Animating width, height, margin, or box-shadow forces layout or
+   paint on every frame, which is what makes a UI feel heavy on a budget
+   Android phone. Durations are kept short so a dropped frame is never
+   more than barely noticeable, and `will-change` is applied only to
+   elements that actually animate, since it costs memory. */
+
+@keyframes pop {
+  from { opacity: 0; transform: scale(0.97) translateY(6px); }
+  to { opacity: 1; transform: scale(1) translateY(0); }
+}
+.animate-pop {
+  animation: pop 0.24s cubic-bezier(0.2, 0.9, 0.25, 1) both;
+}
+
+@keyframes fade {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+.animate-fade {
+  animation: fade 0.2s ease-out both;
+}
+
+/* A single slow pulse for the drawing placeholder. Transform-only, so it
+   composites smoothly; a shimmer would repaint a large area each frame. */
+@keyframes breathe {
+  0%, 100% { opacity: 0.55; transform: scale(1); }
+  50% { opacity: 0.9; transform: scale(1.015); }
+}
+.animate-breathe {
+  animation: breathe 2.4s ease-in-out infinite;
+}
+
+/* Interactive surfaces lift by a hair on hover, and dim instantly on press.
+   `transform` keeps this off the layout path entirely. */
+.lift {
+  transition: transform 0.16s cubic-bezier(0.2, 0.8, 0.2, 1);
+  will-change: transform;
+}
+.lift:hover {
+  transform: translateY(-1px);
+}
+.lift:active {
+  transform: translateY(0) scale(0.985);
+  transition-duration: 0.08s;
+}
+
+/* Attention glow for the upgrade button. The halo is a separate blurred
+   element behind the button rather than a box-shadow on it: a shadow would
+   repaint on every frame, while animating one element's `opacity` and
+   `transform` stays on the compositor. */
+@keyframes halo {
+  0%, 100% { opacity: 0.45; transform: scale(0.97); }
+  50% { opacity: 0.9; transform: scale(1.03); }
+}
+.animate-halo {
+  animation: halo 2.2s ease-in-out infinite;
+  will-change: transform, opacity;
+}
+
+/* A slow sweep for the highlighted plan pill. */
+@keyframes sheen {
+  0% { transform: translateX(-120%); }
+  100% { transform: translateX(220%); }
+}
+.animate-sheen {
+  animation: sheen 2.8s ease-in-out infinite;
+}
+
+@keyframes blink {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.3; }
+}
+.animate-blink {
+  animation: blink 1.2s ease-in-out infinite;
+}
+
+/* Card hover effect */
+.card-hover {
+  transition: transform 0.2s ease, box-shadow 0.2s ease, border-color 0.2s ease;
+}
+.card-hover:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.3);
+}
+
+/* Glass morphism effect */
+.glass {
+  background: rgba(17, 26, 22, 0.8);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+}
+
+/* Gradient text */
+.gradient-text {
+  background: linear-gradient(135deg, var(--text-hi) 0%, var(--accent) 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+.no-scrollbar::-webkit-scrollbar { display: none; }
+.no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+
+/* Respect reduced motion */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+

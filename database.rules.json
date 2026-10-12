@@ -1,0 +1,108 @@
+{
+  "rules": {
+    "config": {
+      ".read": true,
+      ".write": "auth != null && auth.token.email === 'myrealmetvreal@gmail.com'"
+    },
+    "usage": {
+      ".read": "auth != null && auth.token.email === 'myrealmetvreal@gmail.com'",
+      "$uid": {
+        ".read": "auth != null && auth.uid === $uid",
+        ".write": "auth != null && auth.uid === $uid"
+      }
+    },
+    "admin": {
+      ".read": "auth != null && auth.token.email === 'myrealmetvreal@gmail.com'",
+      ".write": "auth != null && auth.token.email === 'myrealmetvreal@gmail.com'",
+      "registry": {
+        "$uid": {
+          ".write": "auth != null && auth.uid === $uid",
+          ".validate": "newData.hasChildren(['name','firstSeen','lastSeen']) && newData.child('name').isString() && newData.child('name').val().length <= 40"
+        }
+      }
+    },
+    "push": {
+      "subscriptions": {
+        "$uid": {
+          ".read": "auth != null && (auth.uid === $uid || auth.token.email === 'myrealmetvreal@gmail.com')",
+          ".write": "auth != null && (auth.uid === $uid || auth.token.email === 'myrealmetvreal@gmail.com')"
+        }
+      }
+    },
+    "codes": {
+      ".read": "auth != null && auth.token.email == 'myrealmetvreal@gmail.com'",
+      ".write": "auth != null && auth.token.email == 'myrealmetvreal@gmail.com'",
+      "$code": {
+        ".read": "auth != null",
+        ".validate": "newData.child('code').val() === $code && newData.child('code').isString() && newData.child('createdAt').isNumber() && newData.child('active').isBoolean() && ((newData.hasChildren(['plan','days']) && (newData.child('plan').val() === 'mini' || newData.child('plan').val() === 'lunar') && newData.child('days').isNumber() && newData.child('days').val() > 0)|| (newData.hasChildren(['dew']) && newData.child('dew').isNumber() && newData.child('dew').val() > 0 && newData.child('dew').val() <= 100000))"
+      }
+    },
+    "redeems": {
+      "$uid": {
+        ".read": "auth != null && auth.uid === $uid",
+        ".write": "auth != null && auth.uid === $uid",
+        "$code": {
+          ".validate": "(!data.exists() || data.child('claimedAt').val() === newData.child('claimedAt').val()) && (!newData.exists() || (newData.hasChildren(['code','claimedAt']) && newData.child('code').val() === $code && newData.child('claimedAt').isNumber() && root.child('codes').child($code).child('active').val() === true))"
+        }
+      }
+    },
+    "subscriptions": {
+      ".read": "auth != null && auth.token.email === 'myrealmetvreal@gmail.com'",
+      ".write": "auth != null && auth.token.email === 'myrealmetvreal@gmail.com'",
+      "$uid": {
+        ".read": "auth != null && auth.uid === $uid",
+        ".validate": "newData.hasChildren(['plan','grantedAt','expiresAt','announcementId']) && (newData.child('plan').val() === 'mini' || newData.child('plan').val() === 'lunar') && newData.child('grantedAt').isNumber() && newData.child('expiresAt').isNumber() && newData.child('announcementId').isNumber()",
+        "ack": {
+          ".write": "auth != null && auth.uid === $uid"
+        }
+      }
+    },
+    "users": {
+      ".read": "auth != null && auth.token.email === 'myrealmetvreal@gmail.com'",
+      ".write": "auth != null && auth.token.email === 'myrealmetvreal@gmail.com'",
+      "$uid": {
+        ".read": false,
+        ".write": "auth != null && auth.uid === $uid",
+        "chats": {
+          ".read": "auth != null && auth.uid === $uid",
+          "$chatId": {
+            ".validate": "newData.hasChildren(['id','title','createdAt','updatedAt','messages'])"
+          }
+        },
+        "profile": {
+          ".read": "auth != null && auth.uid === $uid",
+          ".validate": "newData.hasChildren(['name']) && newData.child('name').isString() && newData.child('name').val().length <= 40"
+        },
+        "memory": {
+          ".read": "auth != null && auth.uid === $uid",
+          "$memoryId": {
+            ".validate": "newData.hasChildren(['id','text','createdAt','updatedAt']) && newData.child('text').isString() && newData.child('text').val().length > 0 && newData.child('text').val().length <= 200"
+          }
+        }
+      }
+    },
+    "dew": {
+      ".read": "auth != null && auth.token.email === 'myrealmetvreal@gmail.com'",
+      ".write": "auth != null && auth.token.email === 'myrealmetvreal@gmail.com'",
+      "$uid": {
+        ".read": "auth != null && auth.uid === $uid",
+        "credits": {
+          "$key": {
+            ".write": "auth != null && (auth.uid === $uid || auth.token.email === 'myrealmetvreal@gmail.com')",
+            ".validate": "newData.isNumber() && newData.val() > 0 && newData.val() <= 100000 && (auth.token.email === 'myrealmetvreal@gmail.com' || (!data.exists() && (($key === 'TRIAL' && newData.val() === 25) || ($key !== 'TRIAL' && root.child('codes').child($key).child('active').val() === true && root.child('codes').child($key).child('dew').val() === newData.val()))))"
+          }
+        },
+        "spent": {
+          ".write": "auth != null && auth.uid === $uid",
+          ".validate": "newData.isNumber() && newData.val() >= 0 && (!data.exists() || newData.val() >= data.val() || auth.token.email === 'myrealmetvreal@gmail.com')"
+        },
+        "tx": {
+          "$txId": {
+            ".write": "auth != null && (auth.uid === $uid || auth.token.email === 'myrealmetvreal@gmail.com')",
+            ".validate": "newData.hasChildren(['type','at','dew']) && newData.child('type').val() === 'usage' && newData.child('at').isNumber() && newData.child('dew').isNumber() && newData.child('dew').val() > 0"
+          }
+        }
+      }
+    }
+  }
+}

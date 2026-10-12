@@ -1,0 +1,11 @@
+# Mino — allow everything that is meant to be public, which is the pages and
+# not the API. The API routes are not listed because they are not crawlable
+# anyway (they are POST-only or require an identity), and naming them here
+# would only tell a scraper where to aim.
+User-Agent: *
+Allow: /
+Disallow: /api/
+
+# Share previews are the growth loop, so the pages that carry them are named
+# explicitly for any crawler that reads sitemap.xml.
+Sitemap: https://mino-ai.vercel.app/sitemap.xml
