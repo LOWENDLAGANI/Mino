@@ -54,31 +54,66 @@ type FirebaseServices = {
 };
 
 let services: FirebaseServices | null = null;
+let servicesPromise: Promise<FirebaseServices | null> | null = null;
 
 export async function getServices(): Promise<FirebaseServices | null> {
   if (!firebaseConfigured || typeof window === "undefined") return null;
+
+  // Return cached instance if already initialized
   if (services) return services;
-  const app = getApps().length > 0 ? getApp() : initializeApp(config);
-  const auth = getAuth(app);
-  await setPersistence(auth, browserLocalPersistence);
-  const restoredUser = auth.currentUser ?? (await auth.authStateReady());
-  // The sign-in is the point; the returned user is not read here — `services`
-  // exposes `auth.currentUser` live, so binding it would only ever hold a
-  // value that goes stale the moment the account is linked.
-  if (!restoredUser) await signInAnonymously(auth);
-  services = {
-    auth,
-    database: getDatabase(app),
-    get user() {
-      return auth.currentUser;
-    },
-    ensureUser: async () => {
-      const current = auth.currentUser;
-      if (current) return current;
-      return (await signInAnonymously(auth)).user;
-    },
-  };
-  return services;
+
+  // Prevent concurrent initialization by reusing in-flight promise
+  if (servicesPromise) return servicesPromise;
+
+  servicesPromise = (async () => {
+    try {
+      const app = getApps().length > 0 ? getApp() : initializeApp(config);
+      const auth = getAuth(app);
+
+      // Set persistence, but don't fail the whole auth if it's unavailable
+      try {
+        await setPersistence(auth, browserLocalPersistence);
+      } catch {
+        // Some browsers or environments reject persistence setup.
+        // Continue anyway; the app should still function without persistence.
+      }
+
+      const restoredUser = auth.currentUser ?? (await auth.authStateReady());
+
+      // Sign in anonymously if no user is present
+      if (!restoredUser) {
+        try {
+          await signInAnonymously(auth);
+        } catch {
+          // If anonymous sign-in fails, the app may still recover later
+          // when the user explicitly signs in or when the connection recovers.
+        }
+      }
+
+      services = {
+        auth,
+        database: getDatabase(app),
+        get user() {
+          return auth.currentUser;
+        },
+        ensureUser: async () => {
+          const current = auth.currentUser;
+          if (current) return current;
+          return (await signInAnonymously(auth)).user;
+        },
+      };
+
+      return services;
+    } catch {
+      // Initialization failed; return null so callers degrade gracefully
+      return null;
+    } finally {
+      // Clear the promise flag once initialization completes (success or failure)
+      servicesPromise = null;
+    }
+  })();
+
+  return servicesPromise;
 }
 
 function chatRef(database: Database, uid: string, chatId: string) {
@@ -207,7 +242,6 @@ export function markChatDeleted(chatId: string): void {
 
 
 
-
 /**
  * Brings the account's chats into this browser.
  *
@@ -307,7 +341,7 @@ export async function syncChatWipe(): Promise<void> {
 
 
 
-// ── Memory sync ─────────────────────────────────────────────────────────────
+// ── Memory sync ─────────────────────────────────────────────────────────
 // Memories are readable back by their owner, and so is chat history above. They
 // differ in what they carry: a handful of short sentences about the person who
 // wrote them, rather than their conversations.
@@ -392,7 +426,7 @@ export async function loadMemoriesFromAccount(): Promise<Memory[] | null> {
   }
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
+// ────────────────────────────────────────────────────────────────────────────
 
 /**
  * Reads the admin PIN verifier from Realtime Database.
