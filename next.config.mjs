@@ -17,17 +17,19 @@ import { withSentryConfig } from "@sentry/nextjs/config";
 // Firebase's Realtime Database is reached over both https and wss, and newer
 // projects use *.firebasedatabase.app rather than *.firebaseio.com, so both
 // hosts are named. The Google sign-in popup needs accounts.google.com in
-// frame-src. Dropping any of these turns into a silent auth failure, which is
-// exactly the kind of breakage that survives a code review.
+// frame-src and googleapis.com in script-src. Dropping any of these turns into
+// a silent auth failure, which is exactly the kind of breakage that survives a
+// code review.
 const contentSecurityPolicy = [
   "default-src 'self'",
   // 'unsafe-inline' for scripts is required by Next's hydration bootstrap, and
   // for styles because the app sets inline style attributes from React.
-  "script-src 'self' 'unsafe-inline'",
+  // googleapis.com is required for Google Sign-In and Google Tools (Calendar, Tasks, etc.)
+  "script-src 'self' 'unsafe-inline' https://apis.google.com https://accounts.google.com",
   "style-src 'self' 'unsafe-inline'",
   "img-src 'self' data: blob:",
   "font-src 'self' data:",
-  "connect-src 'self' https://identitytoolkit.googleapis.com https://securetoken.googleapis.com https://*.firebaseio.com https://*.firebasedatabase.app wss://*.firebaseio.com wss://*.firebasedatabase.app",
+  "connect-src 'self' https://identitytoolkit.googleapis.com https://securetoken.googleapis.com https://*.firebaseio.com https://*.firebasedatabase.app wss://*.firebaseio.com wss://*.firebasedatabase.app https://apis.google.com https://accounts.google.com",
   "frame-src 'self' https://accounts.google.com",
   "worker-src 'self' blob:",
   "manifest-src 'self'",
