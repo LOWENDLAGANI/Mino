@@ -48,6 +48,10 @@ const securityHeaders = [
   { key: "X-Content-Type-Options", value: "nosniff" },
   { key: "Referrer-Policy", value: "strict-origin-when-cross-origin" },
   {
+    key: "Cross-Origin-Opener-Policy",
+    value: "same-origin-allow-popups", // Added to allow the Google auth popup to talk to your app
+  },
+  {
     key: "Permissions-Policy",
     // Camera and microphone are used by the composer (photo capture, voice
     // input) so they stay on for this origin only. Everything else the app has
