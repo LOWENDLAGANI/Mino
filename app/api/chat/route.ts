@@ -17,7 +17,6 @@ import {
   AZURE_FLOOR,
   DUST_THRESHOLD,
   calcDewCost,
-  canAfford,
   estimateTokenUsage,
   outOfDewMessage,
   tierForRequest,
@@ -184,7 +183,7 @@ function canStartRequest(state: DewState, mode: ModeId): boolean {
   // Mino Azure is the pro tier, whose smallest plausible answer is roughly a
   // tenth of a Dew; refusing a fraction above zero there still burns request
   // slots on callers who could never afford the output anyway.
-  const floor = mode === "self" ? 0.25 : DUST_THRESHOLD;
+  const floor = mode === "self" ? AZURE_FLOOR : DUST_THRESHOLD;
   return state.balance >= floor;
 }
 

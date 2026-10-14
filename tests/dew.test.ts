@@ -84,12 +84,19 @@ assert.equal(dewBalanceFrom({ spent: 5 }), 0);
 assert.equal(dewBalanceFrom({ credits: { TRIAL: 25 }, spent: -3 }), 25);
 
 // ── Sum credits ───────────────────────────────────────────────────────────────
+//
+// sumCredits is the accumulator dewBalanceFrom subtracts spent *in*, so it
+// answers in millidew — 1000 to the Dew — and the division back into Dew
+// happens there. Asserting 125 here would put the test in a different unit
+// from the contract the function documents and the balance above proves.
 
 assert.equal(sumCredits(null), 0);
 assert.equal(sumCredits({}), 0);
-assert.equal(sumCredits({ TRIAL: 25, CODE1: 100 }), 125);
-assert.equal(sumCredits({ TRIAL: 25, bad: "not a number", CODE1: 100 }), 125);
-assert.equal(sumCredits({ TRIAL: 25, negative: -10, CODE1: 100 }), 125);
+assert.equal(sumCredits({ TRIAL: 25, CODE1: 100 }), 125_000);
+assert.equal(sumCredits({ TRIAL: 25, bad: "not a number", CODE1: 100 }), 125_000);
+assert.equal(sumCredits({ TRIAL: 25, negative: -10, CODE1: 100 }), 125_000);
+// …and in the Dew the interface prints, that same credit is 125.
+assert.equal(dewBalanceFrom({ credits: { TRIAL: 25, CODE1: 100 }, spent: 0 }), 125);
 
 // ── nextSpent ─────────────────────────────────────────────────────────────────
 

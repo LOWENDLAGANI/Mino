@@ -56,6 +56,39 @@ type FirebaseServices = {
 let services: FirebaseServices | null = null;
 let servicesPromise: Promise<FirebaseServices | null> | null = null;
 
+/** The most the first Firebase call may hold the app hostage.
+ *
+ * `authStateReady` and `signInAnonymously` are ordinary network awaits —
+ * they resolve in milliseconds when the network is fine and never resolve at
+ * all when one of Firebase's hosts is being held open by a proxy or an
+ * extension. Callers awaited them bare, so a router that drops nothing, a
+ * captive portal or a company SSL box kept the whole page on its loading
+ * gate for good. Everything after this cap still runs; the deadline is only
+ * on *answering the first question*, not on the account service itself:
+ * a `services` that arrives later is a perfectly good one and callers on a
+ * fresh mount read the then-current user anyway.
+ */
+const FIRST_ANSWER_TIMEOUT_MS = 8_000;
+
+function withTimeout<T>(promise: Promise<T>, milliseconds: number): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(
+      () => reject(new Error(`timed out after ${milliseconds}ms`)),
+      milliseconds
+    );
+    promise.then(
+      (value) => {
+        clearTimeout(timer);
+        resolve(value);
+      },
+      (error) => {
+        clearTimeout(timer);
+        reject(error);
+      }
+    );
+  });
+}
+
 export async function getServices(): Promise<FirebaseServices | null> {
   if (!firebaseConfigured || typeof window === "undefined") return null;
 
@@ -78,15 +111,24 @@ export async function getServices(): Promise<FirebaseServices | null> {
         // Continue anyway; the app should still function without persistence.
       }
 
-      const restoredUser = auth.currentUser ?? (await auth.authStateReady());
+      // Every await from here is bounded by the deadline above. A hung
+      // identity or database request throws out of this whole block, the
+      // services handle stays null and every caller degrades to its local
+      // answer — the page keeps breathing instead of holding a spinner.
+      const restoredUser = withTimeout(
+        auth.currentUser ? Promise.resolve(auth.currentUser) : auth.authStateReady().then(() => auth.currentUser),
+        FIRST_ANSWER_TIMEOUT_MS
+      );
 
       // Sign in anonymously if no user is present
-      if (!restoredUser) {
+      const present = await restoredUser;
+      if (!present) {
         try {
-          await signInAnonymously(auth);
+          await withTimeout(signInAnonymously(auth), FIRST_ANSWER_TIMEOUT_MS);
         } catch {
-          // If anonymous sign-in fails, the app may still recover later
-          // when the user explicitly signs in or when the connection recovers.
+          // A hung or refused anonymous sign-in is not fatal: the app runs
+          // without an identity until something explicitly signs in, and a
+          // later caller can retry getServices.
         }
       }
 
@@ -99,7 +141,7 @@ export async function getServices(): Promise<FirebaseServices | null> {
         ensureUser: async () => {
           const current = auth.currentUser;
           if (current) return current;
-          return (await signInAnonymously(auth)).user;
+          return (await withTimeout(signInAnonymously(auth), FIRST_ANSWER_TIMEOUT_MS)).user;
         },
       };
 

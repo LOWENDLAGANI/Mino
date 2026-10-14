@@ -67,6 +67,13 @@ import { parseRetrySeconds } from "@/lib/rateLimit";
     exists only so the send path has one variable to address either kind of
     chat by, and it can never collide with a real id, which is a uuid. */
 const TEMP_CHAT_ID = "temporary";
+
+/** The most the account-resolution gate will wait on one remote answer — 10 s
+    is generous for a healthy connection. A held-open socket is a question the
+    network may never answer, and waiting forever on it is what left returning
+    visitors staring at a pulsing logo. */
+const ACCOUNT_RESOLVE_TIMEOUT_MS = 10_000;
+
 import { useMaintenance } from "@/lib/useMaintenance";
 import SplashScreen from "@/components/SplashScreen";
 import InstallPrompt from "@/components/InstallPrompt";
@@ -254,9 +261,26 @@ export default function HomePage() {
         // browser was closed has to be able to hand it over on the next open.
         // The name is a separate question and only asked when this browser has
         // none, so a guest is never made to wait on a database read.
-        if (!cancelled) await loadChatsFromAccount();
+        //
+        // Each half answers on the date it is able to. A hung database request
+        // (a proxy holding the socket open never fails, it just never says
+        // anything) must not hold the gate shut forever — the cap below gives
+        // up waiting and settles with local data instead. The pull retries on
+        // the next visit, and a name Mino already knows is sitting in
+        // localStorage regardless.
+        try {
+          await Promise.race([
+            loadChatsFromAccount(),
+            new Promise((resolve) => setTimeout(resolve, ACCOUNT_RESOLVE_TIMEOUT_MS)),
+          ]);
+        } catch {
+          // Local history stands; the pull runs again next visit.
+        }
         if (!cancelled && !loadDisplayName()) {
-          const accountName = await loadAccountName();
+          const accountName = await Promise.race([
+            loadAccountName(),
+            new Promise<null>((resolve) => setTimeout(() => resolve(null), ACCOUNT_RESOLVE_TIMEOUT_MS)),
+          ]);
           if (!cancelled && accountName) setDisplayName(saveDisplayName(accountName));
         }
       } catch {

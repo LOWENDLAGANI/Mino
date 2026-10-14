@@ -77,7 +77,7 @@ function CurrentPlan({ subscription }: { subscription: Subscription }) {
   const daysLeft = Math.max(0, Math.ceil((subscription.expiresAt - Date.now()) / 86_400_000));
 
   return (
-    <section className="relative overflow-hidden rounded-[26px] border border-[#2f6b48]/30 bg-[#2f6b48]/[0.07] p-5 shadow-[0_0_50px_-20px_rgba(47,107,72,0.7)] sm:p-6">
+    <section className="relative mt-5 overflow-hidden rounded-[26px] border border-[#2f6b48]/30 bg-[#2f6b48]/[0.07] p-5 shadow-[0_0_50px_-20px_rgba(47,107,72,0.7)] sm:p-6">
       <div className="flex items-start gap-3">
         <span className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-[#2f6b48]">
           <svg
@@ -223,7 +223,15 @@ export default function MinoPlusPage() {
   // Dew is keyed on the uid, which every identity has, so the wallet shows for
   // all of them. The legacy subscription purchase flow still requires a
   // Google-linked account, so that gate reads `googleLinked` separately.
-  const signedIn = account !== null;
+  //
+  // It is deliberately *not* `account !== null`. `watchAccount` answers for
+  // every deployment, including one where Firebase is not configured or cannot
+  // be reached — reporting "unconfigured" rather than "nobody". Treating any
+  // answer as signed in put a wallet reading "0 Dew" and four top-up packs in
+  // front of a browser that can never hold a balance, which is exactly the
+  // broken-looking page this section is here to avoid. The sidebar chip reads
+  // the same question and must not disagree with it.
+  const signedIn = account?.status === "guest" || account?.status === "linked";
   const googleLinked = account?.isLinked ?? false;
   const canShowWallet = signedIn;
 
@@ -266,7 +274,7 @@ export default function MinoPlusPage() {
           <Link
             href="/"
             aria-label="Back to Mino"
-            className="lift inline-flex h-11 w-11 items-center justify-center rounded-full bg-white/[0.07] text-white/80 transition-colors hover:bg-white/[0.12] hover:text-white"
+            className="lift mb-6 flex h-11 w-11 items-center justify-center rounded-full bg-white/[0.07] text-white/80 transition-colors hover:bg-white/[0.12] hover:text-white"
           >
             <svg
               width="22"

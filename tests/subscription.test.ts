@@ -519,10 +519,19 @@ test("the payment QR cannot be reached without an account", () => {
   // anyone, because the owner would have no way to tell whose money it was.
   const page = code("app/plus/page.tsx");
   assert.match(page, /watchAccount/, "the page knows whether this browser is signed in");
+  // Signed in is not enough. An anonymous identity carries no address, so a
+  // transfer made from one still could not be traced back to the person who
+  // paid: the QR opens only for a Google-linked account, and everything else
+  // — signed out, signing in, or an unnamed guest — meets the gate first.
   assert.match(
     page,
-    /if \(signedIn\) setPaying\(wanted\);\s*else setGating\(wanted\);/,
-    "the QR opens for a signed-in browser and only a gate opens for one that is not"
+    /if \(googleLinked\) setPaying\(wanted\);\s*else setGating\(wanted\);/,
+    "the QR opens for a Google-linked browser and only a gate opens for one that is not"
+  );
+  assert.match(
+    page,
+    /const signedIn = account\?\.status === "guest" \|\| account\?\.status === "linked";/,
+    "and a browser is only signed in when a verified identity stands behind it"
   );
   assert.match(page, /<SubscribeGate/, "the gate is what stands in the way");
   // The buyer's own button must never reach the QR directly, or the gate would

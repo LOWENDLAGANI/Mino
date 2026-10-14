@@ -20,17 +20,29 @@ import { withSentryConfig } from "@sentry/nextjs/config";
 // frame-src and googleapis.com in script-src. Dropping any of these turns into
 // a silent auth failure, which is exactly the kind of breakage that survives a
 // code review.
+const isDev = process.env.NODE_ENV !== "production";
+const devEval = isDev ? " 'unsafe-eval'" : "";
+
 const contentSecurityPolicy = [
   "default-src 'self'",
   // 'unsafe-inline' for scripts is required by Next's hydration bootstrap, and
   // for styles because the app sets inline style attributes from React.
   // googleapis.com is required for Google Sign-In and Google Tools (Calendar, Tasks, etc.)
-  "script-src 'self' 'unsafe-inline' https://apis.google.com https://accounts.google.com",
+  // 'unsafe-eval' is added below for `next dev` only. React Refresh — the hot
+  // reload runtime — evaluates a string to register each component, and without
+  // it every page of the development site renders as an empty black screen with
+  // an EvalError in the console. Production never gets the directive.
+  `script-src 'self' 'unsafe-inline'${devEval} https://apis.google.com https://accounts.google.com`,
   "style-src 'self' 'unsafe-inline'",
   "img-src 'self' data: blob:",
   "font-src 'self' data:",
   "connect-src 'self' https://identitytoolkit.googleapis.com https://securetoken.googleapis.com https://*.firebaseio.com https://*.firebasedatabase.app wss://*.firebaseio.com wss://*.firebasedatabase.app https://apis.google.com https://accounts.google.com",
-  "frame-src 'self' https://accounts.google.com https://*.firebaseapp.com",
+  // Google sign-in needs two frames: accounts.google.com, and the Firebase auth
+  // helper page the SDK opens at the project's hosting domain. Firebase Hosting
+  // serves a project at both *.firebaseapp.com and *.web.app, so both are named
+  // — if the authDomain is ever the .web.app one, a missing entry here breaks
+  // sign-in for every visitor with a frame-src violation that is easy to miss.
+  "frame-src 'self' https://accounts.google.com https://*.firebaseapp.com https://*.web.app",
   "worker-src 'self' blob:",
   "manifest-src 'self'",
   "object-src 'none'",

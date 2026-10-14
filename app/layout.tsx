@@ -1,4 +1,5 @@
 import type { Metadata, Viewport } from "next";
+import AuthWarmup from "@/components/AuthWarmup";
 import ServiceWorker from "@/components/ServiceWorker";
 import SubscriptionCelebration from "@/components/SubscriptionCelebration";
 import PlanExpiryBanner from "@/components/PlanExpiryBanner";
@@ -80,6 +81,9 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
   return (
     <html lang="en" className="dark">
       <body className="h-[100dvh]">
+        {/* Starts the Firebase account service on mount, so the Google sign-in
+            popup can open inside the click that asks for it. See the component. */}
+        <AuthWarmup />
         {children}
         {/* Mounted here rather than in one page, because a purchase is not tied
             to a screen: whoever is granted a plan must be told about it whether
