@@ -68,11 +68,11 @@ import { parseRetrySeconds } from "@/lib/rateLimit";
     chat by, and it can never collide with a real id, which is a uuid. */
 const TEMP_CHAT_ID = "temporary";
 
-/** The most the account-resolution gate will wait on one remote answer — 10 s
-    is generous for a healthy connection. A held-open socket is a question the
-    network may never answer, and waiting forever on it is what left returning
-    visitors staring at a pulsing logo. */
-const ACCOUNT_RESOLVE_TIMEOUT_MS = 10_000;
+/** The most the account-resolution gate will wait on one remote answer — 3 s
+    is comfortably longer than a healthy single read. A held-open socket is a
+    question the network may never answer, and waiting forever on it is what
+    left returning visitors staring at a pulsing logo. */
+const ACCOUNT_NAME_TIMEOUT_MS = 3_000;
 
 import { useMaintenance } from "@/lib/useMaintenance";
 import SplashScreen from "@/components/SplashScreen";
@@ -229,71 +229,80 @@ export default function HomePage() {
         console.error("[Mino] Could not log the visitor name", error);
       });
     }
-  }, []);
+  }, []);    // A name typed on this device is the authority, and a linked account brings
+    // both the name and the chat history with it. This runs on every visit rather
+    // than only on sign-in, so a conversation written on a phone while this
+    // browser was closed is here the next time it is opened.
+    //
+    // Only the *name* is allowed to hold the first paint, and only when this
+    // browser has none to greet someone by — a single small read, capped at a
+    // few seconds. Making the whole screen wait on that one read at most is
+    // deliberate; an earlier version held it open for the chat-history pull
+    // too, and on anything less than a perfect connection that left the gate
+    // open as long as history is long, while the history itself is needed by
+    // nobody who is looking at a loading screen. The pull now continues in the background instead, and the live
+    // database query already watching `chats` puts the conversations on screen
+    // the moment they land — visibly later, but usable from the first paint.
+    useEffect(() => {
+      if (!hydrated) return;
+      let cancelled = false;
+      const settle = () => {
+        if (!cancelled) setResolvingAccount(false);
+      };
 
-  // A name typed on this device is the authority, and a linked account brings
-  // both the name and the chat history with it. This runs on every visit rather
-  // than only on sign-in, so a conversation written on a phone while this
-  // browser was closed is here the next time it is opened.
-  useEffect(() => {
-    if (!hydrated) return;
-    let cancelled = false;
-    const settle = () => {
-      if (!cancelled) setResolvingAccount(false);
-    };
+      if (!firebaseConfigured) {
+        settle();
+        return;
+      }
 
-    if (!firebaseConfigured) {
-      settle();
-      return;
-    }
-
-    void (async () => {
-      try {
-        const services = await getServices();
-        // Nobody, or an anonymous visitor: there is no account to ask.
-        if (cancelled || !services?.user || services.user.isAnonymous) {
-          settle();
-          return;
-        }
-
-        // The chats that belong to this account are pulled on every visit, not
-        // only at the moment of sign-in: a phone that wrote history while this
-        // browser was closed has to be able to hand it over on the next open.
-        // The name is a separate question and only asked when this browser has
-        // none, so a guest is never made to wait on a database read.
-        //
-        // Each half answers on the date it is able to. A hung database request
-        // (a proxy holding the socket open never fails, it just never says
-        // anything) must not hold the gate shut forever — the cap below gives
-        // up waiting and settles with local data instead. The pull retries on
-        // the next visit, and a name Mino already knows is sitting in
-        // localStorage regardless.
+      void (async () => {
         try {
-          await Promise.race([
-            loadChatsFromAccount(),
-            new Promise((resolve) => setTimeout(resolve, ACCOUNT_RESOLVE_TIMEOUT_MS)),
-          ]);
-        } catch {
-          // Local history stands; the pull runs again next visit.
-        }
-        if (!cancelled && !loadDisplayName()) {
+          const services = await getServices();
+          // Nobody, or an anonymous visitor: there is no account to ask.
+          if (cancelled || !services?.user || services.user.isAnonymous) {
+            settle();
+            return;
+          }
+
+          // The chats that belong to this account are pulled on every visit, not
+          // only at the moment of sign-in: a phone that wrote history while this
+          // browser was closed has to be able to hand it over on the next open.
+          // It is deliberately unawaited — see the long comment above.
+          const pullChats = () => {
+            if (!cancelled) void loadChatsFromAccount().catch(() => {});
+          };
+
+          // A name this browser already knows is the fastest answer there is,
+          // and nothing remote can improve a greeting that exists. Settle on
+          // it straight away and let history arrive while the visitor is being
+          // welcomed back.
+          if (loadDisplayName()) {
+            settle();
+            pullChats();
+            return;
+          }
+
+          // No local name: the account's own is worth one bounded ask. If the
+          // network answers late or never, the gate opens anyway and the name
+          // prompt stands where it would have — nothing here can decide a
+          // greeting, so there is no reason to keep the screen dark for it.
           const accountName = await Promise.race([
             loadAccountName(),
-            new Promise<null>((resolve) => setTimeout(() => resolve(null), ACCOUNT_RESOLVE_TIMEOUT_MS)),
+            new Promise<null>((resolve) => setTimeout(() => resolve(null), ACCOUNT_NAME_TIMEOUT_MS)),
           ]);
           if (!cancelled && accountName) setDisplayName(saveDisplayName(accountName));
+          settle();
+          pullChats();
+        } catch {
+          // No account, no rule for one, or offline. Local data stands.
+          settle();
         }
-      } catch {
-        // No account, no rule for one, or offline. Local data stands.
-      } finally {
-        settle();
-      }
-    })();
+      })();
 
-    return () => {
-      cancelled = true;
-    };
-  }, [hydrated]);
+      return () => {
+        cancelled = true;
+      };
+    }, [hydrated]);
 
   useEffect(() => {
     if (!hydrated || !firebaseConfigured) return;
