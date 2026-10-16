@@ -5,9 +5,10 @@
 // token — the rules already allow an owner to write their own subtree, so
 // this needs no credential and no admin involvement.
 //
-// One thing it deliberately keeps: the subscription. A paid plan belongs to
+// One thing it deliberately keeps: the Dew balance. Paid-for credits belong to
 // the person, not to the chat history, and an eraser that silently ate a
-// purchase would be the kind of "privacy" feature that generates support mail.
+// top-up would be the kind of "privacy" feature that generates support mail —
+// which is why `dew/{uid}` is simply not on the list of paths below.
 
 import { remove, ref } from "firebase/database";
 import { db } from "./db";

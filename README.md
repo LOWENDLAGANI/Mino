@@ -9,7 +9,7 @@ Built with **Next.js 15 (App Router)**, **React 19**, **TypeScript**, **Tailwind
 - **Zero-login persistence** — chats and messages live in the current browser’s IndexedDB via Dexie; when Firebase is configured they are also written to Realtime Database under the signed-in identity, and an account holder gets them back on any other browser they sign in from
 - **Optional Google account** — Mino works with just a name. Binding a Google account from the welcome screen or Settings is a migration that keeps the same UID, so the chats and the name carry to another browser. It grants no administrator access and shares no code path with the console
 - **Two modes** — **Mino Auto** routes every message to the best available model; **Mino Code** uses Mino V3, tuned for code and technical work. Each mode is powered by its own server-side API key, with automatic fallback if one is missing. Picking Code always opens a **separate session**, so a code conversation is never continued under a different model's answers.
-- **Mino Azure** — Mino's own model, served from a Gradio Space on Hugging Face. It needs no vendor key, is never used to answer a Code question, and never silently replaces the model a user chose (see [Mino Azure](#mino-azure-the-gradio-space)). **It is part of Mino Lunar** — see [The paywall](#the-paywall)
+- **Mino Azure** — Mino's own model, served from a Gradio Space on Hugging Face. It needs no vendor key, is never used to answer a Code question, and never silently replaces the model a user chose (see [Mino Azure](#mino-azure-the-gradio-space)). **It is billed at the pro tier** — see [Pay as you go (Dew)](#pay-as-you-go-dew)
 - **Mino's own model names** — the product never shows a vendor or a vendor's version numbers. Users see **Mino V1**, **Mino V2**, and **Mino V3** (the oldest, middle, and newest model), and **Mino Auto** for the router. The wire-level provider names stay server-side.
 - **Code you can copy** — in Code mode every file arrives as a code block labelled with its path (`` ```ts src/lib/thing.ts ``) and a **Copy** button, so it pastes straight into a local editor. The model is asked for complete files rather than fragments, because a partial file gives the reader no way to tell what was left out.
 - **Secure API keys** — provider keys are only ever read server-side in the `/api/chat` Route Handler; the admin console holds no service-account credential at all
@@ -27,7 +27,7 @@ Built with **Next.js 15 (App Router)**, **React 19**, **TypeScript**, **Tailwind
 - **Image gallery** — every image made or sent, in one grid behind the sidebar's icon, each jumping back to its conversation
 - **Palette search** — the sidebar's search is an icon (or Ctrl/Cmd+K) opening a palette across chat titles and messages, instead of a section that takes over the rail
 - **Token counts per message** — each answer shows what it cost, with the prompt/completion split on hover
-- **Your data** — Settings → *Your data* exports a backup and erases everything — local tables, logged chats, usage, push subscriptions — behind a two-tap button that deliberately keeps the plan
+- **Your data** — Settings → *Your data* exports a backup and erases everything — local tables, logged chats, usage, push subscriptions — behind a two-tap button that deliberately keeps the Dew balance
 - **Web push that survives a reload** — notification subscriptions are stored under the account rather than the tab, deduplicated by endpoint, and the console's **Push** button broadcasts to every persisted subscriber
 - **Memory** — up to 20 short facts about you, sent with every request, written by you from the `+` menu or **offered** by Mino under the chat for you to approve. Always visible in Settings, always editable, and never extended by the model on its own (see [Memory](#memory))
 - **Settings** — a single panel in the sidebar for web search mode, response length, reasoning effort (low/medium/high, default low), and dark/light appearance; the composer's `+` menu stays limited to per-message tools
@@ -180,105 +180,56 @@ The old `admin/pinHash` node is unused and can be deleted from the Firebase cons
 
 Browsing conversations, listing people, and wiping data all go through `lib/firebaseAdmin.ts`, which calls the Realtime Database directly from the browser under those rules. There is no API route and no server-side credential: the deployment environment holds no `FIREBASE_ADMIN_*` variables and never needs a key pasted into a dashboard.
 
-A wiped user loses `users/{uid}`, `admin/registry/{uid}` and `subscriptions/{uid}`; a full wipe clears all three trees. `.validate` rules are not evaluated on delete, so neither operation is blocked by the schema checks.
+A wiped user loses `users/{uid}` and `admin/registry/{uid}`; a full wipe clears both trees, along with the usage counters. `.validate` rules are not evaluated on delete, so neither operation is blocked by the schema checks. The Dew balance at `dew/{uid}` is deliberately left alone: paid-for credits belong to the person rather than to the chat history.
 
-## Subscriptions (Mino Mini and Mino Lunar)
+## Pay as you go (Dew)
 
-**Mino is paid for by QR transfer, and the subscription is granted by hand.** There is no payment gateway and no webhook: a buyer sends RM 10 (Mini) or RM 15 (Lunar) to the DuitNow QR on `/plus`, the owner sees the money arrive, and the owner grants the plan from the admin console. `lib/plans.ts` holds both tiers — price, features, QR — and nothing else hardcodes them.
+**Mino is billed in Dew, per request.** There are no plans, no terms and no renewal dates left in the product: every message is charged for the tokens it actually uses, every generated picture costs one Dew, and the balance simply spends down as somebody chats. One Dew is 1/100 of a US dollar of model use, and the whole price table lives in one place — `lib/dew.ts`:
 
-**You must be signed in before the QR opens.** A plan belongs to an *account*, not to a browser, so that it survives losing the device — which means `/plus` puts a Google sign-in in front of the payment QR. A signed-out browser that presses **Get Mini / Get Lunar** gets the sign-in gate first; a browser that has never sent a message, installed the app, or changed phones still finds the plan waiting, and the grant always lands on an identity that can be identified. The account is *bound* to the anonymous identity the browser already has (`linkWithPopup`), so the UID does not change and nothing already logged under it moves.
-
-It is a requirement, not an upsell, and the pricing page says so before anyone presses the button. A deployment with no Firebase configured has no accounts and no database to record a grant in, so it takes no subscription at all and says why.
-
-**How a grant is made.** In the admin console, under **People**, press **Plan** beside the person who paid, choose the tier, choose the length, optionally type the reference their banking app showed, and press **Grant**. The tier is chosen first and granted second on purpose: one button that grants whatever is highlighted is one stray tap away from selling the wrong tier. The same panel offers **Remove plan**, and each subscriber's tier is shown on their row.
-
-The length is any number of days: the named spans the pricing page sells (a day, a week, a month, 3 months, a year) as buttons, plus −/+ and a free day count for the span nobody sells — somebody who paid for six weeks gets six weeks. It is deliberately not a calendar: a grant is a length, not a date.
-
-The People list is everyone who has ever been here, **including people who have never sent a message** — the person you most often need to grant to is one who opened `/plus`, scanned the QR, transferred and left, and they exist only in `admin/registry`. Search by name with the field above the list.
-
-## Durations and pricing
-
-A subscription is stored as **a number of days**, which is the whole model. A day is now the shortest thing that can be bought, and storing "months" would have made that unrepresentable the moment anybody bought one.
-
-| | A day | A month | A year |
+| Tier | Input (per 1,000 tokens) | Output (per 1,000 tokens) | Used by |
 |---|---|---|---|
-| **Mino Mini** | RM 1 | RM 10 | RM 100 |
-| **Mino Lunar** | RM 1.50 | RM 15 | RM 150 |
+| fast | 0.015 Dew | 0.06 Dew | Auto and Code, when nobody asked for more reasoning |
+| pro | 0.25 Dew | 1.00 Dew | Mino Azure, and any request that asked for medium or high reasoning |
 
-Prices live in `lib/plans.ts` as `terms` on each plan, and everything follows from them — the pricing page's length buttons, the amount printed next to the QR, the receipt in the success dialog, and the renewal sentence. The monthly price is a plan's headline (`ringgit`) and is what a renewal quotes.
+An image costs `IMAGE_DEW_COST` (1 Dew), charged only after the picture exists — a failed generation is never billed. A new account is granted `TRIAL_DEW` (25) exactly once, pinned at that value by the rules.
 
-Thirty-day months and 365-day years, not calendar arithmetic. A buyer who starts on the 31st loses a day, and that is stated on the button rather than hidden: the exact end date is printed on the pricing page and again in the dialog that follows the payment. A year is ten months, because nobody should have to be talked into one.
+**Buying Dew is a QR transfer, like everything else Mino sells.** `/plus` shows the balance, four packs with their ringgit prices, and the shared DuitNow QR. There is no payment gateway and no webhook: the owner matches the transfer and hands over a code, or the buyer redeems a code they were given directly.
 
-A subscription granted before durations existed carries `months` and no `days`; those records are read back as thirty-day months, which is exactly what they were granted as.
-
-## The paywall
-
-**The paywall is one table.** `FEATURE_MIN_PLAN` in `lib/paywallState.ts` maps each gated capability to the cheapest plan that opens it, and everything else is derived from it:
-
-| Capability | Free | Mini | Lunar |
-|---|---|---|---|
-| Auto and Code modes, attachments, history, web search | ✓ | ✓ | ✓ |
-| Advanced reasoning, image creation | — | ✓ | ✓ |
-| **Mino Azure** — Mino's own model | — | — | ✓ |
-
-Every row is something Mino actually does, and every row marked as paid is enforced in the route handlers. `FEATURES` in `lib/plans.ts` carries an `enforced` flag and a test refuses to let anything be sold as paid without a matching entry in the paywall — a row for a feature the product does not have is not marketing, it is something a buyer pays money to discover.
-
-**Mino Azure is Lunar's.** Nobody on the free tier or on Mini can pick it. The mode stays *visible* in the selector with a padlock and what it would take — a mode that silently disappears is a question nobody asks out loud — and pressing it goes to the pricing page, so somebody locked out of Azure sees the whole table rather than a one-line refusal.
-
-A lapsed plan leaves the user somewhere they can still write: if the stored preference is a mode this plan no longer opens, it is moved out of it (Auto is always open). It only ever moves them *out* of a locked mode, never into one.
+**Top-ups belong to an account.** Dew is keyed on the uid, so `/plus` shows the wallet only for a verified identity — anonymous or Google-linked — and says so, rather than showing a browser that can never hold a balance a balance of zero.
 
 ### Enforced on the server
 
-**The client gate is advisory; the route handler is the boundary.** `lib/paywallState.ts` decides what the page shows — the padlock, the sentence, where the button leads — and all of that runs on a device the person controls, so it is kept for the interface and trusted for nothing. The decision that counts is made in `lib/paywallServer.ts`, called from `app/api/chat/route.ts` and `app/api/image/route.ts`.
-
 The rule is that the server never believes the client about money:
 
-- **The plan comes from the database.** `lib/serverPlan.ts` reads `subscriptions/{uid}` and hands the route a plan or nothing. There is no code path that accepts a plan from the request body, a header, or a query string, so a caller who edits the bundle to claim Lunar gains nothing. A test fails if one ever appears.
-- **Identity is the server's own.** The uid comes from `verifyCaller`, which checks the Firebase ID token with Google; the plan read forwards that same token, so `database.rules.json` judges it exactly as it would for the browser. There is still no service account, and reading somebody else's plan is refused by the rules rather than by a check here.
-- **A failed read is no plan.** An unconfigured deployment, an unpublished rules file, or a database that is briefly unreachable all resolve to *free*, never to *allowed*. The one outage in which the paywall could be tested is not the one in which it disappears.
-- **The administrator is exempt**, derived from the verified identity, so the person who grants plans can still see what they open.
+- **The balance comes from the database.** `lib/serverDew.ts` reads `dew/{uid}` — credits minus spent — and both routes derive it with `resolveDew`, using the caller's own verified token. There is no code path that accepts a balance from a request body, a header or a query string; `tests/dew.test.ts` fails if one ever appears.
+- **The check runs before the model does.** `canStartRequest` refuses a caller below the dust threshold ahead of any provider call, so a request nobody can pay for never spends the deployment's quota.
+- **The charge is a conditional write.** `deductDew` reads the `spent` node with `X-Firebase-ETag` and writes it back with `If-Match`, so two overlapping requests cannot both write their charge and lose one. A location that has never been written is conditioned on the documented `null_etag` — without it the *first* charge on an account would be a guaranteed 412, and the balance would never move for anyone. A 412 means somebody else's charge landed in between: it is re-read and placed once, never looped, because a double charge is worse than a shortfall the route logs.
+- **The deduction is awaited.** The answer is already on screen when it runs, but the stream stays open until the write answers: once a streaming response closes, a serverless deployment is free to freeze the process, and a charge still in flight is a charge that never happens.
+- **A failed read is an empty balance.** An unconfigured deployment, an unpublished rules file or a database that is briefly unreachable resolve to *no credit*, never to credit. The one outage in which billing can be tested is not the one in which it disappears.
+- **The administrator is exempt**, derived from the verified identity, so the person who mints the credits can still use the product.
 
-Refusals name what is missing and where to go, reusing the wording the lock badge already shows, so the sentence in the chat is the sentence on the pricing page. Reasoning is the one setting that is **clamped** rather than refused when it was not explicitly asked for: Code mode defaults one notch above plain chat, and a free user's default is lowered to what their plan allows instead of the request being turned away. An *explicit* request for a paid setting is refused outright.
+What is on screen comes from the same derivation: `lib/useDew.ts` is one shared store rather than one hook state per component, every chip re-reads together when a message finishes or a code lands, and it asks `/api/dew` rather than the node itself — so the number and the number being billed against are computed by the same code.
 
 ## Redeem codes
 
-**A code is a word the owner chooses, carrying a plan and a length.** It is the piece that makes a hand-checked sale work at a distance: the buyer gets something they can hold onto and type themselves, instead of the owner copying dates into somebody's account over a phone call. Codes are made in the console's **Redeem codes** section, switched on and off there, and redeemed on `/plus` under *Got a code?*.
+**A code is a word the owner chooses, carrying an amount of Dew.** It is the piece that makes a hand-checked sale work at a distance: the buyer gets something they can hold onto and type themselves, instead of the owner typing an amount into somebody's account over a phone call. Codes are made in the console's **Redeem codes** section, switched on and off there, and redeemed on `/plus` under *Got a code?*.
 
-**The claim carries no plan.** This is the whole design. A claim node contains the code name and a timestamp and nothing else; the plan and the duration are read from the code record itself, by the server, at the moment the plan is enforced. If the claim said `plan: "lunar"` then anything able to write a claim could write itself a plan, and the enforcement above would be reading a value the visitor controls. So the visitor chooses a word and nothing more. `tests/redeem.test.ts` fails if `plan`, `days` or an expiry ever appear in a claim.
+**The claim carries no amount.** This is the whole design. A claim node contains the code name and a timestamp and nothing else; the amount is read from the code record itself, by the server, at the moment the balance is resolved. If the claim said `dew: 1000`, then anything able to write a claim could write itself a balance, and the rule that pins the credit would be checking a value the visitor controls. So the visitor chooses a word and nothing more. `tests/redeem.test.ts` fails if an amount, a plan or an expiry ever appears in a claim — and it fails if any subscription code reappears in the app.
 
 **A code is a switch, not a deletion.** Switching one off stops it for everyone — *including somebody who already claimed it*, because the server re-checks `active` on every request rather than trusting the claim to have been made while the code was on. That is what makes the console's *Terminate* mean what an owner expects it to mean, and it is why termination is enforced in two places:
 
 - the rules refuse the **write** of a claim against a code that is off, so a modified client cannot claim one at all;
-- the server re-checks on **every request**, so a claim made before the switch stops counting too.
+- the server re-checks on **every request**, so a claim made before the switch credits nothing.
 
 One check without the other leaves a hole. Rules alone keep honouring claims made earlier; the server alone lets the claim be written and only refuses to honour it.
 
-**Codes cannot be listed.** `codes/$code` is readable only by somebody signed in, and only when they already know the word — the parent is not readable, so there is no way to enumerate them. Words are normalized to upper case with no spaces, so `mino-lunar` and `MINO LUNAR` are one code rather than two a buyer can be given by mistake, and a word shorter than four characters is refused before it can be created.
+**Codes cannot be listed.** `codes/$code` is readable only by somebody signed in, and only when they already know the word — the parent is not readable, so there is no way to enumerate them. Words are normalized to upper case with no spaces, so `mino-topup` and `MINO TOPUP` are one code rather than two a buyer can be given by mistake, and a word shorter than four characters is refused before it can be created.
 
-**A code does not expire and is not counted.** Its whole lifetime is the owner's switch. There is deliberately no "redeemed N times" limit: counting would need a write to `codes/`, which the rules reserve for the administrator, and the deployment holds no service account to do it another way. A counter stuck at zero beside a console reading `0/1 used` would be a control that looks real and does nothing, and a "used up" refusal nothing could ever reach is worse than having no such state. One word, one shared plan, and **Terminate** the moment a word starts being resold — which is the moment that actually matters.
+**A code does not expire and is not counted.** Its whole lifetime is the owner's switch. There is deliberately no "redeemed N times" limit: counting would need a write to `codes/`, which the rules reserve for the administrator, and the deployment holds no service account to do it another way. A counter stuck at zero beside a console reading `0/1 used` would be a control that looks real and does nothing. One word, one shared balance, and **Terminate** the moment a word starts being resold — which is the moment that actually matters.
 
-**Redeeming and paying stack.** A claimed code and a paid grant are combined rather than ranked against each other, and the **higher tier always wins** — somebody redeeming a Lunar code while holding Mini must not land back on Mini because Mini happens to run longer. Same tier takes the later end date, so a renewal adds to a buyer rather than replacing what they had.
+**Old plan-shaped codes are dead.** `codes/$code` is validated to carry a Dew amount, so a record from the subscription days (`plan` + `days`, no `dew`) parses to nothing, grants nothing, and cannot be written back. The owner recreates it as a Dew code.
 
-## Visitor names
-
-**What the buyer sees.** The grant writes `subscriptions/{uid}` — the node their browser is already subscribed to — so a tab that is open shows **Payment received** the moment it is written, with the plan, what they paid, how long it was for, when it was activated, the exact date it ends, and the payment reference. If they were not on the site, it is waiting on their next visit. **It is shown exactly once**, and afterwards it never appears again for that grant; a renewal is a new grant and is announced once in turn.
-
-**The pricing page knows what you already have.** A visitor holding an active plan is shown it at the top with a tick and its full receipt — plan, length, price, days left, exact end date — and the plans they could move to are laid out underneath as an upgrade, listing exactly what each one adds. The buy button then reads *Add a month of Mini* rather than *Get Mini*, because buying the plan you already hold is how time gets added to it, and the days are added to what is left.
-
-**The dialog closes only on its button.** No backdrop click, no Escape, no outside tap. This is the one screen somebody has to read, and an accidental dismissal is how someone misses that their money landed and waits a day to ask about it.
-
-**Why the record lives outside `users/`.** The rules grant a visitor `.write` on their own `users/$uid` node so their chats can be logged, and a Realtime Database grant cannot be revoked by a deeper rule. A subscription stored there could therefore be written by the person it describes. `subscriptions/` is a separate top-level tree: the administrator reads and writes it, each visitor reads only their own record, and the single thing a visitor may write is `subscriptions/$uid/ack` — the number of the grant they have already been shown.
-
-| Node | Read | Write |
-|---|---|---|
-| `subscriptions/$uid` | the owner **and** its owner | the owner only |
-| `subscriptions/$uid/ack` | the owner | **its owner**, and the owner |
-
-A grant carries an `announcementId` that goes up by one on every grant. The dialog is owed whenever that number is higher than the one the person has acknowledged — recorded in the database *and* in this browser's `localStorage`, so "after that don't show again" holds even on a deployment whose rules have not been republished, and on a second browser that has never seen the grant.
-
-**Rules that must be published.** The `subscriptions` block in `database.rules.json`. Until it is, granting still works for the administrator but a visitor's read is refused, so nobody is shown a plan they have not been given, and the acknowledgement never lands.
-
-**Expiry and renewal.** A grant lasts the number of days it was for. Granting the same tier again while it is still running **adds** to the date it already ends on, so a renewal never discards time that was paid for. Switching tier starts from today — there is no proration, and quietly carrying Mini's remaining days into a Lunar charge would invent a discount nobody agreed to. An expired grant is treated as no grant: no dialog, no paywall, and the person is shown as free in the console.
+**What the buyer sees.** Redeeming re-reads the balance immediately, so the top-up is visible on the same visit. The report this replaced was a code that "worked" followed by a screen that had not noticed — the interface now watches one number, the balance, instead of a plan a claim never wrote.
 
 ## Visitor names
 
@@ -479,7 +430,7 @@ database.rules.json    # Realtime Database rules for anonymous-user isolation an
 
 Conversations and attachments are loaded only from the current browser’s IndexedDB. If Firebase logging is configured, chat text and metadata are also written to the signed-in anonymous device identity, but the database is not read by the app. No account or email is required. When web search is enabled, the current question is sent to the search service to retrieve source context for that request.
 
-**The eraser is in Settings → *Your data*.** It clears everything the browser holds — chats, messages, folders, memories, queued schedules, trash — and removes this identity's nodes from the database (chat history, visitor registry, usage counters, push subscriptions) with the visitor's own token, so no credential and no administrator are involved. One thing it deliberately keeps: the subscription, because a paid plan belongs to the person rather than to the chat history. Ordinary deletions are gentler: a deleted chat goes to **Trash** first and stays recoverable on that device for thirty days.
+**The eraser is in Settings → *Your data*.** It clears everything the browser holds — chats, messages, folders, memories, queued schedules, trash — and removes this identity's nodes from the database (chat history, visitor registry, usage counters, push subscriptions) with the visitor's own token, so no credential and no administrator are involved. One thing it deliberately keeps: the Dew balance, because paid-for credits belong to the person rather than to the chat history. Ordinary deletions are gentler: a deleted chat goes to **Trash** first and stays recoverable on that device for thirty days.
 
 ## Dependency hygiene
 

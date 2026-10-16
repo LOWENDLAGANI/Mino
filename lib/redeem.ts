@@ -1,20 +1,21 @@
 // ── Claiming a code ──────────────────────────────────────────────────────────
 //
 // The visitor types the word and this writes one node: which code they used and
-// when. That is the entire payload — no plan, no days, no expiry.
+// when. That is the entire payload — no amount, no balance, no expiry.
 //
 // It is worth being explicit about why, because the tempting version of this
-// file would be to read the code, work out the plan, and write it into the
-// visitor's subscription. That version is a paywall with a hole in it: the
-// record would then be written by the person claiming, and a bundle edit that
-// wrote `plan: "lunar"` into it would grant exactly that. Here the visitor
-// chooses a word and nothing else; `lib/serverRedeem.ts` looks up what the word
-// is worth on the server, every time it is asked.
+// file would be to read the code, work out what it is worth, and write that into
+// the visitor's balance. That version is a paywall with a hole in it: the record
+// would then be written by the person claiming, and a bundle edit that wrote
+// `dew: 1000` into it would grant exactly that. Here the visitor chooses a word
+// and nothing else; `lib/serverRedeem.ts` looks up what the word is worth on the
+// server, every time it is asked.
 //
-// Writing the claim is separate from receiving the plan on purpose. The grant
-// itself is never written by the visitor — the rules withhold `subscriptions/`
-// from everyone but the administrator — so the claim is recorded in their own
-// node and the server folds it into what they are entitled to.
+// Writing the claim is separate from receiving the credit on purpose. The rules
+// withhold `codes/` from everyone but the administrator, and the deployment has
+// no service account of its own — so the claim is recorded in the caller's own
+// node, and the credit that follows is pinned by the rules to the amount on the
+// code record itself.
 
 import { get, ref, set } from "firebase/database";
 import { firebaseConfigured, getServices } from "./firebaseHistory";
@@ -27,7 +28,7 @@ export interface ClaimResult {
   /**
    * True when this code had already been claimed by this account.
    *
-   * Reported rather than treated as an error: the plan is already theirs, and
+   * Reported rather than treated as an error: the top-up is already theirs, and
    * telling somebody their working code is "wrong" would be both untrue and the
    * fastest way to make them ask you for a replacement.
    */
@@ -84,9 +85,9 @@ export async function claimRedeemCode(rawCode: string): Promise<ClaimResult> {
     // A Dew code tops up on the spot: the credit is written into dew/{uid}
     // with the exact amount the code record carries. The rules refuse any
     // other value for this key, so the writer picks only *whether* to claim —
-    // the amount is still decided by the code, server-side. A legacy plan
-    // code is left alone here; it is resolved into a plan by the server on
-    // the next request, exactly as it always was.
+    // the amount is still decided by the code, server-side. A record that is
+    // not a Dew code is left alone here; the server folds in whatever the
+    // claims are actually worth on the next request.
     const codeSnap = await get(ref(current.database, `codes/${code}`));
     const codeRecord = parseRedeemCode(codeSnap.val());
     if (codeRecord?.dew !== undefined && codeRecord.active) {

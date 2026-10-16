@@ -474,8 +474,10 @@ export async function POST(req: NextRequest): Promise<Response> {
       body.reasoningEffort === "low" || body.reasoningEffort === "medium" || body.reasoningEffort === "high"
         ? body.reasoningEffort
         : null;
-    // Kept as the shape the entitlement function returns, so a future gate
-    // would slot straight in — but nothing here is refused any more.
+    // Kept as a named value on purpose: what the provider receives is the effort
+    // the route settled on, never the raw body — but nothing here is refused.
+    // A request for high reasoning is not a request for something locked; it is
+    // a request for something that costs more.
     allowedEffort = askedFor ?? (requested === "code" ? "medium" : "low");
   }
 
@@ -571,10 +573,11 @@ export async function POST(req: NextRequest): Promise<Response> {
   // Reasoning effort is a preference, not a promise. Not every model on every
   // route accepts it, so it is only sent where the provider is known to, and
   // the same request is retried without it if the provider still refuses.
-  // The requested effort was already cleared with the paywall above; what
-  // reaches a provider is the value that survived that check, never the raw one.
-  // Reasoning is still a preference, not a promise: it is only sent where the
-  // provider is known to accept it, and dropped if a model rejects the value.
+  // The requested effort was already settled above — what was asked for, or
+  // the mode's own default — so what reaches a provider is that value, never
+  // the raw body's. Reasoning is still a preference, not a promise: it is only
+  // sent where the provider is known to accept it, and dropped if a model
+  // rejects the value.
   const reasoningEffort: ReasoningEffort | null =
     allowedEffort ??
     (body.reasoningEffort === "low" || body.reasoningEffort === "medium" || body.reasoningEffort === "high"
@@ -873,23 +876,28 @@ export async function POST(req: NextRequest): Promise<Response> {
         if (charge > 0) {
           const billedTokens = totalUsage;
           const billedTier = dewTier;
-          void deductDew(authorization, identity.uid, dewState.spent, charge)
-            .then((deduct) => {
-              if (!deduct.ok) {
-                // A missed charge is logged, not hidden: it is a real
-                // shortfall in the ledger and the only way it gets noticed.
-                console.warn(`[mino dew] charge of ${charge} Dew not recorded for uid ${identity.uid} (conflict=${deduct.conflict})`);
-                return;
-              }
-              // The write-once log entry, best effort — rules refuse junk, so
-              // a failure here costs only the history, never the balance.
-              void writeAsCaller(
-                authorization,
-                `dew/${identity.uid}/tx/${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-                { type: "usage", at: Date.now(), dew: charge, tier: billedTier, prompt: billedTokens.prompt, completion: billedTokens.completion }
-              );
-            })
-            .catch(() => undefined);
+          // Awaited, not fired-and-forgotten: once this stream closes, a
+          // serverless deployment is free to freeze the process, and a charge
+          // still in flight in that window is a charge that never happens —
+          // which is exactly how a balance stopped moving while answers kept
+          // flowing. The answer is already on screen; only the stream's close
+          // waits for the ledger.
+          const deduct = await deductDew(authorization, identity.uid, dewState.spent, charge).catch(
+            () => ({ ok: false, newSpent: dewState!.spent, conflict: false })
+          );
+          if (!deduct.ok) {
+            // A missed charge is logged, not hidden: it is a real
+            // shortfall in the ledger and the only way it gets noticed.
+            console.warn(`[mino dew] charge of ${charge} Dew not recorded for uid ${identity.uid} (conflict=${deduct.conflict})`);
+          } else {
+            // The write-once log entry, best effort — rules refuse junk, so
+            // a failure here costs only the history, never the balance.
+            await writeAsCaller(
+              authorization,
+              `dew/${identity.uid}/tx/${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+              { type: "usage", at: Date.now(), dew: charge, tier: billedTier, prompt: billedTokens.prompt, completion: billedTokens.completion }
+            ).catch(() => undefined);
+          }
         }
       }
 

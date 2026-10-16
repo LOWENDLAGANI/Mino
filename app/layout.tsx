@@ -1,8 +1,6 @@
 import type { Metadata, Viewport } from "next";
 import AuthWarmup from "@/components/AuthWarmup";
 import ServiceWorker from "@/components/ServiceWorker";
-import SubscriptionCelebration from "@/components/SubscriptionCelebration";
-import PlanExpiryBanner from "@/components/PlanExpiryBanner";
 import "./globals.css";
 
 const DESCRIPTION =
@@ -85,14 +83,6 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
             popup can open inside the click that asks for it. See the component. */}
         <AuthWarmup />
         {children}
-        {/* Mounted here rather than in one page, because a purchase is not tied
-            to a screen: whoever is granted a plan must be told about it whether
-            they are in the chat, on the pricing page, or reading this sentence. */}
-        <SubscriptionCelebration />
-        {/* Same reasoning as the dialog above it — the end date belongs to the
-            account, not to a route, and a renewal reminder that only appears on
-            the chat page is one the buyer never sees. */}
-        <PlanExpiryBanner />
         <ServiceWorker />
       </body>
     </html>

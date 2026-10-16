@@ -1,16 +1,12 @@
 "use client";
 
-import { useRouter } from "next/navigation";
 import { MINO_MODES, type ModeId } from "@/lib/models";
-import { isUnlocked, lockNoticeFor, MODE_FEATURE } from "@/lib/paywallState";
-import type { PlanId } from "@/lib/plans";
 import { useEffect, useRef, useState } from "react";
 
 interface ModeSelectorProps {
   selected: ModeId;
   onChange: (mode: ModeId) => void;
   available: ModeId[];
-  planId: PlanId | null;
 }
 
 const MODEL_ICONS = {
@@ -51,10 +47,9 @@ const MODEL_DESCRIPTIONS = {
   },
 };
 
-export default function ModeSelector({ selected, onChange, available, planId }: ModeSelectorProps) {
+export default function ModeSelector({ selected, onChange, available }: ModeSelectorProps) {
   const [probeDone, setProbeDone] = useState(false);
   const detailsRef = useRef<HTMLDetailsElement>(null);
-  const router = useRouter();
   const activeMode = MINO_MODES.find((mode) => mode.id === selected) ?? MINO_MODES[0];
 
   useEffect(() => {
@@ -77,16 +72,6 @@ export default function ModeSelector({ selected, onChange, available, planId }: 
   const selectMode = (mode: ModeId) => {
     onChange(mode);
     detailsRef.current?.removeAttribute("open");
-  };
-
-  const chooseMode = (mode: ModeId) => {
-    const feature = MODE_FEATURE[mode];
-    if (feature === null || isUnlocked(feature, planId)) {
-      selectMode(mode);
-      return;
-    }
-    detailsRef.current?.removeAttribute("open");
-    router.push("/plus");
   };
 
   const getColorClass = (modeId: ModeId, active: boolean) => {
@@ -143,9 +128,6 @@ export default function ModeSelector({ selected, onChange, available, planId }: 
         {MINO_MODES.map((mode) => {
           const active = selected === mode.id;
           const usable = available.includes(mode.id);
-          const feature = MODE_FEATURE[mode.id];
-          const locked = feature !== null && !isUnlocked(feature, planId);
-          const notice = feature && locked ? lockNoticeFor(feature, planId) : null;
           const desc = MODEL_DESCRIPTIONS[mode.id];
           const colorClass = getColorClass(mode.id, active);
           const borderClass = getBorderClass(mode.id, active);
@@ -155,8 +137,7 @@ export default function ModeSelector({ selected, onChange, available, planId }: 
               key={mode.id}
               role="radio"
               aria-checked={active}
-              aria-disabled={locked}
-              onClick={() => chooseMode(mode.id)}
+              onClick={() => selectMode(mode.id)}
               className={`flex w-full items-start gap-3 rounded-xl px-3 py-3 text-left transition-all duration-200 ${active ? colorClass : "hover:bg-white/[0.04]"} ${borderClass} border`}
               type="button"
             >
@@ -173,7 +154,7 @@ export default function ModeSelector({ selected, onChange, available, planId }: 
                   {desc.color === "azure" && active && (
                     <span className="h-2 w-2 rounded-full bg-[#5b9bd5] animate-pulse" title="Mino Azure is active" />
                   )}
-                  {probeDone && !usable && !locked && (
+                  {probeDone && !usable && (
                     <span
                       className="h-1.5 w-1.5 rounded-full bg-amber-300/80"
                       title={mode.id === "code" ? "This mode has no model configured yet" : "This mode will use the other configured provider"}
@@ -192,15 +173,7 @@ export default function ModeSelector({ selected, onChange, available, planId }: 
                   ))}
                 </ul>
               </div>
-              {locked ? (
-                <span className="flex shrink-0 items-center gap-1 rounded-full bg-white/[0.07] px-2 py-1 text-[10px] font-medium text-white/55">
-                  <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden>
-                    <rect x="4" y="10" width="16" height="11" rx="2" />
-                    <path d="M8 10V7a4 4 0 0 1 8 0v3" />
-                  </svg>
-                  {notice?.planName?.replace("Mino ", "") ?? "Upgrade"}
-                </span>
-              ) : active ? (
+              {active ? (
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" className="text-white ml-auto">
                   <path d="m5 12 4 4L19 6" />
                 </svg>

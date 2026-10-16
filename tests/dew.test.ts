@@ -9,6 +9,8 @@
 //   bun run test
 
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import {
   AZURE_FLOOR,
   calcDewCost,
@@ -159,10 +161,63 @@ assert.ok(dewCode);
 assert.equal(dewCode.dew, 500);
 assert.equal(dewCode.active, true);
 // A Dew code ignores any plan value — a plan cannot ride in on a Dew code
-const dewCodeWithPlan = parseRedeemCode({ code: "dew500", dew: 500, plan: "lunar", active: true, createdAt: Date.now() });
+const dewCodeWithPlan = parseRedeemCode({ code: "dew500", dew: 500, plan: "lunar", days: 365, active: true, createdAt: Date.now() });
 assert.ok(dewCodeWithPlan);
-assert.equal(dewCodeWithPlan.plan, "mini"); // filler, not the stored "lunar"
-assert.equal(dewCodeWithPlan.days, 0);
+assert.equal("plan" in dewCodeWithPlan, false, "the stored plan is not honoured, and not kept");
+assert.equal("days" in dewCodeWithPlan, false, "nor is a length");
 // A malformed dew value resolves to nothing
 assert.equal(parseRedeemCode({ code: "bad", dew: -5, createdAt: Date.now() }), null);
 assert.equal(parseRedeemCode({ code: "bad", dew: 200000, createdAt: Date.now() }), null);
+
+// ── The routes actually charge ───────────────────────────────────────────────────
+//
+// Pricing that nobody enforces is a price list. These read the source of the two
+// routes and of the deduction itself, because a regression there stays invisible
+// until a balance quietly stops moving.
+
+/** A file with its comments stripped, so an explanation cannot pass for code. */
+function source(relative: string): string {
+  return readFileSync(join(process.cwd(), relative), "utf8")
+    .replace(/\/\*[\s\S]*?\*\//g, "")
+    .replace(/^\s*\/\/.*$/gm, "");
+}
+
+const chatSource = source(join("app", "api", "chat", "route.ts"));
+const imageSource = source(join("app", "api", "image", "route.ts"));
+const dewSource = source(join("lib", "serverDew.ts"));
+
+// The chat route reads the balance server-side, refuses before the model runs,
+// and charges once the answer is fully known.
+assert.ok(chatSource.includes("resolveDew("), "the chat route must resolve the balance server-side");
+assert.ok(chatSource.includes("canStartRequest("), "and pre-flight it before any model call");
+assert.ok(chatSource.includes("deductDew("), "and deduct when the answer is done");
+assert.ok(
+  chatSource.includes("await deductDew("),
+  "the deduction must be awaited: once the stream closes a serverless deployment may freeze the process, and a charge still in flight never happens"
+);
+
+// The image route charges one Dew per picture on success.
+assert.ok(imageSource.includes("resolveDew("), "the image route must resolve the balance server-side");
+assert.ok(imageSource.includes("deductDew("), "and charge Dew on success");
+
+// A balance is never whatever the caller says it is.
+for (const [name, route] of [["chat", chatSource], ["image", imageSource]] as const) {
+  assert.ok(!/body\.(dewBalance|balance)\b/.test(route), `${name} must never read a balance from the request body`);
+  assert.ok(
+    !/query\.(dewBalance|balance)\b/.test(route) && !/searchParams\.get\(\s*["'`]balance/.test(route),
+    `${name} must never read a balance from the query string`
+  );
+  assert.ok(!/body\.plan\b/.test(route), `${name} must never read a plan from the request body`);
+  assert.ok(!route.includes("consumeUsage("), `${name} does not count messages or images: Dew is the only control`);
+}
+
+// The deduction is a conditional write, and it has to know what to do about an
+// account that has never been charged — which is every account, once.
+assert.ok(dewSource.includes("dewBalanceFrom("), "the Dew reader must derive the balance from credits and spend");
+assert.ok(dewSource.includes('"If-Match"'), "the deduction must be a conditional write, not a blind put");
+assert.ok(dewSource.includes("412"), "a lost race must be detected and reported rather than assumed");
+assert.ok(
+  dewSource.includes('"null_etag"'),
+  "a location that does not exist has no ETag to echo: without the documented null_etag the very first charge on an account is a guaranteed 412, and the balance never moves again"
+);
+assert.ok(dewSource.includes("attempt === 0"), "a lost race is re-read and placed once, never looped");

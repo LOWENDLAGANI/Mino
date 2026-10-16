@@ -99,6 +99,15 @@ export function estimateTokenUsage(text: string): TokenUsage {
 }
 
 /**
+ * "RM 35" — a ringgit price as the top-up page prints it: whole ringgit
+ * without decimals, anything else to two places.
+ */
+export function formatRinggit(value: number): string {
+  const amount = Number.isInteger(value) ? String(value) : value.toFixed(2);
+  return `RM ${amount}`;
+}
+
+/**
  * "124.5" — a balance as it is shown next to the drop, never more decimals
  * than the currency keeps. A zero balance shows "0" and nothing else.
  */

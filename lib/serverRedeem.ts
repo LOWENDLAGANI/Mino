@@ -1,43 +1,38 @@
-// ── Resolving a claim into a plan, on the server ──────────────────────────────
+// ── Resolving a claim into Dew, on the server ──────────────────────────────────
 //
 // The rule this file exists to hold: **a claim says which code, never what it
-// is worth.** A claim node carries a timestamp and nothing else. The plan and
-// the duration are read here, from the code record itself, using a token the
-// server verified with Google. There is no code path in which a value written
-// by the person claiming decides what they receive.
+// is worth.** A claim node carries a timestamp and nothing else. The amount is
+// read here, from the code record itself, using a token the server verified
+// with Google. There is no code path in which a value written by the person
+// claiming decides what they receive.
 //
-// That is the whole difference between this and a paywall that can be walked
-// through. If the claim could carry `plan: "lunar"`, then anything able to
-// write a claim could write itself a plan, and the enforcement added in
-// `lib/paywallServer.ts` would be reading a value the caller controls.
+// That is the whole difference between this and a balance that can be walked
+// through. If the claim could carry `dew: 1000`, then anything able to write a
+// claim could write itself a balance, and the amount the rules pin on the
+// credit write would be checking a value the caller controls.
 //
 // Why the caller writes the claim at all, rather than the server writing the
-// grant: the deployment holds no service account. The rules give the
-// administrator write access to `subscriptions/`, and deliberately withhold it
-// from everyone else so a visitor cannot forge a plan for themselves. So the
-// claim is recorded in the caller's own node — the one thing the rules already
-// let them write — and the server folds it into what they are entitled to.
+// credit: the deployment holds no service account. The rules give the
+// administrator write access to `codes/` and deliberately withhold it from
+// everyone else so a visitor cannot mint a code for themselves. So the claim is
+// recorded in the caller's own node — the one thing the rules already let them
+// write — and the server folds it into their balance.
 //
 // Termination is enforced twice, on purpose. The rules refuse a claim against a
 // switched-off code at write time, so a terminated code stops working for a
-// modified client immediately; and `resolveEffectivePlan` re-checks it on every
-// request, so a code terminated *after* it was claimed grants nothing either.
-// One check without the other leaves a hole: rules alone would keep honouring
-// claims made before the switch.
+// modified client immediately; and `resolveDew` re-checks it on every request,
+// so a code terminated *after* it was claimed tops up nothing either. One check
+// without the other leaves a hole: rules alone would keep honouring claims made
+// before the switch.
 
-import { readCallerPlan } from "./serverPlan";
 import { ensureTrialGrant, readDewState, writeCredit, type DewState } from "./serverDew";
 import {
-  bestPlan,
   checkRedeemable,
   dewRedemptionValue,
   normalizeCode,
   parseRedeemCode,
-  redeemValue,
   type DewRedemption,
-  type Redemption,
 } from "./redeemState";
-import type { PlanId } from "./plans";
 
 interface RestConfig {
   base: string;
@@ -128,74 +123,26 @@ export async function readDewRedemptions(
     claims.map(async (claim) => {
       const code = parseRedeemCode(await readCodeAsCaller(authorization, claim.code));
       const status = checkRedeemable(code, now);
-      // Only Dew codes become credits here. Legacy plan codes are folded into
-      // a plan by `readRedemptions`, exactly as they always were — the two
-      // shapes of code are resolved by their own kind, never by whichever the
-      // reader expected.
+      // Only a live Dew code becomes a credit here. A code that was terminated,
+      // deleted, or that cannot be read resolves to nothing — the same
+      // fail-closed choice every other read in this file makes.
       return status.ok ? dewRedemptionValue(status.code) : null;
     })
   );
   return values.filter((value): value is DewRedemption => value !== null);
 }
 
-export async function readRedemptions(
-  authorization: string | null,
-  uid: string
-): Promise<Redemption[]> {
-  const claims = await readClaimedCodes(authorization, uid);
-  if (claims.length === 0) return [];
-
-  const now = Date.now();
-  const values = await Promise.all(
-    claims.map(async (claim) => {
-      const code = parseRedeemCode(await readCodeAsCaller(authorization, claim.code));
-      const status = checkRedeemable(code, now);
-      return status.ok ? redeemValue(status.code, claim.claimedAt) : null;
-    })
-  );
-  // A Dew code has no plan and no duration, so its redemption value reads as
-  // zero days — filtered out below rather than counted as an expired access.
-  return values.filter((value): value is Redemption => value !== null && value.days > 0);
-}
-
-export interface EffectivePlan {
-  /** The tier to enforce, or null when this caller is on the free tier. */
-  planId: PlanId | null;
-  /** When the winning access runs out, or 0 on the free tier. */
-  expiresAt: number;
-  /**
-   * True when this caller's subscription grant is on hold and nothing else
-   * grants access. The routes refuse with "your plan is on hold" rather than
-   * the upgrade pitch, because these buyers have already paid and need the
-   * owner, not the pricing page.
-   */
-  paused: boolean;
-}
-
-/**
- * What this caller is entitled to right now, across every route that grants it.
- *
- * The paid grant and the claimed codes are combined rather than ranked against
- * each other, because both are things the owner deliberately gave: a buyer who
- * paid for Mini and then redeems a Mini code should end up with more time, not
- * whichever of the two the server happened to look at last.
- *
- * The higher tier always wins, whatever its end date. Somebody redeeming a
- * Lunar code while holding Mini must not end up back on Mini because the Mini
- * grant happens to run for longer — that would mean paying more and receiving
- * less, which is the single most damaging thing this file could do.
- */
 /**
  * This caller's Dew balance, derived from their credits and their spend.
  *
- * Combines the trial/code credits in `dew/{uid}` with any claims on Dew codes
+ * Combines the trial/code credits in `dew/{uid}` with any claims on live codes
  * that the rules have already accepted, then subtracts what has been spent.
- * A read that fails answers zero — fail-closed, like every plan read here.
+ * A read that fails answers zero — fail-closed, for the same reason every other
+ * read here refuses to assume credit.
  *
- * Legacy plan codes are deliberately NOT converted here: they remain what they
- * always were, a plan with an end date. The conversion of old codes to Dew is
- * the owner's one-time release decision; the code that honours a claim must
- * not pick a second meaning for it.
+ * A record that is not a Dew code contributes nothing. Old plan-shaped codes
+ * are not converted here, or anywhere: they are simply not codes any more, and
+ * the code that honours a claim must never pick a second meaning for one.
  */
 export async function resolveDew(
   authorization: string | null,
@@ -210,30 +157,4 @@ export async function resolveDew(
   if (missing.length === 0) return state;
   await Promise.all(missing.map((entry) => writeCredit(authorization, uid, entry.code, entry.dew)));
   return readDewState(authorization, uid);
-}
-
-export async function resolveEffectivePlan(
-  authorization: string | null,
-  uid: string
-): Promise<EffectivePlan> {
-  const [subscription, redemptions] = await Promise.all([
-    readCallerPlan(authorization, uid),
-    readRedemptions(authorization, uid),
-  ]);
-
-  const entries: Redemption[] = [...redemptions];
-  // A held grant contributes nothing — `readCallerPlan` already withholds its
-  // `planId` while the hold is on. Redeemed codes still count: they are a
-  // separate purchase the buyer made directly, and the owner terminates those
-  // with the code switch, not by holding a subscription.
-  if (subscription.planId) {
-    // The same shape as a redemption, with `days` unused: what matters here is
-    // only the tier and the end date, and a grant has no length attached to it —
-    // its length is already baked into the date it ends on.
-    entries.push({ plan: subscription.planId, days: 0, expiresAt: subscription.expiresAt });
-  }
-
-  const best = bestPlan(entries, Date.now());
-  if (!best) return { planId: null, expiresAt: 0, paused: subscription.paused };
-  return { planId: best.plan, expiresAt: best.expiresAt, paused: false };
 }

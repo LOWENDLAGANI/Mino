@@ -12,9 +12,6 @@ import { secondsRemaining } from "@/lib/rateLimit";
 import { compressFiles, formatBytes } from "@/lib/imageUtils";
 import { MEMORY_TEXT_LIMIT, addMemory } from "@/lib/memory";
 import { syncMemoryUp } from "@/lib/firebaseHistory";
-import { useRouter } from "next/navigation";
-import { isUnlocked } from "@/lib/paywallState";
-import { useSubscription } from "@/lib/useSubscription";
 import { useEffect, useRef, useState, type ClipboardEvent, type DragEvent, type KeyboardEvent } from "react";
 import Link from "next/link";
 
@@ -72,11 +69,9 @@ export default function ChatInput({
   onCancelScheduled,
   rateLimitUntil,
 }: ChatInputProps) {
-  // Image generation is a paid capability. The gate is client-side — see the note
-  // on lib/paywallState.ts — so it stops the ordinary user, not a determined one.
-  const { planId } = useSubscription();
-  const router = useRouter();
-  const lockedImages = !isUnlocked("images", planId);
+  // Image generation is billed per picture in Dew, the same as every message —
+  // see lib/dew.ts for the price and the routes for the enforcement. Nothing is
+  // locked by a plan, so the button below simply opens the mode.
   const [text, setText] = useState("");
   const [attachments, setAttachments] = useState<ImageAttachment[]>([]);
   const [documents, setDocuments] = useState<DocumentAttachment[]>([]);
@@ -539,16 +534,8 @@ export default function ChatInput({
                   <span className="min-w-0 flex-1 text-[15px] font-semibold leading-tight tracking-[-0.01em] text-white">Remember this</span>
                 </button>
                 <button
-                  type="button"onClick={() => {
+                  type="button"                  onClick={() => {
                       setShowTools(false);
-                      // Locked rather than hidden, and it says which plan opens
-                      // it. Image generation costs real money per picture, so a
-                      // free visitor reaching it by editing the bundle is a cost
-                      // to you, not a lost sale.
-                      if (lockedImages) {
-                        router.push("/plus");
-                        return;
-                      }
                       onImageModeChange(true);
                     }}
                   className="flex w-full items-center gap-3.5 rounded-[18px] px-2 py-2.5 text-left transition-colors hover:bg-white/[0.06] active:bg-white/[0.09]"
@@ -562,11 +549,6 @@ export default function ChatInput({
                     Create image
                     {!imageAvailable && (
                       <span className="h-1.5 w-1.5 rounded-full bg-amber-300/80" title="Not configured in the deployment environment" />
-                    )}
-                    {lockedImages && (
-                      <span className="shrink-0 rounded-full bg-white/[0.09] px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-white/50">
-                        Mini
-                      </span>
                     )}
                   </span>
                 </button>

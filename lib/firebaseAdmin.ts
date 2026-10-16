@@ -16,22 +16,12 @@ import { GoogleAuthProvider, signInWithPopup, signOut } from "firebase/auth";
 import { get, push, ref, remove, set } from "firebase/database";
 import { getServices } from "./firebaseHistory";
 import type { AppConfig } from "./appConfig";
-import type { PlanId } from "./plans";
-import { normalizeDays } from "./durations";
 import {
   isValidCode,
   normalizeCode,
   parseRedeemCode,
   type RedeemCode,
 } from "./redeemState";
-import {
-  grantRecord,
-  isActive,
-  parseSubscription,
-  resumeExpiry,
-  type PauseState,
-  type Subscription,
-} from "./subscriptionState";
 
 /** Maps Firebase's permission failure onto a message worth showing. */
 function isPermissionDenied(cause: unknown): boolean {
@@ -60,27 +50,6 @@ export interface AdminUser {
   lastSeen: number | null;
   chats: number;
   messages: number;
-  /** What they have paid for, or null when they are on the free tier. */
-  subscription: AdminSubscription | null;
-}
-
-export interface AdminSubscription {
-  plan: PlanId;
-  grantedAt: number;
-  expiresAt: number;
-  days: number;
-  /** Whether the owner has this plan on hold. */
-  paused: boolean;
-  /** When the hold began, or 0 when running. */
-  pausedAt: number;
-  /** The owner's reason for the hold, when one was given. */
-  pauseReason: string;
-  /**
-   * Time genuinely left: frozen at the pause instant while held, counting down
-   * from now while running. This is the number the console shows, because it is
-   * the number continuing will actually give back.
-   */
-  remainingMs: number;
 }
 
 export interface AdminChat {
@@ -145,10 +114,9 @@ export async function currentUid(): Promise<string | null> {
 
 export async function listUsers(): Promise<AdminUser[]> {
   const { database } = await requireAdmin();
-  const [registrySnapshot, usersSnapshot, subscriptionsSnapshot] = await Promise.all([
+  const [registrySnapshot, usersSnapshot] = await Promise.all([
     get(ref(database, "admin/registry")),
     get(ref(database, "users")),
-    get(ref(database, "subscriptions")).catch(() => ({ val: () => null }) as never),
   ]).catch(rethrow);
 
   const names = (registrySnapshot.val() ?? {}) as Record<
@@ -156,11 +124,9 @@ export async function listUsers(): Promise<AdminUser[]> {
     { name?: string; firstSeen?: number; lastSeen?: number }
   >;
   const chats = (usersSnapshot.val() ?? {}) as Record<string, { chats?: Record<string, unknown> }>;
-  const plans = (subscriptionsSnapshot.val() ?? {}) as Record<string, unknown>;
-  const now = Date.now();
 
   // Everyone who has been here at all, not only everyone who has talked.
-  const uids = new Set([...Object.keys(names), ...Object.keys(chats), ...Object.keys(plans)]);
+  const uids = new Set([...Object.keys(names), ...Object.keys(chats)]);
 
   const rows = [...uids].map((uid) => {
     const profile = names[uid];
@@ -175,17 +141,6 @@ export async function listUsers(): Promise<AdminUser[]> {
       return updated > latest ? updated : latest;
     }, 0);
 
-    // What is still paid for — plus anything on hold, however long the hold has
-    // lasted. A paused plan whose original end date has passed must stay on this
-    // list: its remaining time is frozen, not spent, and hiding it would leave
-    // the owner with no way to continue it. A lapsed grant with no hold is shown
-    // as free, because "Free" is the thing they can act on.
-    const raw = plans[uid];
-    const parsed = parseSubscription(raw);
-    const hold = parsed?.pause ?? null;
-    const visible = parsed && (hold || isActive(parsed, now)) ? parsed : null;
-    const paused = Boolean(hold);
-
     return {
       uid,
       name: profile?.name ?? null,
@@ -193,20 +148,6 @@ export async function listUsers(): Promise<AdminUser[]> {
       lastSeen: profile?.lastSeen ?? lastChatAt,
       chats: entries.length,
       messages,
-      subscription: visible
-        ? {
-            plan: visible.plan,
-            grantedAt: visible.grantedAt,
-            expiresAt: visible.expiresAt,
-            days: visible.days,
-            paused,
-            pausedAt: hold?.pausedAt ?? 0,
-            pauseReason: hold?.reason ?? "",
-            remainingMs: hold
-              ? Math.max(0, visible.expiresAt - hold.pausedAt)
-              : Math.max(0, visible.expiresAt - now),
-          }
-        : null,
     };
   });
 
@@ -257,153 +198,28 @@ export async function getChat(uid: string, chatId: string): Promise<{ title: str
 export async function wipeUser(uid: string): Promise<void> {
   const { database } = await requireAdmin();
   await remove(ref(database, `users/${uid}`)).catch(rethrow);
-  await remove(ref(database, `subscriptions/${uid}`)).catch(rethrow);
 }
 
 export async function wipeAll(): Promise<void> {
   const { database } = await requireAdmin();
   await remove(ref(database, "users")).catch(rethrow);
-  await remove(ref(database, "subscriptions")).catch(rethrow);
   await remove(ref(database, "admin/registry")).catch(rethrow);
 }
 
-export async function readSubscription(uid: string): Promise<Subscription | null> {
-  const { database } = await requireAdmin();
-  const snapshot = await get(ref(database, `subscriptions/${uid}`)).catch(rethrow);
-  return parseSubscription(snapshot.val());
-}
-
-/**
- * Grants a plan to a visitor, extending it if they already have that one.
- *
- * Refused while a hold is on: granting stacks onto `expiresAt`, and a held
- * record's `expiresAt` is a frozen date, so the two would disagree about how
- * much time the buyer actually has. Continuing first costs one click and keeps
- * every number true.
- *
- * The buyer's acknowledgement node is carried across verbatim. A grant earns a
- * fresh celebration because its `announcementId` is one higher — not because
- * the record of what they had already seen was thrown away.
- */
-export async function grantSubscription(
-  uid: string,
-  plan: PlanId,
-  days = 30,
-  note = ""
-): Promise<Subscription> {
-  const { database } = await requireAdmin();
-  const snapshot = await get(ref(database, `subscriptions/${uid}`)).catch(rethrow);
-  const raw = snapshot.val();
-  const previous = parseSubscription(raw);
-  if (previous?.pause) {
-    throw new Error("That plan is paused. Continue it before granting more time.");
-  }
-  const record = grantRecord({ plan, days: normalizeDays(days), now: Date.now(), note, previous });
-  const ack = raw && typeof raw === "object" ? (raw as Record<string, unknown>).ack : null;
-  await set(ref(database, `subscriptions/${uid}`), {
-    ...record,
-    ...(ack && typeof ack === "object" ? { ack } : {}),
-  }).catch(rethrow);
-  return record;
-}
-
-/** Takes a plan away, so the visitor is back on the free tier. */
-export async function revokeSubscription(uid: string): Promise<void> {
-  const { database } = await requireAdmin();
-  await remove(ref(database, `subscriptions/${uid}`)).catch(rethrow);
-}
-
-/**
- * Puts a visitor's plan on hold without spending a single day of it.
- *
- * The hold is a `pause` child on the record — `expiresAt` is not touched, so
- * nothing about the stored plan changes except that it is now held. Re-pausing
- * an already-held plan is a no-op that keeps the original `pausedAt`: moving
- * that instant would silently shrink the remaining time the hold is protecting.
- * Pausing a plan that has already run out is refused, because there is no time
- * left to hold.
- *
- * Returns the record now on hold, or null when there was nothing to pause.
- */
-export async function pauseSubscription(
-  uid: string,
-  reason: string
-): Promise<Subscription | null> {
-  const { database, auth } = await requireAdmin();
-  const snapshot = await get(ref(database, `subscriptions/${uid}`)).catch(rethrow);
-  const raw = snapshot.val();
-  const existing = parseSubscription(raw);
-  if (!existing) return null;
-  if (existing.pause) return existing;
-  if (!isActive(existing, Date.now())) return null;
-
-  const actor = auth.currentUser?.email || auth.currentUser?.displayName || "admin";
-  const pause: PauseState = {
-    pausedAt: Date.now(),
-    setAt: Date.now(),
-    setBy: actor.slice(0, 120),
-    reason: String(reason ?? "").slice(0, 200),
-  };
-  const ack = raw && typeof raw === "object" ? (raw as Record<string, unknown>).ack : null;
-  const record: Subscription = { ...existing, pause };
-  await set(ref(database, `subscriptions/${uid}`), {
-    ...record,
-    ...(ack && typeof ack === "object" ? { ack } : {}),
-  }).catch(rethrow);
-  return record;
-}
-
-/**
- * Continues a held plan, giving back exactly the time the hold protected.
- *
- * `resumeExpiry` shifts the end date by the length of the hold alone
- * (`expiresAt + (now - pausedAt)`), so a buyer with 12 days held who continues
- * three weeks later still has 12 days from that moment — never a fresh term,
- * and never earlier than the days they paid for. The hold child is dropped and
- * the acknowledgement node is carried across, so continuing cannot re-trigger
- * a celebration the buyer has already dismissed.
- *
- * Returns the record as it now stands, or null when nothing was on hold.
- */
-export async function resumeSubscription(uid: string): Promise<Subscription | null> {
-  const { database } = await requireAdmin();
-  const snapshot = await get(ref(database, `subscriptions/${uid}`)).catch(rethrow);
-  const raw = snapshot.val();
-  const existing = parseSubscription(raw);
-  if (!existing?.pause) return null;
-
-  const record: Subscription = {
-    ...existing,
-    expiresAt: resumeExpiry(existing, existing.pause, Date.now()),
-  };
-  delete record.pause;
-
-  const ack = raw && typeof raw === "object" ? (raw as Record<string, unknown>).ack : null;
-  await set(ref(database, `subscriptions/${uid}`), {
-    ...record,
-    ...(ack && typeof ack === "object" ? { ack } : {}),
-  }).catch(rethrow);
-  return record;
-}
-
 // ── Redeem codes ─────────────────────────────────────────────────────────────
-// A word the owner picks, carrying a plan and a length, that a buyer types to
-// claim it. This exists because a manual grant needs a name: "your Mini is paid
-// for" has to be handed over somehow, and a code is a thing that survives a
-// phone call, a screenshot, and a lost message in a way a date does not.
+// A word the owner picks, carrying a Dew amount, that a buyer types to claim it.
+// This exists because a manual top-up needs a name: "I've sent you 100 Dew" has
+// to be handed over somehow, and a code is a thing that survives a phone call, a
+// screenshot, and a lost message in a way a figure does not.
 //
-// Codes are the owner's, not the buyer's: the plan and the days live in the
-// code, never in the claim. See lib/serverRedeem.ts.
+// Codes are the owner's, not the buyer's: the amount lives in the code, never
+// in the claim. See lib/serverRedeem.ts.
 
 /** Writes a new code, replacing any that already had the same word. */
 export async function createRedeemCode(input: {
   code: string;
-  /** Legacy plan shape. Omitted together with `days` on a Dew code. */
-  plan?: PlanId;
-  /** Legacy plan shape. Omitted together with `plan` on a Dew code. */
-  days?: number;
-  /** The Dew amount a Dew code grants. A Dew code has no plan and no days. */
-  dew?: number;
+  /** The Dew amount the code grants. */
+  dew: number;
   note?: string;
 }): Promise<RedeemCode> {
   const { database } = await requireAdmin();
@@ -413,37 +229,12 @@ export async function createRedeemCode(input: {
   const note = String(input.note ?? "").trim().slice(0, 120);
   const createdAt = Date.now();
 
-  // A Dew code carries exactly the Dew, and no plan or days: the two shapes
-  // are mutually exclusive, so a value in the wrong field can never be read
-  // as the other kind of grant.
-  if (input.dew !== undefined) {
-    if (typeof input.dew !== "number" || !Number.isFinite(input.dew) || input.dew <= 0 || input.dew > 100_000) {
-      throw new Error("A Dew code needs a positive Dew amount of at most 100,000.");
-    }
-    if (input.plan !== undefined || input.days !== undefined) {
-      throw new Error("A Dew code carries Dew only — leave the plan and days empty.");
-    }
-    const record: RedeemCode = {
-      code,
-      plan: "mini", // ignored by the reader for Dew codes; required by the stored shape
-      days: 0, // likewise ignored
-      dew: Math.round(input.dew * 1000) / 1000,
-      active: true,
-      createdAt,
-      note,
-    };
-    await set(ref(database, `codes/${code}`), record).catch(rethrow);
-    return record;
-  }
-
-  // Legacy shape, unchanged: a plan and a number of days.
-  if (input.plan === undefined || input.days === undefined) {
-    throw new Error("A code needs either a plan with days, or a Dew amount.");
+  if (typeof input.dew !== "number" || !Number.isFinite(input.dew) || input.dew <= 0 || input.dew > 100_000) {
+    throw new Error("A code needs a positive Dew amount of at most 100,000.");
   }
   const record: RedeemCode = {
     code,
-    plan: input.plan,
-    days: normalizeDays(input.days),
+    dew: Math.round(input.dew * 1000) / 1000,
     active: true,
     createdAt,
     note,
@@ -565,12 +356,13 @@ export async function saveAppConfig(config: AppConfig): Promise<void> {
 export interface AdminAuditEntry {
   id: string;
   at: number;
-  action: "grant" | "revoke" | "pause" | "resume" | "createCode" | "deleteCode" | "toggleCode";
-  uid?: string;
-  name?: string | null;
-  plan?: PlanId;
-  days?: number;
-  expiresAt?: number;
+  action: "createCode" | "deleteCode" | "toggleCode";
+  /** The word the entry is about. */
+  code?: string;
+  /** The Dew the code carried, when it carried any. */
+  dew?: number;
+  /** For a toggle: the state the code was switched to. */
+  active?: boolean;
   note?: string;
 }
 

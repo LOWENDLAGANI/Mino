@@ -51,8 +51,9 @@ const EMPTY: DewState = { balance: 0, credits: {}, spent: 0 };
  * Reads this caller's Dew node with their own token.
  *
  * A refused or failed read is a zero balance, never an assumption of credit:
- * fail-closed, for the same reason `lib/serverPlan.ts` refuses to assume a
- * plan. An unconfigured deployment has no balances, and nobody is charged.
+ * fail-closed, because the only safe answer to "I could not check" is to grant
+ * nobody anything. An unconfigured deployment has no balances, and nobody is
+ * charged.
  */
 export async function readDewState(authorization: string | null, uid: string): Promise<DewState> {
   const token = authorization?.replace(/^Bearer\s+/i, "").trim();
@@ -180,40 +181,64 @@ export async function deductDew(
   if (!token || !base || !uid) return { ok: false, newSpent: previousSpent, conflict: false };
   if (charge <= 0) return { ok: true, newSpent: previousSpent, conflict: false };
 
-  try {
-    // ── 1. ETag read of the spent node ──
-    const read = await fetch(
-      `${base}/dew/${encodeURIComponent(uid)}/spent.json?auth=${encodeURIComponent(token)}&X-Firebase-ETag=true`,
-      { headers: { Accept: "application/json", "X-Firebase-ETag": "true" }, cache: "no-store" }
-    );
-    if (!read.ok) return { ok: false, newSpent: previousSpent, conflict: false };
-    const etag = read.headers.get("ETag") ?? "";
-    const remoteValue = Number((await read.json().catch(() => null)) ?? 0);
-    const serverSpent = Number.isFinite(remoteValue) && remoteValue > 0 ? remoteValue : 0;
-    // Reconcile: the route read state a moment ago; the server may have moved.
-    const expected = nextSpent(serverSpent, roundDew(charge));
+  const target = `${base}/dew/${encodeURIComponent(uid)}/spent.json?auth=${encodeURIComponent(token)}`;
 
-    // ── 2. Conditional PUT: only if unchanged since our ETag ──
-    const write = await fetch(
-      `${base}/dew/${encodeURIComponent(uid)}/spent.json?auth=${encodeURIComponent(token)}`,
-      {
+  // Two attempts, no more. The first fails only on a 412 — somebody else's
+  // charge landed between our read and our write — and the second simply
+  // re-reads and lands this one behind theirs. Retrying a request whose outcome
+  // is unknown is not attempted at all: a double charge is worse than a
+  // shortfall the route logs and the next request re-deducts.
+  for (let attempt = 0; attempt < 2; attempt++) {
+    try {
+      // ── 1. ETag read of the spent node ──
+      const read = await fetch(`${target}&X-Firebase-ETag=true`, {
+        headers: { Accept: "application/json", "X-Firebase-ETag": "true" },
+        cache: "no-store",
+      });
+      if (!read.ok) return { ok: false, newSpent: previousSpent, conflict: false };
+
+      const etag = read.headers.get("ETag")?.trim() ?? "";
+      const raw = await read.json().catch(() => null);
+      // `null` body means the node has never been written — the state of every
+      // account until its first charge lands.
+      const exists = raw !== null && raw !== undefined;
+      const remoteValue = Number(raw ?? 0);
+      const serverSpent = Number.isFinite(remoteValue) && remoteValue > 0 ? remoteValue : 0;
+
+      // ── 2. The value to condition on ──
+      // A location that does not exist cannot hand back an ETag to echo: the
+      // conditional-write contract names the literal `null_etag` as the value
+      // that matches "still nothing here". Sending an empty If-Match instead —
+      // which is what falling back to the header does on a brand-new account —
+      // is a guaranteed 412, and because nothing was ever written the next
+      // charge fails the same way: the balance never moved, for anyone, for
+      // ever. The second attempt falls back to whatever the re-read returned,
+      // so neither guess can be the only door.
+      const ifMatch = exists ? etag : attempt === 0 || !etag ? "null_etag" : etag;
+      if (!ifMatch) return { ok: false, newSpent: serverSpent, conflict: false };
+
+      // Reconcile: the route read state a moment ago; the server may have moved.
+      const expected = nextSpent(serverSpent, roundDew(charge));
+
+      // ── 3. Conditional PUT: only if unchanged since our ETag ──
+      const write = await fetch(target, {
         method: "PUT",
-        headers: { "Content-Type": "application/json", "If-Match": etag },
+        headers: { "Content-Type": "application/json", "If-Match": ifMatch },
         body: JSON.stringify(expected),
         cache: "no-store",
-      }
-    );
-    if (write.ok) return { ok: true, newSpent: expected, conflict: false };
-    // 412 means another request charged between the read and the write. That
-    // other write already carries this request's share? No — it carries only
-    // its own. Reporting a conflict tells the route the charge did not land;
-    // the honest response is to log the shortfall, not to loop. Every future
-    // request re-reads and re-deducts.
-    if (write.status === 412) return { ok: false, newSpent: serverSpent, conflict: true };
-    return { ok: false, newSpent: Math.max(serverSpent, previousSpent), conflict: false };
-  } catch {
-    return { ok: false, newSpent: previousSpent, conflict: false };
+      });
+      if (write.ok) return { ok: true, newSpent: expected, conflict: false };
+      // 412: another request charged between the read and the write. That write
+      // carries only its own charge, so this one still has to land — re-read and
+      // place it on top, once.
+      if (write.status === 412 && attempt === 0) continue;
+      if (write.status === 412) return { ok: false, newSpent: serverSpent, conflict: true };
+      return { ok: false, newSpent: Math.max(serverSpent, previousSpent), conflict: false };
+    } catch {
+      return { ok: false, newSpent: previousSpent, conflict: false };
+    }
   }
+  return { ok: false, newSpent: previousSpent, conflict: true };
 }
 
 /** The record for the console and the ledger. Never shown to the caller. */

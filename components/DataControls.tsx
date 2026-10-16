@@ -66,7 +66,7 @@ export default function DataControls() {
       <h3 className="mb-1.5 text-[13px] font-semibold text-white">Your data</h3>
       <p className="mb-2.5 text-[11px] leading-relaxed text-white/40">
         Chats live in this browser first. Export keeps a copy you own; deleting removes every
-        chat, memory and queue from this device and from your account. Your subscription is
+        chat, memory and queue from this device and from your account. Your Dew balance is
         never touched.
       </p>
 

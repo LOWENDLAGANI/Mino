@@ -25,9 +25,8 @@ import {
   saveSelectedMode,
 } from "@/lib/db";
 import { DEFAULT_MODE_ID, getMode, IMAGE_ENGINE, type ModeId } from "@/lib/models";
-import { resolveMode } from "@/lib/paywallState";
-import { useSubscription } from "@/lib/useSubscription";
 import { generateImage, imageGenerationConfigured } from "@/lib/imageGeneration";
+import { refreshDew } from "@/lib/useDew";
 // getMode is used for the assistant message engine label below.
 import type {
   ApiContentPart,
@@ -113,10 +112,6 @@ export default function HomePage() {
   const [activeChatId, setActiveChatId] = useState<string | null>(null);
   const [selectedMode, setSelectedMode] = useState<ModeId>(DEFAULT_MODE_ID);
   const [available, setAvailable] = useState<ModeId[]>([DEFAULT_MODE_ID, "code"]);
-  // What this visitor has paid for, read live. Drives which modes may be picked
-  // and what the composer is allowed to do, so the paywall and the pricing page
-  // cannot disagree about the same person.
-  const { ready: planReady, planId } = useSubscription();
   const [streamingId, setStreamingId] = useState<string | null>(null);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -402,19 +397,23 @@ export default function HomePage() {
     return () => window.removeEventListener("mino:availability", handler);
   }, []);
 
-  // A stored preference can outlive the plan that unlocked it: somebody who used
-  // Azure and lets it lapse must not be left sitting on a mode they can no longer
-  // send, with the composer refusing every message. Auto is always open, so
-  // there is always somewhere to land — and this only ever moves them *out* of
-  // a locked mode, never into one.
+  // A stored preference can outlive the availability that made it valid: a mode
+  // whose model this deployment never configured must not leave the composer
+  // sitting on a mode it can no longer send, with every message refused. Auto is
+  // always open, so there is always somewhere to land.
+  //
+  // Nothing here is about payment any more. Every mode is priced by the Dew it
+  // costs rather than by a plan, so the same gate covers a mode nobody has
+  // configured and a balance somebody has spent — and it is the routes, not
+  // this effect, that decide whether a request may start.
   useEffect(() => {
-    if (!planReady) return;
-    const open = resolveMode(selectedMode, available, planId);
+    if (available.includes(selectedMode)) return;
+    const open = available[0] ?? DEFAULT_MODE_ID;
     if (open !== selectedMode) {
       setSelectedMode(open);
       saveSelectedMode(open);
     }
-  }, [planReady, planId, available, selectedMode]);
+  }, [available, selectedMode]);
 
   // Switching modes is not a mid-conversation toggle. Code mode is pinned to the
   // Mino V3/V2/V1 family for code-generation accuracy, and continuing a chat
@@ -896,6 +895,10 @@ export default function HomePage() {
       } finally {
         setStreamingId(null);
         abortRef.current = null;
+        // The charge for this answer has been written to the account by the
+        // time the stream ends, so this is the moment the balance on screen
+        // becomes wrong — and every chip in the app re-reads at once.
+        void refreshDew();
       }
     },
     [activeChatId, appendMessage, branchAnswer, dropFromMessage, markError, memorySnapshot, noteRateLimit, patchMessage, publishTemp, readMessage, reasoningEffort, responseLength, searchMode, selectedMode, streamingId, temporary, threadHistory, writeContent, writeUsage]
@@ -947,6 +950,8 @@ export default function HomePage() {
       } finally {
         setDrawingId(null);
         abortRef.current = null;
+        // Images are billed on completion; see the chat stream above.
+        void refreshDew();
       }
     },
     [activeChatId, appendMessage, drawingId, imageAvailable, markError, noteRateLimit, patchMessage, temporary]
@@ -1169,7 +1174,6 @@ export default function HomePage() {
             selected={selectedMode}
             onChange={handleModeChange}
             available={available}
-            planId={planId}
           />
         </header>
 

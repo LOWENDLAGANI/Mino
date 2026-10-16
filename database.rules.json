@@ -34,7 +34,7 @@
       ".write": "auth != null && auth.token.email == 'myrealmetvreal@gmail.com'",
       "$code": {
         ".read": "auth != null",
-        ".validate": "newData.child('code').val() === $code && newData.child('code').isString() && newData.child('createdAt').isNumber() && newData.child('active').isBoolean() && ((newData.hasChildren(['plan','days']) && (newData.child('plan').val() === 'mini' || newData.child('plan').val() === 'lunar') && newData.child('days').isNumber() && newData.child('days').val() > 0)|| (newData.hasChildren(['dew']) && newData.child('dew').isNumber() && newData.child('dew').val() > 0 && newData.child('dew').val() <= 100000))"
+        ".validate": "newData.child('code').val() === $code && newData.child('code').isString() && newData.child('createdAt').isNumber() && newData.child('active').isBoolean() && newData.hasChildren(['dew']) && newData.child('dew').isNumber() && newData.child('dew').val() > 0 && newData.child('dew').val() <= 100000"
       }
     },
     "redeems": {
@@ -43,17 +43,6 @@
         ".write": "auth != null && auth.uid === $uid",
         "$code": {
           ".validate": "(!data.exists() || data.child('claimedAt').val() === newData.child('claimedAt').val()) && (!newData.exists() || (newData.hasChildren(['code','claimedAt']) && newData.child('code').val() === $code && newData.child('claimedAt').isNumber() && root.child('codes').child($code).child('active').val() === true))"
-        }
-      }
-    },
-    "subscriptions": {
-      ".read": "auth != null && auth.token.email === 'myrealmetvreal@gmail.com'",
-      ".write": "auth != null && auth.token.email === 'myrealmetvreal@gmail.com'",
-      "$uid": {
-        ".read": "auth != null && auth.uid === $uid",
-        ".validate": "newData.hasChildren(['plan','grantedAt','expiresAt','announcementId']) && (newData.child('plan').val() === 'mini' || newData.child('plan').val() === 'lunar') && newData.child('grantedAt').isNumber() && newData.child('expiresAt').isNumber() && newData.child('announcementId').isNumber()",
-        "ack": {
-          ".write": "auth != null && auth.uid === $uid"
         }
       }
     },

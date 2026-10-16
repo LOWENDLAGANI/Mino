@@ -10,27 +10,19 @@ import {
   createRedeemCode,
   deleteRedeemCode,
   getChat,
-  grantSubscription,
   listAdminAudit,
   listChats,
   listRedeemCodes,
   listUsageHistory,
   listUsers,
-  pauseSubscription,
-  resumeSubscription,
-  revokeSubscription,
   setRedeemCodeActive,
   wipeAll,
   wipeUser,
   type AdminAuditEntry,
-  type AdminSubscription,
   type UsageHistoryDay,
 } from "@/lib/firebaseAdmin";
 import { summarizeUsage } from "@/lib/usageStats";
-import { DAY_MS, describeDuration, DURATIONS } from "@/lib/durations";
 import { isValidCode, normalizeCode, type RedeemCode } from "@/lib/redeemState";
-import { PLANS, DEFAULT_PLAN, formatRinggit, planById, type PlanId } from "@/lib/plans";
-import { normalizeDays } from "@/lib/durations";
 
 // ── Admin console ────────────────────────────────────────────────────────────
 // Reads and wipes go straight to the Realtime Database from the browser. Access
@@ -45,7 +37,6 @@ interface AdminUser {
   lastSeen: number | null;
   chats: number;
   messages: number;
-  subscription: AdminSubscription | null;
 }
 interface AdminChat {
   chatId: string;
@@ -63,7 +54,7 @@ interface AdminMessage {
 
 type View =
   | { name: "users" }
-  | { name: "subscription" }
+  | { name: "codes" }
   | { name: "chats"; uid: string; label: string }
   | { name: "chat"; uid: string; chatId: string; title: string };
 
@@ -96,16 +87,9 @@ export default function AdminPanel({
   const [audit, setAudit] = useState<AdminAuditEntry[] | null>(null);
   const [auditBroken, setAuditBroken] = useState(false);
   const [confirmWipe, setConfirmWipe] = useState<null | { scope: "all" | "user"; uid?: string; label: string }>(null);
-  // Whose plan is being granted, and the choices made for it. Kept as a uid so
-  // the panel always reads the current record out of `users` rather than a copy
-  // that goes stale the moment a grant lands.
-  const [grantingUid, setGrantingUid] = useState<string | null>(null);
-  // Who the owner is looking for. The list can be long, and the person a grant
-  // is for is normally found by the name printed on the transfer.
+  // Who the owner is looking for. The list can be long, and the person a code
+  // was handed to is normally found by the name printed on the transfer.
   const [peopleQuery, setPeopleQuery] = useState("");
-  const [grantPlan, setGrantPlan] = useState<PlanId>(DEFAULT_PLAN.id);
-  const [grantDays, setGrantDays] = useState<number>(30);
-  const [grantNote, setGrantNote] = useState("");
 
   // Signing out must actually empty the screen. The gate only watches the
   // session while its own dialog is open, so a sign-out triggered from inside
@@ -154,9 +138,6 @@ export default function AdminPanel({
           case "wipeAll":
             await wipeAll();
             return { ok: true };
-          case "revokeSubscription":
-            await revokeSubscription(extra.uid!);
-            return { ok: true };
           default:
             throw new Error("Unknown action.");
         }
@@ -187,8 +168,6 @@ export default function AdminPanel({
     setNamed(null);
     setError(null);
     setConfirmWipe(null);
-    setGrantingUid(null);
-    setGrantNote("");
     setAudit(null);
     setAuditBroken(false);
 
@@ -263,217 +242,14 @@ export default function AdminPanel({
     }
   };
 
-  /**
-   * Hands a plan to one visitor.
-   *
-   * The record that comes back is what gets shown, not what was asked for, so a
-   * renewal that extended the end date reports the real date rather than the
-   * one this screen guessed. The buyer's browser is already listening to the
-   * node this writes.
-   */
-  const runGrant = async (uid: string) => {
-    setBusy(true);
-    setError(null);
-    try {
-      const record = await grantSubscription(uid, grantPlan, grantDays, grantNote);
-      setUsers((current) =>
-        (current ?? []).map((user) =>
-          user.uid === uid
-            ? {
-                ...user,
-                subscription: {
-                  plan: record.plan,
-                  grantedAt: record.grantedAt,
-                  expiresAt: record.expiresAt,
-                  days: record.days,
-                  paused: false,
-                  pausedAt: 0,
-                  pauseReason: "",
-                  remainingMs: Math.max(0, record.expiresAt - Date.now()),
-                },
-              }
-            : user
-        )
-      );
-      setGrantingUid(null);
-      setGrantNote("");
-      // The ledger is written after the grant, never before, and a failure here
-      // is reported as a ledger failure rather than swallowing the grant that
-      // just succeeded.
-      const name = users?.find((user) => user.uid === uid)?.name ?? null;
-      const written = await appendAdminAudit({
-        at: record.grantedAt,
-        action: "grant",
-        uid,
-        name,
-        plan: record.plan,
-        days: record.days,
-        expiresAt: record.expiresAt,
-        ...(grantNote.trim() ? { note: grantNote.trim() } : {}),
-      }).catch((error) => {
-        console.error("[mino] Failed to write audit entry", error);
-        setAuditBroken(true);
-        return null;
-      });
-      if (written) setAudit((current) => [written, ...(current ?? [])]);
-    } catch (e: unknown) {
-      console.error("[mino] Grant failed", e);
-      setError(e instanceof Error ? e.message : "Could not grant the plan.");
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  const runRevoke = async (uid: string) => {
-    setBusy(true);
-    setError(null);
-    try {
-      const target = users?.find((user) => user.uid === uid) ?? null;
-      await revokeSubscription(uid);
-      setUsers((current) =>
-        (current ?? []).map((user) => (user.uid === uid ? { ...user, subscription: null } : user))
-      );
-      setGrantingUid(null);
-      // Captured before the removal above: once the record is gone, the console
-      // no longer knows which tier was taken away, and the history would then
-      // say only "something was removed".
-      const written = await appendAdminAudit({
-        at: Date.now(),
-        action: "revoke",
-        uid,
-        name: target?.name ?? null,
-        plan: target?.subscription?.plan,
-        expiresAt: target?.subscription?.expiresAt,
-      }).catch((error) => {
-        console.error("[mino] Failed to write revoke audit entry", error);
-        setAuditBroken(true);
-        return null;
-      });
-      if (written) setAudit((current) => [written, ...(current ?? [])]);
-    } catch (e: unknown) {
-      console.error("[mino] Revoke failed", e);
-      setError(e instanceof Error ? e.message : "Could not remove the plan.");
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  // Putting a plan on hold. The record keeps its end date; the hold is a
-  // sibling that freezes where the countdown stood, so continuing later picks
-  // up with exactly the days that were left.
-  const runPause = async (uid: string) => {
-    setBusy(true);
-    setError(null);
-    try {
-      const record = await pauseSubscription(uid, "");
-      if (!record) throw new Error("There is no running plan to pause.");
-      const pausedAt = record.pause?.pausedAt ?? Date.now();
-      setUsers((current) =>
-        (current ?? []).map((user) =>
-          user.uid === uid && user.subscription
-            ? {
-                ...user,
-                subscription: {
-                  ...user.subscription,
-                  paused: true,
-                  pausedAt,
-                  pauseReason: "",
-                  remainingMs: Math.max(0, record.expiresAt - pausedAt),
-                },
-              }
-            : user
-        )
-      );
-      const name = users?.find((user) => user.uid === uid)?.name ?? null;
-      // Written after the hold lands, like every other ledger line, and a
-      // refusal to write it is shown rather than swallowed.
-      const written = await appendAdminAudit({
-        at: pausedAt,
-        action: "pause",
-        uid,
-        name,
-        plan: record.plan,
-        expiresAt: record.expiresAt,
-      }).catch((error) => {
-        console.error("[mino] Failed to write pause audit entry", error);
-        setAuditBroken(true);
-        return null;
-      });
-      if (written) setAudit((current) => [written, ...(current ?? [])]);
-    } catch (e: unknown) {
-      console.error("[mino] Pause failed", e);
-      setError(e instanceof Error ? e.message : "Could not pause the plan.");
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  // Continuing a hold: the server shifts the end date by the length of the
-  // hold alone, so the buyer gets the days that were frozen — never a fresh
-  // term, and never earlier than what they paid for.
-  const runResume = async (uid: string) => {
-    setBusy(true);
-    setError(null);
-    try {
-      const target = users?.find((user) => user.uid === uid) ?? null;
-      const record = await resumeSubscription(uid);
-      if (!record) throw new Error("That plan is not on hold.");
-      setUsers((current) =>
-        (current ?? []).map((user) =>
-          user.uid === uid && user.subscription
-            ? {
-                ...user,
-                subscription: {
-                  ...user.subscription,
-                  expiresAt: record.expiresAt,
-                  paused: false,
-                  pausedAt: 0,
-                  pauseReason: "",
-                  remainingMs: Math.max(0, record.expiresAt - Date.now()),
-                },
-              }
-            : user
-        )
-      );
-      const written = await appendAdminAudit({
-        at: Date.now(),
-        action: "resume",
-        uid,
-        name: target?.name ?? null,
-        plan: record.plan,
-        expiresAt: record.expiresAt,
-      }).catch((error) => {
-        console.error("[mino] Failed to write resume audit entry", error);
-        setAuditBroken(true);
-        return null;
-      });
-      if (written) setAudit((current) => [written, ...(current ?? [])]);
-    } catch (e: unknown) {
-      console.error("[mino] Resume failed", e);
-      setError(e instanceof Error ? e.message : "Could not continue the plan.");
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  const grantingUser = grantingUid ? users?.find((user) => user.uid === grantingUid) ?? null : null;
-  const subscribed = (users ?? []).filter((user) => user.subscription && !user.subscription.paused).length;
-  const pausedCount = (users ?? []).filter((user) => user.subscription?.paused).length;
-  const endingSoon = (users ?? []).filter(
-    (user) =>
-      user.subscription &&
-      !user.subscription.paused &&
-      user.subscription.expiresAt <= Date.now() + 7 * DAY_MS
-  ).length;
-  // Filtering by name, by uid, or by the plan they already hold — the three
-  // things an owner has in hand when a transfer needs matching to a person.
+  // Filtering by name or by uid — the two things an owner has in hand when a
+  // person needs finding in a long list.
   const query = peopleQuery.trim().toLowerCase();
   const visible = (users ?? []).filter(
     (user) =>
       !query ||
       (user.name ?? "").toLowerCase().includes(query) ||
-      user.uid.toLowerCase().includes(query) ||
-      (user.subscription ? planById(user.subscription.plan).name.toLowerCase().includes(query) : false)
+      user.uid.toLowerCase().includes(query)
   );
 
   if (!open) return null;
@@ -501,8 +277,8 @@ export default function AdminPanel({
             <h2 className="truncate text-[15px] font-semibold tracking-[-0.02em] text-white">
               {view.name === "users"
                 ? "Mino console"
-                : view.name === "subscription"
-                  ? "Subscriptions"
+                : view.name === "codes"
+                  ? "Dew codes"
                   : view.name === "chats"
                     ? view.label
                     : view.title}
@@ -531,32 +307,29 @@ export default function AdminPanel({
                 <Stat label="Messages" value={users?.reduce((sum, user) => sum + user.messages, 0)} />
               </div>
 
-              {/* Every control about money and plans lives behind this one
-                  door. The console's first screen is about people and
-                  traffic; granting, holding and codes are a different job
-                  with a different rhythm, and mixing them meant a wipe
-                  button sat three pixels from a grant button. */}
+              {/* Every control about money lives behind this one door. The
+                  console's first screen is about people and traffic; codes and
+                  the ledger are a different job with a different rhythm, and
+                  mixing them meant a wipe button sat three pixels from the
+                  thing a sale depends on. */}
               <section>
                 <div className="mb-1.5 flex items-center justify-between">
                   <h3 className="text-[10px] font-semibold uppercase tracking-[0.14em] text-white/35">
-                    Subscription
+                    Dew
                   </h3>
-                  <span className="text-[10px] text-white/25">
-                    {subscribed} active{pausedCount > 0 ? ` · ${pausedCount} on hold` : ""}
-                  </span>
                 </div>
                 <button
                   type="button"
-                  onClick={() => setView({ name: "subscription" })}
+                  onClick={() => setView({ name: "codes" })}
                   className="w-full rounded-[14px] border border-[#2f6b48]/25 bg-[#2f6b48]/10 px-3.5 py-3 text-left transition-colors hover:bg-[#2f6b48]/15"
                 >
                   <span className="block text-[12px] font-semibold text-[#a9d8bb]">
-                    Manage plans, holds and codes
+                    Redeem codes and history
                   </span>
                   <span className="mt-0.5 block text-[10px] leading-relaxed text-white/40">
-                    {subscribed} active · {pausedCount} on hold · {endingSoon} ending within 7 days.
-                    Grant time, pause a plan without spending it, continue one back with the days it
-                    kept, make redeem codes, and read the month&apos;s revenue.
+                    Every message and picture is billed in Dew, so this is where a manual top-up
+                    becomes a word the buyer can type — and where those words, once made, can be
+                    switched off or read back.
                   </span>
                 </button>
               </section>
@@ -582,9 +355,6 @@ export default function AdminPanel({
               <section>
                 <div className="mb-2 flex items-center justify-between">
                   <h3 className="text-[10px] font-semibold uppercase tracking-[0.14em] text-white/35">People</h3>
-                  <span className="text-[10px] text-white/25">
-                    {subscribed} subscribed
-                  </span>
                 </div>
                 <input
                   value={peopleQuery}
@@ -617,26 +387,6 @@ export default function AdminPanel({
                               {user.chats} chat{user.chats === 1 ? "" : "s"} · {user.messages} message{user.messages === 1 ? "" : "s"} · {when(user.lastSeen)}
                             </span>
                           </button>
-                          {/* A quiet badge, not a button: plan controls live
-                              in the Subscription section now, and a passive
-                              label cannot be pressed by accident next to
-                              Wipe. */}
-                          {user.subscription && (
-                            <span
-                              className={`shrink-0 rounded-[10px] border px-2 py-1.5 text-[10px] font-semibold ${
-                                user.subscription.paused
-                                  ? "border-amber-300/25 bg-amber-400/10 text-amber-100/90"
-                                  : "border-[#2f6b48]/25 bg-[#2f6b48]/10 text-[#a9d8bb]"
-                              }`}
-                              aria-label={
-                                user.subscription.paused
-                                  ? `${planById(user.subscription.plan).name} on hold`
-                                  : `${planById(user.subscription.plan).name} until ${new Date(user.subscription.expiresAt).toLocaleDateString()}`
-                              }
-                            >
-                              {user.subscription.paused ? "Held" : planById(user.subscription.plan).short}
-                            </span>
-                          )}
                           <button
                             type="button"
                             onClick={() => setConfirmWipe({ scope: "user", uid: user.uid, label: user.name ?? "Unnamed visitor" })}
@@ -698,127 +448,18 @@ export default function AdminPanel({
             </div>
           )}
 
-          {view.name === "subscription" && (
+          {view.name === "codes" && (
             <div className="space-y-5">
-              <div className="grid grid-cols-3 gap-2 text-center">
-                <Stat label="Active" value={subscribed} />
-                <Stat label="On hold" value={pausedCount} />
-                <Stat label="Ending 7d" value={endingSoon} />
-              </div>
-
               <p className="text-[10px] leading-relaxed text-white/35">
-                Pause holds a plan without spending it: the clock stops where it stands, and
-                Continue gives back exactly the days that were left — never a fresh term, and
-                never earlier than what was paid for. Granting more time to a held plan is
-                refused until it is continued.
+                Pay as you go: a code is a word carrying Dew. The buyer types it on the top-up page
+                and the balance follows — the amount is read from the code itself, never from the
+                claim, so nothing a caller writes can decide what they receive.
               </p>
 
-              <section>
-                <div className="mb-2 flex items-center justify-between">
-                  <h3 className="text-[10px] font-semibold uppercase tracking-[0.14em] text-white/35">
-                    Plans
-                  </h3>
-                  <span className="text-[10px] text-white/25">{subscribed} active</span>
-                </div>
-                <input
-                  value={peopleQuery}
-                  onChange={(event) => setPeopleQuery(event.target.value)}
-                  placeholder="Find a name to grant"
-                  aria-label="Find a visitor by name"
-                  className="mb-2 w-full rounded-[10px] border border-white/[0.1] bg-[#0e1613] px-2.5 py-2 text-[11px] text-white/85 outline-none placeholder:text-white/25 focus:border-[#2f6b48]/50"
-                />
-                {users === null ? (
-                  <p className="py-2 text-[11px] text-white/35">Loading…</p>
-                ) : users.length === 0 ? (
-                  <p className="py-2 text-[11px] leading-relaxed text-white/35">
-                    Nobody has visited yet. Anyone who opens Mino and gives a name appears here,
-                    whether or not they have ever sent a message.
-                  </p>
-                ) : visible.length === 0 ? (
-                  <p className="py-2 text-[11px] text-white/35">No one matches “{peopleQuery}”.</p>
-                ) : (
-                  <ul className="space-y-1.5">
-                    {visible.map((user) => {
-                      const sub = user.subscription;
-                      const heldDays = sub ? Math.max(0, Math.ceil(sub.remainingMs / DAY_MS)) : 0;
-                      return (
-                        <li key={user.uid}>
-                          <div className="flex items-center gap-2">
-                            <div className="min-w-0 flex-1 rounded-[12px] border border-white/[0.06] bg-white/[0.03] px-3 py-2.5">
-                              <span className="block truncate text-[13px] font-semibold text-white/90">
-                                {user.name ?? "Unnamed visitor"}
-                              </span>
-                              <span className="mt-0.5 block text-[10px] text-white/30">
-                                {!sub
-                                  ? "Free"
-                                  : sub.paused
-                                    ? `${planById(sub.plan).name} on hold · ${heldDays} day${heldDays === 1 ? "" : "s"} kept${sub.pauseReason ? ` · ${sub.pauseReason}` : ""}`
-                                    : `${planById(sub.plan).name} · until ${new Date(sub.expiresAt).toLocaleDateString(undefined, { dateStyle: "medium" })} · ${heldDays} day${heldDays === 1 ? "" : "s"} left`}
-                              </span>
-                            </div>
-                            {sub?.paused ? (
-                              <button
-                                type="button"
-                                onClick={() => void runResume(user.uid)}
-                                disabled={busy}
-                                className="shrink-0 rounded-[10px] border border-sky-400/25 bg-sky-400/10 px-2 py-1.5 text-[10px] font-semibold text-sky-200/90 disabled:opacity-50"
-                                aria-label={`Continue ${user.name ?? "this visitor"}'s plan with the ${heldDays} days it kept`}
-                              >
-                                Continue
-                              </button>
-                            ) : sub ? (
-                              <button
-                                type="button"
-                                onClick={() => void runPause(user.uid)}
-                                disabled={busy}
-                                className="shrink-0 rounded-[10px] border border-amber-300/25 bg-amber-400/10 px-2 py-1.5 text-[10px] font-semibold text-amber-100/90 disabled:opacity-50"
-                                aria-label={`Pause ${user.name ?? "this visitor"}'s plan, keeping the ${heldDays} days they have left`}
-                              >
-                                Pause
-                              </button>
-                            ) : null}
-                            <button
-                              type="button"
-                              onClick={() => setGrantingUid(grantingUid === user.uid ? null : user.uid)}
-                              className="shrink-0 rounded-[10px] px-2 py-2 text-[10px] text-white/30 hover:bg-white/[0.07] hover:text-white/70"
-                              aria-label={
-                                sub
-                                  ? `Change the plan for ${user.name ?? "this visitor"}`
-                                  : `Grant a plan to ${user.name ?? "this visitor"}`
-                              }
-                            >
-                              Plan
-                            </button>
-                          </div>
-
-                          {grantingUid === user.uid && (
-                            <GrantPanel
-                              key={user.uid}
-                              plan={grantPlan}
-                              days={grantDays}
-                              note={grantNote}
-                              busy={busy}
-                              hasPlan={Boolean(grantingUser?.subscription)}
-                              currentExpiresAt={grantingUser?.subscription?.expiresAt ?? null}
-                              paused={grantingUser?.subscription?.paused ?? false}
-                              onPlan={setGrantPlan}
-                              onDays={setGrantDays}
-                              onNote={setGrantNote}
-                              onCancel={() => setGrantingUid(null)}
-                              onGrant={() => void runGrant(user.uid)}
-                              onRevoke={() => void runRevoke(user.uid)}
-                            />
-                          )}
-                        </li>
-                      );
-                    })}
-                  </ul>
-                )}
-              </section>
-
-              <RevenueSection users={users} />
-
-              <CodesSection />
+              <CodesSection
+                onLogged={(entry) => setAudit((current) => [entry, ...(current ?? [])])}
+                onLedgerError={() => setAuditBroken(true)}
+              />
 
               <AuditSection entries={audit} broken={auditBroken} />
             </div>
@@ -909,27 +550,32 @@ export default function AdminPanel({
 /**
  * The redeem codes the owner has made.
  *
- * A code is a word carrying a plan and a length, handed to a buyer instead of a
- * direct grant. It is the piece that makes a manual sale work at a distance:
- * the buyer gets something they can hold onto and type themselves, and the owner
- * is not copying dates into somebody's account over a phone call.
+ * A code is a word carrying Dew, handed to a buyer instead of a direct transfer.
+ * It is the piece that makes a manual sale work at a distance: the buyer gets
+ * something they can hold onto and type themselves, and the owner is not typing
+ * amounts into somebody's account over a phone call.
  *
  * The switch is the reason a code is not just deleted. A word that has been
  * posted publicly and is being resold has to be stoppable *now*, and somebody
  * who switched one off by accident should be able to bring it back without
- * retyping the plan. Switching off also reaches people who already claimed it —
- * the server re-checks on every request — which is the behaviour an owner
- * expects from the word "terminate" and is why it is a switch rather than a
- * convenience.
+ * retyping it. Switching off also reaches people who already claimed it — the
+ * server re-checks on every request — which is the behaviour an owner expects
+ * from the word "terminate" and is why it is a switch rather than a convenience.
+ *
+ * Every action is written to the ledger through `onLogged`; a rules file that
+ * refuses `admin/audit` reports through `onLedgerError` instead of pretending
+ * the code itself failed.
  */
-function CodesSection() {
+function CodesSection({
+  onLogged,
+  onLedgerError,
+}: {
+  onLogged: (entry: AdminAuditEntry) => void;
+  onLedgerError: () => void;
+}) {
   const [codes, setCodes] = useState<RedeemCode[] | null>(null);
   const [word, setWord] = useState("");
-  // What the new code carries. "plan" keeps the legacy subscription shape; a
-  // positive number is a Dew top-up code granting exactly that much balance.
-  const [kind, setKind] = useState<"plan" | "dew">("dew");
-  const [plan, setPlan] = useState<PlanId>(DEFAULT_PLAN.id);
-  const [days, setDays] = useState<number>(30);
+  // What the new code carries: a positive Dew amount, and nothing else.
   const [dewAmount, setDewAmount] = useState<number>(100);
   const [note, setNote] = useState("");
   const [busy, setBusy] = useState(false);
@@ -952,6 +598,16 @@ function CodesSection() {
   // everybody's, and it would be created happily otherwise.
   const wordProblem = word.trim() === "" ? null : !isValidCode(word) ? "Use at least 4 letters or numbers." : null;
 
+  /** Appends to the ledger, reporting a refusal rather than swallowing it. */
+  const log = async (entry: Omit<AdminAuditEntry, "id">) => {
+    const written = await appendAdminAudit(entry).catch((cause) => {
+      console.error("[mino] Failed to write audit entry", cause);
+      onLedgerError();
+      return null;
+    });
+    if (written) onLogged(written);
+  };
+
   const run = async (action: () => Promise<unknown>) => {
     setBusy(true);
     setError("");
@@ -967,13 +623,28 @@ function CodesSection() {
 
   const create = () =>
     run(async () => {
-      if (kind === "dew") {
-        await createRedeemCode({ code: word, dew: dewAmount, note });
-      } else {
-        await createRedeemCode({ code: word, plan, days, note });
-      }
+      await createRedeemCode({ code: word, dew: dewAmount, note });
+      await log({
+        at: Date.now(),
+        action: "createCode",
+        code: normalized,
+        dew: dewAmount,
+        ...(note.trim() ? { note: note.trim() } : {}),
+      });
       setWord("");
       setNote("");
+    });
+
+  const toggle = (existing: RedeemCode) =>
+    run(async () => {
+      await setRedeemCodeActive(existing.code, !existing.active);
+      await log({ at: Date.now(), action: "toggleCode", code: existing.code, active: !existing.active });
+    });
+
+  const remove = (existing: RedeemCode) =>
+    run(async () => {
+      await deleteRedeemCode(existing.code);
+      await log({ at: Date.now(), action: "deleteCode", code: existing.code, dew: existing.dew });
     });
 
   return (
@@ -983,9 +654,8 @@ function CodesSection() {
         <span className="text-[10px] text-white/25">{codes?.length ?? 0}</span>
       </div>
       <p className="text-[10px] leading-relaxed text-white/30">
-        A word you choose. A Dew code tops up the buyer&apos;s balance by the amount on it; a legacy plan code still
-        grants plan time. The buyer types it on the pricing page. Switching one off stops it for everyone,
-        including anyone who already used it.
+        A word you choose, carrying an amount of Dew. The buyer types it on the top-up page and the
+        balance follows. Switching one off stops it for everyone, including anyone who already used it.
       </p>
 
       <div className="mt-2 rounded-[12px] border border-white/[0.06] bg-white/[0.03] p-3">
@@ -996,7 +666,7 @@ function CodesSection() {
           id="code-word"
           value={word}
           onChange={(event) => setWord(event.target.value)}
-          placeholder="MINO-LUNAR"
+          placeholder="MINO-TOPUP"
           spellCheck={false}
           autoComplete="off"
           className="w-full rounded-[10px] border border-white/[0.08] bg-black/25 px-3 py-2 text-[13px] font-semibold uppercase tracking-[0.1em] text-white placeholder:font-normal placeholder:normal-case placeholder:tracking-normal placeholder:text-white/25"
@@ -1010,70 +680,20 @@ function CodesSection() {
         ) : null}
 
         <div className="mt-2 flex flex-wrap items-center gap-1.5">
-          <button
-            type="button"
-            onClick={() => setKind("dew")}
-            className={`rounded-[9px] px-2.5 py-1.5 text-[11px] font-medium transition ${
-              kind === "dew" ? "bg-white/15 text-white" : "bg-white/[0.04] text-white/55 hover:bg-white/[0.09]"
-            }`}
-          >
-            💧 Dew top-up
-          </button>
-          <button
-            type="button"
-            onClick={() => setKind("plan")}
-            className={`rounded-[9px] px-2.5 py-1.5 text-[11px] font-medium transition ${
-              kind === "plan" ? "bg-white/15 text-white" : "bg-white/[0.04] text-white/55 hover:bg-white/[0.09]"
-            }`}
-          >
-            Legacy plan
-          </button>
-        </div>
-
-        {kind === "dew" ? (
-          <div className="mt-2 flex flex-wrap items-center gap-1.5">
-            {[25, 100, 500, 1000].map((amount) => (
-              <button
-                key={amount}
-                type="button"
-                onClick={() => setDewAmount(amount)}
-                className={`rounded-[9px] px-2.5 py-1.5 text-[11px] font-medium transition ${
-                  dewAmount === amount ? "bg-white/15 text-white" : "bg-white/[0.04] text-white/55 hover:bg-white/[0.09]"
-                }`}
-              >
-                {amount}
-              </button>
-            ))}
-            <span className="text-[10px] text-white/25">Dew</span>
-          </div>
-        ) : (
-          <div className="mt-2 flex flex-wrap items-center gap-1.5">
-            {PLANS.map((option) => (
-              <button
-                key={option.id}
-                type="button"
-                onClick={() => setPlan(option.id)}
-                className={`rounded-[9px] px-2.5 py-1.5 text-[11px] font-medium transition ${
-                  plan === option.id ? "bg-white/15 text-white" : "bg-white/[0.04] text-white/55 hover:bg-white/[0.09]"
-                }`}
-              >
-                {option.short}
-              </button>
-            ))}
-            <span className="text-[10px] text-white/25">for</span>
-            <select
-              value={days}
-              onChange={(event) => setDays(Number(event.target.value))}
-              className="rounded-[9px] border border-white/[0.08] bg-black/25 px-2 py-1.5 text-[11px] text-white/80"
+          {[25, 100, 500, 1000].map((amount) => (
+            <button
+              key={amount}
+              type="button"
+              onClick={() => setDewAmount(amount)}
+              className={`rounded-[9px] px-2.5 py-1.5 text-[11px] font-medium transition ${
+                dewAmount === amount ? "bg-white/15 text-white" : "bg-white/[0.04] text-white/55 hover:bg-white/[0.09]"
+              }`}
             >
-              {DURATIONS.map((duration) => (
-                <option key={duration.days} value={duration.days} className="bg-[#0e1614]">
-                  {describeDuration(duration.days)}
-                </option>
-              ))}
-            </select>
-          </div>
-        )}
+              {amount}
+            </button>
+          ))}
+          <span className="text-[10px] text-white/25">Dew</span>
+        </div>
 
         <input
           value={note}
@@ -1111,14 +731,12 @@ function CodesSection() {
                     {code.code}
                     {!code.active ? <span className="ml-2 text-[10px] font-normal text-red-300/80">off</span> : null}
                   </p>
-                  <p className="text-[10px] text-white/35">
-                    {code.dew !== undefined ? `💧 ${code.dew} Dew` : `${planById(code.plan).short} · ${describeDuration(code.days)}`}
-                  </p>
+                  <p className="text-[10px] text-white/35">💧 {code.dew} Dew</p>
                 </div>
                 <div className="flex shrink-0 gap-1">
                   <button
                     type="button"
-                    onClick={() => void run(() => setRedeemCodeActive(code.code, !code.active))}
+                    onClick={() => void toggle(code)}
                     disabled={busy}
                     className="rounded-[9px] bg-white/[0.06] px-2.5 py-1.5 text-[11px] text-white/75 transition hover:bg-white/[0.12] disabled:opacity-40"
                   >
@@ -1126,7 +744,7 @@ function CodesSection() {
                   </button>
                   <button
                     type="button"
-                    onClick={() => void run(() => deleteRedeemCode(code.code))}
+                    onClick={() => void remove(code)}
                     disabled={busy}
                     className="rounded-[9px] px-2.5 py-1.5 text-[11px] text-red-200/70 transition hover:bg-red-500/15 disabled:opacity-40"
                   >
@@ -1142,292 +760,6 @@ function CodesSection() {
   );
 }
 
-/**
- * The grant form for one visitor.
- *
- * A QR transfer is checked by hand, so this is the moment the payment becomes a
- * plan. The tier is chosen first and granted second on purpose: one button that
- * grants whatever is highlighted is one stray tap away from selling a month of
- * the wrong tier, and nobody can undo that for the buyer except another tap
- * here. The reference field carries whatever the banking app showed, and it is
- * shown to the buyer — that is what lets them match a transfer to a purchase
- * without asking.
- */
-function GrantPanel({
-  plan,
-  days,
-  note,
-  busy,
-  hasPlan,
-  paused,
-  onPlan,
-  onDays,
-  onNote,
-  onCancel,
-  onGrant,
-  currentExpiresAt,
-  onRevoke,
-}: {
-  plan: PlanId;
-  days: number;
-  note: string;
-  busy: boolean;
-  hasPlan: boolean;
-  /** True while this plan is on hold. Granting to a held plan is refused —
-   *  the frozen end date would make the preview a lie — so the button says
-   *  so rather than failing after the press. */
-  paused?: boolean;
-  /** When the plan they already hold ends, so the preview can be truthful. */
-  currentExpiresAt?: number | null;
-  onPlan: (plan: PlanId) => void;
-  onDays: (days: number) => void;
-  onNote: (note: string) => void;
-  onCancel: () => void;
-  onGrant: () => void;
-  onRevoke: () => void;
-}) {
-  // Where the plan will actually end up — not simply today plus the chosen
-  // days. Granting to somebody whose plan is still running *adds* to the date
-  // they already have, so a preview that ignored that is how a month of
-  // pressing ends up as five years nobody meant to sell.
-  const startsFrom = Math.max(Date.now(), currentExpiresAt ?? 0);
-  const adding = (currentExpiresAt ?? 0) > Date.now();
-  const resultingEnd = new Date(startsFrom + normalizeDays(days) * 86_400_000).toLocaleDateString(
-    undefined,
-    { dateStyle: "medium" }
-  );
-  return (
-    <div className="mt-1.5 rounded-[14px] border border-[#2f6b48]/20 bg-[#2f6b48]/[0.05] p-3">
-      <p className="text-[10px] leading-relaxed text-white/45">
-        Payment received? Choose the tier they paid for.
-      </p>
-
-      {paused && (
-        <p className="mt-2 rounded-[10px] border border-amber-300/15 bg-amber-400/[0.06] px-2.5 py-2 text-[10px] leading-relaxed text-amber-100/85">
-          This plan is on hold, so its end date is frozen. Continue it first — granting more time
-          to a held plan would be added to a date that is not moving.
-        </p>
-      )}
-
-      <div className="mt-2.5 grid grid-cols-2 gap-1.5">
-        {PLANS.map((item) => (
-          <button
-            key={item.id}
-            type="button"
-            aria-pressed={plan === item.id}
-            onClick={() => onPlan(item.id)}
-            className={`rounded-[10px] border px-2.5 py-2 text-left transition-colors ${
-              plan === item.id
-                ? "border-[#2f6b48]/60 bg-[#2f6b48]/15 text-white"
-                : "border-white/[0.08] bg-white/[0.02] text-white/45 hover:border-white/20 hover:text-white/75"
-            }`}
-          >
-            <span className="block text-[12px] font-semibold">{item.short}</span>
-            <span className="block text-[10px] opacity-70">{formatRinggit(item.ringgit)}/mo</span>
-          </button>
-        ))}
-      </div>
-
-      {/* Length, chosen from the same named spans the pricing page sells, plus
-          a free count for the span nobody sells: somebody who paid for six
-          weeks gets six weeks. A calendar would be the wrong control for all of
-          it — a grant is a number of days, not a date. */}
-      <div className="mt-2.5">
-        <span className="text-[10px] text-white/40">For</span>
-        <div className="mt-1.5 flex flex-wrap gap-1.5">
-          {DURATIONS.map((span) => (
-            <button
-              key={span.id}
-              type="button"
-              aria-pressed={days === span.days}
-              onClick={() => onDays(span.days)}
-              className={`rounded-full border px-2.5 py-1.5 text-[11px] transition-colors ${
-                days === span.days
-                  ? "border-[#2f6b48]/60 bg-[#2f6b48]/15 text-white"
-                  : "border-white/[0.1] bg-white/[0.02] text-white/50 hover:border-white/20 hover:text-white/80"
-              }`}
-            >
-              {span.label}
-            </button>
-          ))}
-        </div>
-
-        <div className="mt-2 flex items-center gap-2">
-          <button
-            type="button"
-            onClick={() => onDays(normalizeDays(days - 1))}
-            className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-white/[0.1] text-white/60 transition-colors hover:border-white/25 hover:text-white"
-            aria-label="One day shorter"
-          >
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
-              <path d="M5 12h14" />
-            </svg>
-          </button>
-          <label className="flex-1">
-            <span className="sr-only">Custom length in days</span>
-            <input
-              type="number"
-              inputMode="numeric"
-              min={1}
-              max={3650}
-              value={days}
-              onChange={(event) => onDays(normalizeDays(event.target.value))}
-              className="w-full rounded-[9px] border border-white/[0.1] bg-[#0e1613] px-2 py-1.5 text-center text-[11px] text-white/85 outline-none focus:border-[#2f6b48]/50"
-            />
-          </label>
-          <button
-            type="button"
-            onClick={() => onDays(normalizeDays(days + 1))}
-            className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-white/[0.1] text-white/60 transition-colors hover:border-white/25 hover:text-white"
-            aria-label="One day longer"
-          >
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
-              <path d="M12 5v14M5 12h14" />
-            </svg>
-          </button>
-        </div>
-        <p className="mt-1.5 text-[10px] text-white/35">
-          {describeDuration(days)} · {resultingEnd}
-          {adding ? " (added to the time already left)" : ""}
-        </p>
-      </div>
-
-      <input
-        value={note}
-        onChange={(event) => onNote(event.target.value)}
-        placeholder="Payment reference (optional)"
-        aria-label="Payment reference"
-        maxLength={120}
-        className="mt-2 w-full rounded-[10px] border border-white/[0.1] bg-[#0e1613] px-2.5 py-2 text-[11px] text-white/85 outline-none placeholder:text-white/25 focus:border-[#2f6b48]/50"
-      />
-
-      <div className="mt-2.5 flex gap-1.5">
-        <button
-          type="button"
-          onClick={onCancel}
-          className="rounded-[10px] px-2.5 py-2 text-[11px] text-white/45 hover:bg-white/[0.06] hover:text-white"
-        >
-          Cancel
-        </button>
-        {hasPlan && (
-          <button
-            type="button"
-            onClick={onRevoke}
-            disabled={busy}
-            className="rounded-[10px] px-2.5 py-2 text-[11px] text-red-300/70 hover:bg-red-500/10 hover:text-red-300 disabled:opacity-40"
-          >
-            Remove plan
-          </button>
-        )}
-        <button
-          type="button"
-          onClick={onGrant}
-          disabled={busy || paused}
-          title={paused ? "Continue the plan before granting more time" : undefined}
-          className="ml-auto rounded-[10px] bg-[#2f6b48] px-3 py-2 text-[11px] font-semibold text-black disabled:opacity-50"
-        >
-          {busy ? "Granting…" : `Grant ${planById(plan).short} · ${describeDuration(days)}`}
-        </button>
-      </div>
-    </div>
-  );
-}
-
-/**
- * The money the console has actually recorded, for this month.
- *
- * Everything is derived from what is already in `subscriptions/` rather than
- * from a second ledger, because two sources of truth about money is how they
- * start disagreeing. Two limits are said out loud on the screen instead of
- * hidden behind a confident total:
- *
- *   * Each person contributes their *current* record. A renewal replaces the
- *     one before it, so this is a view of what is on the books now rather than
- *     an accounting of every sale ever made.
- *   * Value counts only lengths that appear on the price list. A custom grant
- *     (the console can hand out 45 days) was never sold at a price, so it is
- *     counted as a grant and left out of the money instead of being priced at
- *     the nearest month — a guessed number beside a real one is worse than a
- *     real one with a stated gap.
- */
-function RevenueSection({ users }: { users: AdminUser[] | null }) {
-  if (users === null) {
-    return (
-      <section>
-        <h3 className="mb-1.5 text-[10px] font-semibold uppercase tracking-[0.14em] text-white/35">
-          This month
-        </h3>
-        <p className="py-1 text-[11px] text-white/35">Loading…</p>
-      </section>
-    );
-  }
-
-  const now = Date.now();
-  const monthStart = new Date();
-  monthStart.setDate(1);
-  monthStart.setHours(0, 0, 0, 0);
-  const start = monthStart.getTime();
-
-  let grants = 0;
-  let days = 0;
-  let value = 0;
-  let custom = 0;
-  let mini = 0;
-  let lunar = 0;
-  let active = 0;
-  let expiringSoon = 0;
-
-  for (const user of users) {
-    const subscription = user.subscription;
-    if (!subscription) continue;
-    // A held plan is still on the books (it was paid for) but it is not
-    // usable right now, and its frozen end date says nothing about when it
-    // will actually end — so it is counted out of "active now" and out of
-    // the expiring-soon figure rather than reported as both present and
-    // about to stop.
-    if (subscription.expiresAt > now && !subscription.paused) {
-      active += 1;
-      if (subscription.expiresAt <= now + 7 * DAY_MS) expiringSoon += 1;
-    }
-    if (subscription.grantedAt < start) continue;
-    grants += 1;
-    days += subscription.days;
-    if (subscription.plan === "mini") mini += 1;
-    else lunar += 1;
-    const term = planById(subscription.plan).terms.find((item) => item.days === subscription.days);
-    if (term) value += term.ringgit;
-    else custom += 1;
-  }
-
-  return (
-    <section>
-      <h3 className="mb-1.5 text-[10px] font-semibold uppercase tracking-[0.14em] text-white/35">
-        This month
-      </h3>
-      <div className="grid grid-cols-3 gap-2 text-center">
-        <Stat label="Grants" value={grants} />
-        <Stat label="Days sold" value={days} />
-        <Stat label="Value (RM)" value={value} />
-      </div>
-      <p className="mt-1.5 text-[10px] leading-relaxed text-white/30">
-        Mini {mini} · Lunar {lunar}
-        {custom > 0
-          ? ` · ${custom} custom-length grant${custom === 1 ? "" : "s"} not on the price list`
-          : ""}
-        . {active} active now, {expiringSoon} ending within 7 days.
-        <br />
-        Value counts only lengths sold on the price list, from each person&apos;s current record.
-      </p>
-    </section>
-  );
-}
-
-/**
- * The ledger: every grant and removal, newest first, with the payment
- * reference typed at the time. A refusal to write it is shown rather than
- * swallowed — an audit log that silently stops recording is worse than none,
- * because the absence looks exactly like "nothing happened".
- */
 /**
  * The traffic the caps are counted against, drawn rather than tabulated.
  *
@@ -1559,8 +891,7 @@ function AuditSection({
       {broken && (
         <p className="mb-2 rounded-[10px] border border-amber-300/15 bg-amber-400/[0.06] px-2.5 py-2 text-[10px] leading-relaxed text-amber-100/85">
           The database rules in use do not cover <code>admin/audit</code>, so history could not be
-          written. The grants themselves succeeded. Publish <code>admin/audit</code> rules to
-          record them.
+          written. The codes themselves worked. Publish <code>admin/audit</code> rules to record them.
         </p>
       )}
 
@@ -1568,51 +899,54 @@ function AuditSection({
         <p className="py-1 text-[11px] text-white/35">Loading…</p>
       ) : entries.length === 0 ? (
         <p className="py-1 text-[11px] leading-relaxed text-white/35">
-          Nothing recorded yet. Every grant, removal, pause and continuation lands here with the
-          payment reference you typed.
+          Nothing recorded yet. Every code made, switched off or deleted lands here with the note
+          you typed.
         </p>
       ) : (
         <ul className="space-y-1">
-          {entries.map((entry) => (
-            <li
-              key={entry.id}
-              className="flex items-start gap-2 rounded-[12px] border border-white/[0.06] bg-white/[0.03] px-3 py-2"
-            >
-              <span
-                className={`mt-0.5 shrink-0 rounded px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide ${
-                  entry.action === "grant"
-                    ? "bg-[#2f6b48]/20 text-[#a9d8bb]"
-                    : entry.action === "revoke"
-                      ? "bg-red-500/15 text-red-300"
-                      : entry.action === "pause"
-                        ? "bg-amber-400/15 text-amber-200/90"
-                        : "bg-sky-400/15 text-sky-200/90"
-                }`}
+          {entries.map((entry) => {
+            // An entry written before the migration still has its old shape;
+            // it is shown raw rather than dropped, because a ledger that
+            // hides what it cannot classify is a ledger with holes in it.
+            const off = entry.action === "deleteCode" || (entry.action === "toggleCode" && entry.active === false);
+            const label =
+              entry.action === "createCode"
+                ? "Made"
+                : entry.action === "deleteCode"
+                  ? "Deleted"
+                  : entry.action === "toggleCode"
+                    ? off
+                      ? "Off"
+                      : "On"
+                    : entry.action;
+            const tone = off
+              ? "bg-red-500/15 text-red-300"
+              : entry.action === "createCode"
+                ? "bg-[#2f6b48]/20 text-[#a9d8bb]"
+                : "bg-white/[0.07] text-white/70";
+            return (
+              <li
+                key={entry.id}
+                className="flex items-start gap-2 rounded-[12px] border border-white/[0.06] bg-white/[0.03] px-3 py-2"
               >
-                {entry.action === "grant"
-                  ? "Grant"
-                  : entry.action === "revoke"
-                    ? "Removed"
-                    : entry.action === "pause"
-                      ? "Paused"
-                      : "Continued"}
-              </span>
-              <span className="min-w-0 flex-1">
-                <span className="block truncate text-[12px] text-white/85">
-                  {entry.name ?? `{entry.uid?.slice(0, 8) ?? '----'}…`}
+                <span
+                  className={`mt-0.5 shrink-0 rounded px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide ${tone}`}
+                >
+                  {label}
                 </span>
-                <span className="block text-[10px] leading-relaxed text-white/35">
-                  {entry.plan ? planById(entry.plan).short : "—"}
-                  {entry.days ? ` · ${describeDuration(entry.days)}` : ""}
-                  {entry.note ? ` · ${entry.note}` : ""}
-                  {` · ${when(entry.at)}`}
-                  {entry.expiresAt
-                    ? ` → until ${new Date(entry.expiresAt).toLocaleDateString(undefined, { dateStyle: "medium" })}`
-                    : ""}
+                <span className="min-w-0 flex-1">
+                  <span className="block truncate text-[12px] tracking-[0.06em] text-white/85">
+                    {entry.code ?? "—"}
+                  </span>
+                  <span className="block text-[10px] leading-relaxed text-white/35">
+                    {entry.dew ? `💧 ${entry.dew} Dew` : ""}
+                    {entry.note ? ` · ${entry.note}` : ""}
+                    {` · ${when(entry.at)}`}
+                  </span>
                 </span>
-              </span>
-            </li>
-          ))}
+              </li>
+            );
+          })}
         </ul>
       )}
     </section>
