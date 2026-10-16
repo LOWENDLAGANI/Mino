@@ -113,7 +113,7 @@ async function chargeImageDew(
   if (!identity || !state) return;
   const deduct = await deductDew(authorization, identity.uid, state.spent, IMAGE_DEW_COST);
   if (!deduct.ok) {
-    console.warn(`[mino dew] image charge of ${IMAGE_DEW_COST} not recorded for uid ${identity.uid}`);
+    console.warn(`[mino dew] image charge of ${IMAGE_DEW_COST} not recorded for uid ${identity.uid} (conflict=${deduct.conflict}, reason=${deduct.reason ?? "unknown"})`);
     return;
   }
   void writeAsCaller(

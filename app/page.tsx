@@ -14,8 +14,8 @@ import NamePrompt from "@/components/NamePrompt";
 import MaintenanceScreen from "@/components/MaintenanceScreen";
 import { loadDisplayName, saveDisplayName } from "@/lib/visitorName";
 import { syncVisitorProfile } from "@/lib/firebaseHistory";
-import { bindGoogleAccount, loadAccountName } from "@/lib/account";
-import { describeLinkError, greetingName, isDismissed, normalizeName } from "@/lib/accountState";
+import { bindGoogleAccount, consumeGoogleSignIn, loadAccountName, type BindOutcome } from "@/lib/account";
+import { describeLinkError, greetingName, isDismissed, normalizeName, type AccountView } from "@/lib/accountState";
 import {
   db,
   createChat,
@@ -335,7 +335,6 @@ export default function HomePage() {
     return () => clearTimeout(timeout);
   }, [loggingError]);
 
-  // Remember the name in this browser and log it under the anonymous id.
   const handleSaveName = useCallback((name: string) => {
     const saved = saveDisplayName(name);
     setDisplayName(saved);
@@ -345,20 +344,21 @@ export default function HomePage() {
   }, []);
 
   /**
-   * The optional Google door on the name screen.
+   * What a completed Google sign-in — popup or page redirect — leads to.
    *
-   * It resolves a name the same way every other entry point does — the account's
-   * own name first, Google's second — and hands it to `handleSaveName`, so the
-   * gate is never entered by a different route than the text field. A successful
-   * sign-in that produced no usable name is reported rather than waved through:
-   * letting someone in with no name would break the one thing the name is for.
+   * Shared by the button on the name screen and the mount-time redirect
+   * consumer, so both entry points resolve a name the same way: the account's
+   * own name first, Google's second. A successful sign-in that produced no
+   * usable name is reported rather than waved through: letting someone in with
+   * no name would break the one thing the name is for.
    */
-  const handleGoogleEntry = useCallback(async () => {
-    setGoogleBusy(true);
-    setGoogleError(null);
-    try {
-      const result = await bindGoogleAccount();
-      if (result.outcome === "dismissed") return;
+  const finishGoogleEntry = useCallback(
+    async (result: { outcome: BindOutcome | null; view: AccountView | null; cause?: unknown }) => {
+      if (result.outcome === "dismissed") return "dismissed";
+      if (!result.view) {
+        setGoogleError(describeLinkError((result as { cause?: unknown }).cause));
+        return "failed";
+      }
       // Whatever the account already holds is adopted before this device's own
       // history is written over the top of it, so the two are merged rather
       // than one replacing the other.
@@ -371,9 +371,20 @@ export default function HomePage() {
         setGoogleError(
           "You are signed in, but no name came with it. Type a name above to continue."
         );
-        return;
+        return "failed";
       }
       handleSaveName(resolved);
+      return "ready";
+    },
+    [handleSaveName]
+  );
+
+  /** The optional Google door on the name screen. */
+  const handleGoogleEntry = useCallback(async () => {
+    setGoogleBusy(true);
+    setGoogleError(null);
+    try {
+      await finishGoogleEntry(await bindGoogleAccount());
     } catch (cause: unknown) {
       if (isDismissed(cause)) return;
       console.error("[Mino] Google entry failed", cause);
@@ -381,7 +392,34 @@ export default function HomePage() {
     } finally {
       setGoogleBusy(false);
     }
-  }, [handleSaveName]);
+  }, [finishGoogleEntry]);
+
+  // A sign-in that had to arrive as a full-page redirect comes back here.
+  // Consume it once on mount and run the same tail the popup path runs, so
+  // visitors whose browsers block the popup land signed in and named.
+  useEffect(() => {
+    if (!firebaseConfigured) return;
+    let cancelled = false;
+    void consumeGoogleSignIn()
+      .then(async (redirect) => {
+        if (cancelled || !redirect.completed) return;
+        setGoogleBusy(true);
+        try {
+          if (redirect.outcome === "linked") {
+            await finishGoogleEntry({ outcome: "linked", view: redirect.view });
+          } else if (redirect.cause) {
+            console.error("[Mino] Google redirect failed", redirect.cause);
+            setGoogleError(describeLinkError(redirect.cause));
+          }
+        } finally {
+          if (!cancelled) setGoogleBusy(false);
+        }
+      })
+      .catch((cause: unknown) => console.error("[Mino] Google redirect check failed", cause));
+    return () => {
+      cancelled = true;
+    };
+  }, [finishGoogleEntry]);
 
   // Probe which modes have keys configured server-side (may be empty).
   useEffect(() => {

@@ -18,15 +18,18 @@
 
 import {
   GoogleAuthProvider,
+  getRedirectResult,
   linkWithPopup,
+  linkWithRedirect,
   onIdTokenChanged,
   signInWithPopup,
+  signInWithRedirect,
   signOut,
   type User,
 } from "firebase/auth";
 import { get, ref, set, type Database } from "firebase/database";
 import { firebaseConfigured, getServices } from "./firebaseHistory";
-import { normalizeName, type AccountView } from "./accountState";
+import { isDismissed, normalizeName, type AccountView } from "./accountState";
 
 /** What a bind actually did, which the interface needs to describe it honestly. */
 export type BindOutcome =
@@ -92,6 +95,14 @@ function codeOf(cause: unknown): string {
  *
  * A browser that is somehow signed in as neither a guest nor a linked account
  * signs in normally, which is the ordinary path.
+ *
+ * When the popup cannot be opened — an aggressive extension, a browser setting,
+ * or an embedded view that blocks window.open — the sign-in falls back to a full
+ * page redirect (`linkWithRedirect` / `signInWithRedirect`). The browser leaves
+ * and comes back, and the completion of that round trip is picked up by
+ * `consumeGoogleSignIn` at the next mount, so no separate wiring is needed in
+ * the callers: the returned promise here resolves only if the redirect was
+ * refused, which the interface reports like any other failure.
  */
 export async function bindGoogleAccount(name?: string): Promise<BindResult> {
   const current = await getServices();
@@ -103,6 +114,9 @@ export async function bindGoogleAccount(name?: string): Promise<BindResult> {
     return { outcome: "linked", view: viewOf(current.user) };
   }
 
+  /** Popup failures worth replacing with a redirect. Others are reported. */
+  const popupLost = (code: string): boolean => code === "auth/popup-blocked" || code === "auth/network-request-failed";
+
   try {
     const credential = await linkWithPopup(existing, googleProvider());
     await saveAccountName(name ?? null);
@@ -112,13 +126,32 @@ export async function bindGoogleAccount(name?: string): Promise<BindResult> {
     if (code === "auth/popup-closed-by-user" || code === "auth/cancelled-popup-request") {
       return { outcome: "dismissed", view: viewOf(current.user) };
     }
+
+    if (popupLost(code)) {
+      // The link still upgrades the guest in place if the account is free. If
+      // the credential is taken, the redirect round trip lands on the ordinary
+      // sign-in path — and `consumeGoogleSignIn` reports whatever Google
+      // returned there.
+      await linkWithRedirect(existing, googleProvider());
+      // The page is about to navigate; the shape is for the typing only.
+      return { outcome: "linked", view: viewOf(current.user) };
+    }
     if (!isAlreadyInUse(code)) throw cause;
 
     // The account exists already. Sign into it and let the caller re-sync, so
     // the chats on this device land under the account that owns them.
-    const credential = await signInWithPopup(current.auth, googleProvider());
-    await saveAccountName(name ?? null);
-    return { outcome: "adopted", view: viewOf(credential.user ?? current.user) };
+    try {
+      const credential = await signInWithPopup(current.auth, googleProvider());
+      await saveAccountName(name ?? null);
+      return { outcome: "adopted", view: viewOf(credential.user ?? current.user) };
+    } catch (secondary: unknown) {
+      // The adopt path can lose its popup the same way the link path just did.
+      if (popupLost(codeOf(secondary))) {
+        await signInWithRedirect(current.auth, googleProvider());
+        return { outcome: "adopted", view: viewOf(current.user) };
+      }
+      throw secondary;
+    }
   }
 }
 
@@ -149,6 +182,44 @@ export async function signInWithGoogle(name?: string): Promise<BindResult> {
     outcome: credential.user.uid === current.user?.uid ? "linked" : "adopted",
     view: viewOf(credential.user ?? current.user),
   };
+}
+
+/**
+ * Completes a Google sign-in that arrived as a page redirect.
+ *
+ * A full-page round trip can return while the component that started it is long
+ * gone, so the outcome is consumed once here, at any mount. Nothing is lost by
+ * calling it on every load: with no redirect in progress Firebase resolves
+ * immediately with null and this answers "nothing happened".
+ *
+ * The outcome carries whether the account is now linked — the anonymous sign-in
+ * keeps its UID through `linkWithRedirect`, so the chats written before the
+ * redirect stay exactly where they are — and the raw error, so the caller can
+ * describe it in its own words. A credential Google refused (it already
+ * belongs to another UID) surfaces here rather than in the bind; the caller
+ * decides whether that is worth its own message.
+ */
+export interface GoogleRedirectResult {
+  /** False when no redirect was in progress. */
+  completed: boolean;
+  outcome: BindOutcome | null;
+  view: AccountView | null;
+  /** The underlying Firebase error, for `describeLinkError`. */
+  cause?: unknown;
+}
+
+export async function consumeGoogleSignIn(): Promise<GoogleRedirectResult> {
+  const current = await getServices();
+  if (!current) return { completed: false, outcome: null, view: null };
+  try {
+    const result = await getRedirectResult(current.auth);
+    if (!result || !result.user) return { completed: false, outcome: null, view: null };
+    return { completed: true, outcome: "linked", view: viewOf(result.user) };
+  } catch (cause: unknown) {
+    // "Cancelled" reads as nothing happened, exactly as for the popup.
+    if (isDismissed(cause)) return { completed: false, outcome: null, view: null };
+    return { completed: true, outcome: null, view: null, cause };
+  }
 }
 
 /**

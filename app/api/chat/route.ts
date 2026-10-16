@@ -883,12 +883,12 @@ export async function POST(req: NextRequest): Promise<Response> {
           // flowing. The answer is already on screen; only the stream's close
           // waits for the ledger.
           const deduct = await deductDew(authorization, identity.uid, dewState.spent, charge).catch(
-            () => ({ ok: false, newSpent: dewState!.spent, conflict: false })
+            (cause: unknown) => ({ ok: false, newSpent: dewState!.spent, conflict: false, reason: cause instanceof Error ? cause.message : "threw" })
           );
           if (!deduct.ok) {
             // A missed charge is logged, not hidden: it is a real
             // shortfall in the ledger and the only way it gets noticed.
-            console.warn(`[mino dew] charge of ${charge} Dew not recorded for uid ${identity.uid} (conflict=${deduct.conflict})`);
+            console.warn(`[mino dew] charge of ${charge} Dew not recorded for uid ${identity.uid} (conflict=${deduct.conflict}, reason=${deduct.reason ?? "unknown"})`);
           } else {
             // The write-once log entry, best effort — rules refuse junk, so
             // a failure here costs only the history, never the balance.

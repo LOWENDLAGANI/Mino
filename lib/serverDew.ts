@@ -169,25 +169,33 @@ export async function ensureTrialGrant(authorization: string | null, uid: string
  * says so and the caller decides what to tell the user. `newSpent` is the
  * caller's responsibility — the route computes it from the state it read —
  * because only the caller knows which charge belongs to which read.
+ *
+ * The two conditional attempts exist to keep two simultaneous charges from
+ * colliding. But a charge that cannot be written *at all* is the worse mistake
+ * for the ledger: a deployment whose conditional-write machinery misbehaves —
+ * an ETag capriciously refused, a rules republish mid-release, a transient
+ * 500 — would otherwise drop its balances on every request for ever, which is
+ * exactly the "Dew never deducts" bug this module exists to prevent. So after
+ * the conditional path is exhausted, one plain write computed from a fresh
+ * read lands the charge: at worst a concurrent charge's increment is folded
+ * in early, at best the money is honest.
  */
 export async function deductDew(
   authorization: string | null,
   uid: string,
   previousSpent: number,
   charge: number
-): Promise<{ ok: boolean; newSpent: number; conflict: boolean }> {
+): Promise<{ ok: boolean; newSpent: number; conflict: boolean; fallback?: boolean; reason?: string }> {
   const token = authorization?.replace(/^Bearer\s+/i, "").trim();
   const base = restBase();
-  if (!token || !base || !uid) return { ok: false, newSpent: previousSpent, conflict: false };
+  if (!token || !base || !uid) return { ok: false, newSpent: previousSpent, conflict: false, reason: "unconfigured" };
   if (charge <= 0) return { ok: true, newSpent: previousSpent, conflict: false };
 
   const target = `${base}/dew/${encodeURIComponent(uid)}/spent.json?auth=${encodeURIComponent(token)}`;
 
-  // Two attempts, no more. The first fails only on a 412 — somebody else's
-  // charge landed between our read and our write — and the second simply
-  // re-reads and lands this one behind theirs. Retrying a request whose outcome
-  // is unknown is not attempted at all: a double charge is worse than a
-  // shortfall the route logs and the next request re-deducts.
+  // Two conditional attempts, no more. The first fails only on a 412 —
+  // somebody else's charge landed between our read and our write — and the
+  // second simply re-reads and lands this one behind theirs.
   for (let attempt = 0; attempt < 2; attempt++) {
     try {
       // ── 1. ETag read of the spent node ──
@@ -195,7 +203,10 @@ export async function deductDew(
         headers: { Accept: "application/json", "X-Firebase-ETag": "true" },
         cache: "no-store",
       });
-      if (!read.ok) return { ok: false, newSpent: previousSpent, conflict: false };
+      if (!read.ok) {
+        // A refused read is unusual: log it and take the plain path below.
+        continue;
+      }
 
       const etag = read.headers.get("ETag")?.trim() ?? "";
       const raw = await read.json().catch(() => null);
@@ -215,7 +226,7 @@ export async function deductDew(
       // ever. The second attempt falls back to whatever the re-read returned,
       // so neither guess can be the only door.
       const ifMatch = exists ? etag : attempt === 0 || !etag ? "null_etag" : etag;
-      if (!ifMatch) return { ok: false, newSpent: serverSpent, conflict: false };
+      if (!ifMatch) continue;
 
       // Reconcile: the route read state a moment ago; the server may have moved.
       const expected = nextSpent(serverSpent, roundDew(charge));
@@ -228,17 +239,47 @@ export async function deductDew(
         cache: "no-store",
       });
       if (write.ok) return { ok: true, newSpent: expected, conflict: false };
-      // 412: another request charged between the read and the write. That write
-      // carries only its own charge, so this one still has to land — re-read and
-      // place it on top, once.
-      if (write.status === 412 && attempt === 0) continue;
-      if (write.status === 412) return { ok: false, newSpent: serverSpent, conflict: true };
-      return { ok: false, newSpent: Math.max(serverSpent, previousSpent), conflict: false };
+      // Any failure, of any code, leaves this loop: the second attempt re-reads
+      // first and the plain write below is what actually guarantees the charge
+      // lands. Retrying a request whose outcome is unknown is not attempted
+      // beyond these two — a double charge is worse than an under-charge the
+      // route logs and the next request re-deducts.
     } catch {
-      return { ok: false, newSpent: previousSpent, conflict: false };
+      // A thrown read or write is the same story: go round once more, then
+      // take the plain path.
     }
   }
-  return { ok: false, newSpent: previousSpent, conflict: true };
+
+  // ── The plain write ──
+  // A fresh read (so the value this write carries is the true total), then an
+  // unconditional PUT of that read plus this charge. No ETag, no preconditions.
+  try {
+    const read = await fetch(target, {
+      headers: { Accept: "application/json" },
+      cache: "no-store",
+    });
+    const raw = read.ok ? await read.json().catch(() => null) : null;
+    const remoteValue = Number(raw ?? 0);
+    const serverSpent = Number.isFinite(remoteValue) && remoteValue > 0 ? remoteValue : 0;
+    const expected = nextSpent(serverSpent, roundDew(charge));
+    const write = await fetch(target, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(expected),
+      cache: "no-store",
+    });
+    if (write.ok) {
+      return { ok: true, newSpent: expected, conflict: false, fallback: true };
+    }
+    return { ok: false, newSpent: Math.max(serverSpent, previousSpent), conflict: false, reason: `write-http-${write.status}` };
+  } catch (error) {
+    return {
+      ok: false,
+      newSpent: previousSpent,
+      conflict: false,
+      reason: error instanceof Error ? error.message : "write-threw",
+    };
+  }
 }
 
 /** The record for the console and the ledger. Never shown to the caller. */

@@ -12,9 +12,10 @@
 // Firebase evaluates the same condition on every read and write, so patching
 // this file would gain an attacker nothing.
 
-import { GoogleAuthProvider, signInWithPopup, signOut } from "firebase/auth";
+import { GoogleAuthProvider, signInWithPopup, signInWithRedirect, signOut } from "firebase/auth";
 import { get, push, ref, remove, set } from "firebase/database";
 import { getServices } from "./firebaseHistory";
+import { dewBalanceFrom, roundDew } from "./dew";
 import type { AppConfig } from "./appConfig";
 import {
   isValidCode,
@@ -96,8 +97,24 @@ function rethrow(cause: unknown): never {
 export async function signInAsAdmin(): Promise<string> {
   const current = await getServices();
   if (!current) throw notConfigured();
-  const credential = await signInWithPopup(current.auth, new GoogleAuthProvider());
-  return credential.user.uid;
+  try {
+    const credential = await signInWithPopup(current.auth, new GoogleAuthProvider());
+    return credential.user.uid;
+  } catch (cause: unknown) {
+    // A popup the browser refused (extension, embedded window, strict pop-up
+    // setting) is a failure of the *method*, not of the account. Fall back to
+    // the full-page redirect — the browser leaves and comes back signed in, and
+    // re-opening the gate then verifies the rules against the real account. If
+    // the redirect itself is refused (an unauthorised domain, for instance),
+    // that error propagates, because it is the one a visitor can act on.
+    if ((cause as { code?: string })?.code === "auth/popup-blocked") {
+      await signInWithRedirect(current.auth, new GoogleAuthProvider());
+      // Reached only when the redirect did not navigate. Say what is true
+      // rather than reporting the popup failure twice.
+      throw new Error("Sign-in switched to a full-page redirect. Completing it…");
+    }
+    throw cause;
+  }
 }
 
 /** Ends the admin session and returns the browser to an anonymous identity. */
@@ -204,6 +221,83 @@ export async function wipeAll(): Promise<void> {
   const { database } = await requireAdmin();
   await remove(ref(database, "users")).catch(rethrow);
   await remove(ref(database, "admin/registry")).catch(rethrow);
+}
+
+// ── Dew top-ups ────────────────────────────────────────────────────────────
+// A manual sale with a buyer standing in front of you needs a direct transfer:
+// the codes screen hands over a word, but when someone has paid and you have
+// their visitor id, the honest thing is to credit their wallet from here.
+//
+// The credit is written under a TOPUP-… key in their credits map — the same
+// derived shape the server-side deduction reads — and the rules pin every
+// dimension of it: only the named administrator address may write a credit
+// with a chosen amount, and no amount over 100,000 is accepted. Nothing here
+// decides access; the browser writes with the admin's own verified token
+// and Firebase refuses anything else.
+
+/** A direct credit of Dew, and the balance the visitor holds afterwards. */
+export interface DewGrant {
+  uid: string;
+  dew: number;
+  balance: number;
+}
+
+/** One visitor's Dew, derived the same way the server derives it. */
+export async function readDewBalance(uid: string): Promise<number> {
+  const { database } = await requireAdmin();
+  const snapshot = await get(ref(database, `dew/${uid}`)).catch(rethrow);
+  return dewBalanceFrom(
+    snapshot.val() as { credits?: Record<string, number>; spent?: number } | null
+  );
+}
+
+/**
+ * Every visitor's Dew balance, keyed by uid, read from the wallet node.
+ *
+ * One read covers the whole list, so the People screen can show a balance on
+ * every row without a request per person.
+ */
+export async function readDewBalances(): Promise<Record<string, number>> {
+  const { database } = await requireAdmin();
+  const snapshot = await get(ref(database, "dew")).catch(rethrow);
+  const value = (snapshot.val() ?? {}) as Record<
+    string,
+    { credits?: Record<string, number>; spent?: number } | null
+  >;
+  const balances: Record<string, number> = {};
+  for (const [uid, node] of Object.entries(value)) {
+    balances[uid] = dewBalanceFrom(node ?? null);
+  }
+  return balances;
+}
+
+/**
+ * Credits Dew straight to a visitor's wallet.
+ *
+ * The credit keys on a TOPUP timestamp so a repeat grant adds rather than
+ * replaces — a 100-Dew grant issued twice is 200 Dew, not a rewrite of the
+ * first — while the rules still pin that only the administrator address can
+ * write a credit of a chosen amount.
+ */
+export async function grantDew(
+  uid: string,
+  dew: number
+): Promise<DewGrant> {
+  const { database } = await requireAdmin();
+  const visitor = uid.replace(/[^A-Za-z0-9]/g, "");
+  if (!visitor) throw new Error("Enter the visitor id first.");
+
+  const amount = roundDew(dew);
+  if (!Number.isFinite(amount) || amount <= 0 || amount > 100_000) {
+    throw new Error("A top-up needs a positive amount of at most 100,000 Dew.");
+  }
+
+  // Timestamp plus a short random tail, so two grants issued in the same
+  // millisecond add up rather than silently overwrite each other.
+  const key = `TOPUP-${Date.now().toString(36).toUpperCase()}${Math.random().toString(36).slice(2, 6).toUpperCase()}`;
+  await set(ref(database, `dew/${visitor}/credits/${key}`), amount).catch(rethrow);
+  const balance = await readDewBalance(visitor);
+  return { uid: visitor, dew: amount, balance };
 }
 
 // ── Redeem codes ─────────────────────────────────────────────────────────────
@@ -356,13 +450,15 @@ export async function saveAppConfig(config: AppConfig): Promise<void> {
 export interface AdminAuditEntry {
   id: string;
   at: number;
-  action: "createCode" | "deleteCode" | "toggleCode";
+  action: "createCode" | "deleteCode" | "toggleCode" | "grantDew";
   /** The word the entry is about. */
   code?: string;
   /** The Dew the code carried, when it carried any. */
   dew?: number;
   /** For a toggle: the state the code was switched to. */
   active?: boolean;
+  /** The uid the action acted on. */
+  uid?: string;
   note?: string;
 }
 

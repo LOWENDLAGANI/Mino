@@ -10,11 +10,13 @@ import {
   createRedeemCode,
   deleteRedeemCode,
   getChat,
+  grantDew,
   listAdminAudit,
   listChats,
   listRedeemCodes,
   listUsageHistory,
   listUsers,
+  readDewBalances,
   setRedeemCodeActive,
   wipeAll,
   wipeUser,
@@ -22,6 +24,7 @@ import {
   type UsageHistoryDay,
 } from "@/lib/firebaseAdmin";
 import { summarizeUsage } from "@/lib/usageStats";
+import { formatDew } from "@/lib/dew";
 import { isValidCode, normalizeCode, type RedeemCode } from "@/lib/redeemState";
 
 // ── Admin console ────────────────────────────────────────────────────────────
@@ -90,6 +93,20 @@ export default function AdminPanel({
   // Who the owner is looking for. The list can be long, and the person a code
   // was handed to is normally found by the name printed on the transfer.
   const [peopleQuery, setPeopleQuery] = useState("");
+
+  // ── The direct top-up ──
+  // A manual sale ends with the owner crediting the buyer's wallet here, not
+  // with a code that has to be typed and can be mistyped. `topUp` carries the
+  // visitor the form is aimed at, from either the People row or the id field;
+  // the amount and note below belong to that pending form.
+  const [topUp, setTopUp] = useState<null | { uid: string; label: string }>(null);
+  const [topUpFromUid, setTopUpFromUid] = useState("");
+  const [topUpAmount, setTopUpAmount] = useState<number>(100);
+  const [topUpNote, setTopUpNote] = useState("");
+  const [topUpError, setTopUpError] = useState<string | null>(null);
+  const [topUpDone, setTopUpDone] = useState<string | null>(null);
+  // One read answers every row: uid → balance, from the wallet node.
+  const [dewBalances, setDewBalances] = useState<Record<string, number> | null>(null);
 
   // Signing out must actually empty the screen. The gate only watches the
   // session while its own dialog is open, so a sign-out triggered from inside
@@ -170,12 +187,22 @@ export default function AdminPanel({
     setConfirmWipe(null);
     setAudit(null);
     setAuditBroken(false);
+    setTopUp(null);
+    setTopUpFromUid("");
+    setTopUpDone(null);
+    setTopUpError(null);
 
     void call("listUsers")
       .then((data) => setUsers(data.users as AdminUser[]))
       .catch((e: unknown) => {
         console.error("[mino] Failed to list users", e);
         setError(e instanceof Error ? e.message : "Could not load users.");
+      });
+    void readDewBalances()
+      .then(setDewBalances)
+      .catch((e: unknown) => {
+        console.error("[mino] Failed to read Dew balances", e);
+        setDewBalances({});
       });
     void fetch("/api/chat")
       .then((response) => response.json())
@@ -241,6 +268,47 @@ export default function AdminPanel({
       setBusy(false);
     }
   };
+
+  /** Writes to the ledger, reporting a refusal instead of swallowing it. */
+  const logAudit = useCallback(async (entry: Omit<AdminAuditEntry, "id">) => {
+    const written = await appendAdminAudit(entry).catch((cause) => {
+      console.error("[mino] Failed to write audit entry", cause);
+      setAuditBroken(true);
+      return null;
+    });
+    if (written) setAudit((current) => [written, ...(current ?? [])]);
+    return written;
+  }, []);
+
+  /**
+   * The direct credit. Runs against the visitor in `topUp`, refreshes their
+   * balance in place, and records the grant in the ledger.
+   */
+  const runTopUp = useCallback(async () => {
+    if (!topUp) return;
+    setBusy(true);
+    setTopUpError(null);
+    setTopUpDone(null);
+    try {
+      const grant = await grantDew(topUp.uid, topUpAmount);
+      await logAudit({
+        at: Date.now(),
+        action: "grantDew",
+        uid: grant.uid,
+        dew: grant.dew,
+        ...(topUpNote.trim() ? { note: topUpNote.trim().slice(0, 120) } : {}),
+      });
+      setDewBalances((current) => ({ ...(current ?? {}), [grant.uid]: grant.balance }));
+      setTopUpDone(`${grant.dew} Dew credited to ${topUp.label} — balance 💧 ${formatDew(grant.balance)}`);
+      setTopUpNote("");
+      setTopUp(null);
+    } catch (e: unknown) {
+      console.error("[mino] Top-up failed", e);
+      setTopUpError(e instanceof Error ? e.message : "The top-up did not go through.");
+    } finally {
+      setBusy(false);
+    }
+  }, [topUp, topUpAmount, topUpNote, logAudit]);
 
   // Filtering by name or by uid — the two things an owner has in hand when a
   // person needs finding in a long list.
@@ -332,6 +400,42 @@ export default function AdminPanel({
                     switched off or read back.
                   </span>
                 </button>
+
+                {/* The direct transfer. When a buyer has paid and you are holding
+                    their visitor id, a code is a detour: credit the wallet here
+                    and the balance on their screen moves on the next refresh. */}
+                <div className="mt-2 rounded-[14px] border border-[#2f6b48]/25 bg-[#2f6b48]/[0.07] p-3.5">
+                  <h3 className="text-[12px] font-semibold text-[#a9d8bb]">Top up a visitor directly</h3>
+                  <p className="mt-0.5 text-[10px] leading-relaxed text-white/40">
+                    Credit a wallet straight from here. Every person in the list below also has a
+                    Top up button on their row.
+                  </p>
+                  <input
+                    value={topUpFromUid}
+                    onChange={(event) => setTopUpFromUid(event.target.value)}
+                    placeholder="Visitor id (the long code on their row)"
+                    spellCheck={false}
+                    autoComplete="off"
+                    className="mt-2 w-full rounded-[10px] border border-white/[0.08] bg-black/25 px-3 py-2 font-mono text-[12px] text-white/90 placeholder:font-sans placeholder:text-white/25"
+                  />
+                  <button
+                    type="button"
+                    disabled={topUpFromUid.trim().length < 4}
+                    onClick={() => {
+                      setTopUp({ uid: topUpFromUid.trim(), label: topUpFromUid.trim() });
+                      setTopUpDone(null);
+                      setTopUpError(null);
+                    }}
+                    className="mt-2 w-full rounded-[10px] bg-[#2f6b48]/25 px-3 py-2 text-[12px] font-semibold text-[#d7f0e1] transition hover:bg-[#2f6b48]/35 disabled:opacity-40"
+                  >
+                    Choose amount…
+                  </button>
+                </div>
+                {topUpDone && (
+                  <p className="mt-2 rounded-[12px] border border-[#2f6b48]/25 bg-[#2f6b48]/10 px-3 py-2 text-[11px] leading-relaxed text-[#a9d8bb]">
+                    {topUpDone}
+                  </p>
+                )}
               </section>
 
               <UsageSection />
@@ -382,19 +486,40 @@ export default function AdminPanel({
                             onClick={() => openChats(user)}
                             className="min-w-0 flex-1 rounded-[12px] border border-white/[0.06] bg-white/[0.03] px-3 py-2.5 text-left transition-colors hover:bg-white/[0.07]"
                           >
-                            <span className="block truncate text-[13px] font-semibold text-white/90">{user.name ?? "Unnamed visitor"}</span>
+                            <span className="block truncate text-[13px] font-semibold text-white/90">
+                            {user.name ?? "Unnamed visitor"}
+                            {dewBalances !== null && dewBalances[user.uid] !== undefined && (
+                              <span className="ml-1.5 text-[11px] font-medium text-[#a9d8bb]/80" title="Dew balance">
+                                💧 {formatDew(dewBalances[user.uid])}
+                              </span>
+                            )}
+                          </span>
                             <span className="mt-0.5 block text-[10px] text-white/30">
                               {user.chats} chat{user.chats === 1 ? "" : "s"} · {user.messages} message{user.messages === 1 ? "" : "s"} · {when(user.lastSeen)}
                             </span>
                           </button>
-                          <button
-                            type="button"
-                            onClick={() => setConfirmWipe({ scope: "user", uid: user.uid, label: user.name ?? "Unnamed visitor" })}
-                            className="shrink-0 rounded-[10px] px-2 py-2 text-[10px] text-white/30 hover:bg-red-500/10 hover:text-red-300"
-                            aria-label={`Delete data for ${user.name ?? "this visitor"}`}
-                          >
-                            Wipe
-                          </button>
+                          <div className="flex shrink-0 items-center gap-1">
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setTopUp({ uid: user.uid, label: user.name ?? "Unnamed visitor" });
+                                setTopUpDone(null);
+                                setTopUpError(null);
+                              }}
+                              className="rounded-[10px] bg-[#2f6b48]/15 px-2.5 py-2 text-[10px] font-medium text-[#a9d8bb] transition hover:bg-[#2f6b48]/25"
+                              aria-label={`Top up Dew for ${user.name ?? "this visitor"}`}
+                            >
+                              Top up
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setConfirmWipe({ scope: "user", uid: user.uid, label: user.name ?? "Unnamed visitor" })}
+                              className="rounded-[10px] px-2 py-2 text-[10px] text-white/30 hover:bg-red-500/10 hover:text-red-300"
+                              aria-label={`Delete data for ${user.name ?? "this visitor"}`}
+                            >
+                              Wipe
+                            </button>
+                          </div>
                         </div>
 
                       </li>
@@ -538,6 +663,65 @@ export default function AdminPanel({
               </button>
               <button type="button" onClick={() => void runWipe()} disabled={busy} className="flex-1 rounded-[10px] bg-red-500 px-3 py-2 text-[11px] font-semibold text-white disabled:opacity-50">
                 {busy ? "Deleting…" : "Delete"}
+              </button>
+            </div>
+          </div>
+        )}
+
+        {topUp && (
+          <div className="border-t border-white/[0.07] bg-black/30 px-5 py-3.5">
+            <p className="text-[12px] font-semibold text-white/90">Top up {topUp.label}</p>
+            <p className="mt-0.5 font-mono text-[10px] text-white/35">{topUp.uid}</p>
+            <div className="mt-2 flex flex-wrap items-center gap-1.5">
+              {[25, 100, 500, 1000].map((amount) => (
+                <button
+                  key={amount}
+                  type="button"
+                  onClick={() => setTopUpAmount(amount)}
+                  className={`rounded-[9px] px-2.5 py-1.5 text-[11px] font-medium transition ${
+                    topUpAmount === amount ? "bg-white/15 text-white" : "bg-white/[0.04] text-white/55 hover:bg-white/[0.09]"
+                  }`}
+                >
+                  {amount}
+                </button>
+              ))}
+              <input
+                type="number"
+                min={0}
+                step={1}
+                value={topUpAmount === 0 ? "" : topUpAmount}
+                onChange={(event) => setTopUpAmount(Number(event.target.value) || 0)}
+                placeholder="Custom"
+                aria-label="Custom Dew amount"
+                className="w-20 rounded-[9px] border border-white/[0.08] bg-black/25 px-2 py-1.5 text-[11px] text-white placeholder:text-white/25"
+              />
+              <span className="text-[10px] text-white/25">Dew</span>
+            </div>
+            <input
+              value={topUpNote}
+              onChange={(event) => setTopUpNote(event.target.value)}
+              placeholder="Note for the ledger (optional)"
+              className="mt-2 w-full rounded-[10px] border border-white/[0.08] bg-black/25 px-3 py-2 text-[12px] text-white placeholder:text-white/25"
+            />
+            {topUpError && <p className="mt-1.5 text-[11px] text-red-200/90">{topUpError}</p>}
+            <div className="mt-2.5 flex gap-2">
+              <button
+                type="button"
+                onClick={() => {
+                  setTopUp(null);
+                  setTopUpError(null);
+                }}
+                className="flex-1 rounded-[10px] px-3 py-2 text-[11px] text-white/50 hover:bg-white/[0.06] hover:text-white"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={() => void runTopUp()}
+                disabled={busy || !(topUpAmount > 0 && topUpAmount <= 100000)}
+                className="flex-1 rounded-[10px] bg-[#2f6b48] px-3 py-2 text-[11px] font-semibold text-white transition hover:bg-[#3a8359] disabled:opacity-50"
+              >
+                {busy ? "Crediting…" : `Credit ${topUpAmount} Dew`}
               </button>
             </div>
           </div>
@@ -914,14 +1098,16 @@ function AuditSection({
                 ? "Made"
                 : entry.action === "deleteCode"
                   ? "Deleted"
-                  : entry.action === "toggleCode"
-                    ? off
-                      ? "Off"
-                      : "On"
-                    : entry.action;
+                  : entry.action === "grantDew"
+                    ? "Top-up"
+                    : entry.action === "toggleCode"
+                      ? off
+                        ? "Off"
+                        : "On"
+                      : entry.action;
             const tone = off
               ? "bg-red-500/15 text-red-300"
-              : entry.action === "createCode"
+              : entry.action === "createCode" || entry.action === "grantDew"
                 ? "bg-[#2f6b48]/20 text-[#a9d8bb]"
                 : "bg-white/[0.07] text-white/70";
             return (
@@ -936,7 +1122,7 @@ function AuditSection({
                 </span>
                 <span className="min-w-0 flex-1">
                   <span className="block truncate text-[12px] tracking-[0.06em] text-white/85">
-                    {entry.code ?? "—"}
+                    {entry.code ?? (entry.uid ? `…${entry.uid.slice(-8)}` : "—")}
                   </span>
                   <span className="block text-[10px] leading-relaxed text-white/35">
                     {entry.dew ? `💧 ${entry.dew} Dew` : ""}

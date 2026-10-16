@@ -184,7 +184,9 @@ function source(relative: string): string {
 
 const chatSource = source(join("app", "api", "chat", "route.ts"));
 const imageSource = source(join("app", "api", "image", "route.ts"));
+// The whole server-Dew module, and the one function the charges go through.
 const dewSource = source(join("lib", "serverDew.ts"));
+const deductDewSource = dewSource.slice(dewSource.indexOf("export async function deductDew"), dewSource.indexOf("export interface DewChargeLine"));
 
 // The chat route reads the balance server-side, refuses before the model runs,
 // and charges once the answer is fully known.
@@ -215,9 +217,16 @@ for (const [name, route] of [["chat", chatSource], ["image", imageSource]] as co
 // account that has never been charged — which is every account, once.
 assert.ok(dewSource.includes("dewBalanceFrom("), "the Dew reader must derive the balance from credits and spend");
 assert.ok(dewSource.includes('"If-Match"'), "the deduction must be a conditional write, not a blind put");
-assert.ok(dewSource.includes("412"), "a lost race must be detected and reported rather than assumed");
 assert.ok(
   dewSource.includes('"null_etag"'),
   "a location that does not exist has no ETag to echo: without the documented null_etag the very first charge on an account is a guaranteed 412, and the balance never moves again"
 );
 assert.ok(dewSource.includes("attempt === 0"), "a lost race is re-read and placed once, never looped");
+assert.ok(
+  deductDewSource.includes("fallback: true"),
+  "when the conditional path has failed twice, the charge must still land with a plain computed write: a lost 412 or a misbehaving conditional-write backend must never become a balance that stops moving"
+);
+assert.ok(
+  deductDewSource.includes("reason:"),
+  "a refusal is reported with its own diagnosis, not just a boolean"
+);
