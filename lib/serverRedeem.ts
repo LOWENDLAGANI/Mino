@@ -108,8 +108,9 @@ export async function readClaimedCodes(authorization: string | null, uid: string
  *
  * A code that has been terminated, exhausted, deleted, or is otherwise
  * unreadable contributes nothing. A failure to read is treated as "worth
- * nothing" rather than as "worth everything", which is the same fail-closed
- * choice `lib/serverPlan.ts` makes and for the same reason.
+ * nothing" rather than as "worth everything" — the same fail-closed choice
+ * `readDewState` makes, and for the same reason: an outage is the one moment
+ * the assumption would be wrong in the direction that costs money.
  */
 export async function readDewRedemptions(
   authorization: string | null,
