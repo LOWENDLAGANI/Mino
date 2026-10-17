@@ -35,14 +35,14 @@ function PromptBody({ note, onDismiss }: { note: DevNote; onDismiss: () => void 
     <div className="space-y-3">
       <div className="flex flex-wrap items-center gap-2">
         <NoteBadge note={note} />
-        <span className="min-w-0 truncate rounded-full bg-white/[0.09] px-3.5 py-1.5 text-[14px] text-white/70">
+        <span className="min-w-0 truncate rounded-full bg-white/[0.08] px-3 py-1 text-[12px] text-white/65">
           {[note.author, note.dateLabel || formatNoteDate(note.publishedAt)]
             .filter(Boolean)
             .join(" · ")}
         </span>
       </div>
 
-      <h2 className="text-[19px] font-semibold leading-tight tracking-[-0.01em] text-white">
+      <h2 className="text-[17px] font-semibold leading-tight tracking-[-0.01em] text-white">
         {note.title}
       </h2>
 
@@ -50,14 +50,14 @@ function PromptBody({ note, onDismiss }: { note: DevNote; onDismiss: () => void 
         <Link
           href="/notes"
           onClick={onDismiss}
-          className="text-[13px] text-white/40 underline-offset-4 transition-colors hover:text-white/70 hover:underline"
+          className="text-[12px] text-white/35 underline-offset-4 transition-colors hover:text-white/65 hover:underline"
         >
           View all
         </Link>
         <Link
           href={`/notes/${note.id}`}
           onClick={onDismiss}
-          className="lift rounded-full bg-white/[0.12] px-5 py-2 text-[14px] font-medium text-white/85 transition-colors hover:bg-white/[0.2]"
+          className="lift rounded-full bg-white/[0.1] px-4 py-1.5 text-[12px] font-medium text-white/80 transition-colors hover:bg-white/[0.18]"
         >
           Read
         </Link>
@@ -105,16 +105,16 @@ export default function NotesPrompt() {
         className="absolute inset-0 cursor-default bg-black/70 backdrop-blur-[3px]"
       />
 
-      <section className="animate-pop relative w-full max-w-md rounded-t-[26px] border border-white/[0.09] bg-[#16211c] p-5 shadow-2xl shadow-black/80 sm:rounded-[26px]">
-        <div className="mb-4 flex items-center justify-between gap-3">
-          <h1 className="text-[13px] font-semibold uppercase tracking-[0.14em] text-white/40">
+      <section className="animate-pop relative w-full max-w-sm rounded-t-[24px] border border-white/[0.07] bg-[#16211c] p-5 shadow-2xl shadow-black/80 sm:rounded-[24px]">
+        <div className="mb-3 flex items-center justify-between gap-3">
+          <h1 className="text-[11px] font-semibold uppercase tracking-[0.14em] text-white/30">
             News from the developers
           </h1>
           <button
             type="button"
             onClick={dismiss}
             aria-label="Close"
-            className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-white/45 transition-colors hover:bg-white/[0.08] hover:text-white"
+            className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-white/40 transition-colors hover:bg-white/[0.07] hover:text-white"
           >
             <svg
               width="16"

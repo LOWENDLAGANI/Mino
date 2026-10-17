@@ -33,7 +33,13 @@ function DewPanel() {
     <section className="relative overflow-hidden rounded-[26px] border border-[#2f6b48]/30 bg-[#2f6b48]/[0.07] p-5 shadow-[0_0_50px_-20px_rgba(47,107,72,0.7)] sm:p-6">
       <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-[#a9d8bb]/80">Your Dew</p>
       <h2 className="mt-1 text-[30px] font-semibold leading-tight tracking-tight">
-        💧 {ready ? formatDew(balance) : "…"} <span className="text-[15px] font-normal text-white/50">Dew</span>
+        <span className="inline-flex items-center gap-1.5">
+          <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" className="text-[#a9d8bb]" aria-hidden="true">
+            <path d="M12 2.7s6.6 7.1 6.6 11.6a6.6 6.6 0 1 1-13.2 0C5.4 9.8 12 2.7 12 2.7Z" />
+          </svg>
+          {ready ? formatDew(balance) : "…"}
+        </span>
+        <span className="text-[15px] font-normal text-white/50">Dew</span>
       </h2>
     </section>
   );

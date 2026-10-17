@@ -1,4 +1,4 @@
-// ── Dew (💧) — Mino's pay-as-you-go currency ─────────────────────────────────
+// ── Dew — Mino's pay-as-you-go currency ─────────────────────────────────────
 // Pure logic only: no Firebase, no fetch. Everything about what a token costs,
 // what a balance means, and what a balance looks like on screen is decided
 // here, so the chat route, the image route, the client and the tests cannot

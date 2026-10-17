@@ -20,11 +20,11 @@ export default function NotesPage() {
         ) : (
           <>
             {/* Category header — the count is derived, never typed in. */}
-            <section className="mt-8 flex items-center gap-4 rounded-[26px] bg-[#1b3a2a] p-5">
-              <span className="flex h-14 w-14 shrink-0 items-center justify-center rounded-full bg-white/[0.14] text-white/90">
+            <section className="mt-10 flex items-center gap-4 rounded-xl bg-[#1b3a2a]/90 p-4">
+              <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-white/[0.12] text-white/85">
                 <svg
-                  width="26"
-                  height="26"
+                  width="22"
+                  height="22"
                   viewBox="0 0 24 24"
                   fill="none"
                   stroke="currentColor"
@@ -38,16 +38,16 @@ export default function NotesPage() {
                 </svg>
               </span>
               <div className="min-w-0">
-                <h2 className="truncate text-[clamp(1.1rem,4.2vw,1.4rem)] font-semibold tracking-[-0.01em] text-white">
+                <h2 className="truncate text-[clamp(1rem,4vw,1.3rem)] font-semibold tracking-[-0.01em] text-white">
                   New Announcements
                 </h2>
-                <p className="mt-0.5 text-[15px] text-white/70">
+                <p className="mt-0.5 text-[13px] text-white/60">
                   {notes.length === 1 ? "1 article" : `${notes.length} articles`}
                 </p>
               </div>
             </section>
 
-            <div className="mt-5 space-y-4">
+            <div className="mt-5 space-y-3">
               {notes.map((note) => (
                 <NoteCard key={note.id} note={note} href={`/notes/${note.id}`} />
               ))}

@@ -73,7 +73,7 @@ export default function AboutPage() {
 function AboutContent() {
   return (
     <div className="app-surface flex min-h-[100dvh] flex-col overflow-y-auto">
-      <div className="mx-auto w-full max-w-2xl px-5 py-8 sm:px-7 sm:py-12">
+      <div className="mx-auto w-full max-w-xl px-6 py-10 sm:px-8 sm:py-14">
         <Link
           href="/"
           className="inline-flex items-center gap-2 text-[12px] text-white/45 transition-colors hover:text-white/80"
@@ -84,63 +84,59 @@ function AboutContent() {
           Back to chat
         </Link>
 
-        <header className="mt-10 flex flex-col items-center text-center">
-          <div className="relative flex h-32 w-32 items-center justify-center sm:h-40 sm:w-40">
-            <div className="absolute inset-[-45%] rounded-full bg-[#2f6b48]/20 blur-3xl" />
+        <header className="mt-12 flex flex-col items-center text-center">
+          <div className="relative flex h-28 w-28 items-center justify-center sm:h-36 sm:w-36">
+            <div className="absolute inset-[-40%] rounded-full bg-[#2f6b48]/15 blur-3xl" />
             <AboutLogo className="relative h-full w-full" />
           </div>
-          <h1 className="mt-7 text-balance text-[42px] font-normal leading-[1.05] tracking-[-0.05em] text-white sm:text-[58px]">
+          <h1 className="mt-8 text-balance text-[38px] font-normal leading-[1.05] tracking-[-0.03em] text-white sm:text-[52px]">
             Mino
           </h1>
-          <p className="mt-3 max-w-md text-balance text-[13px] leading-relaxed text-white/45 sm:text-[14px]">
+          <p className="mt-3 max-w-sm text-balance text-[13px] leading-relaxed text-white/40 sm:text-[14px]">
             Mino is still in beta testing. Stay tuned, and thank you for your patience.
           </p>
         </header>
 
-        <section className="mt-12 grid gap-3 sm:grid-cols-2">
-          <div className="rounded-[20px] border border-white/[0.07] bg-white/[0.03] p-5">
+        <section className="mt-14 grid gap-4 sm:grid-cols-2">
+          <div className="rounded-xl border border-white/[0.06] bg-white/[0.025] p-5">
             <div className="text-[10px] font-semibold uppercase tracking-[0.16em] text-white/30">Created by</div>
-            <p className="mt-2 text-[20px] font-semibold tracking-[-0.02em] text-white">Minetallest</p>
-            <p className="mt-1.5 text-[12px] leading-relaxed text-white/40">
+            <p className="mt-1.5 text-[18px] font-semibold tracking-[-0.01em] text-white">Minetallest</p>
+            <p className="mt-1 text-[12px] leading-relaxed text-white/40">
               Sole creator, designer, and developer of Mino.
             </p>
           </div>
-          <div className="rounded-[20px] border border-white/[0.07] bg-white/[0.03] p-5">
+          <div className="rounded-xl border border-white/[0.06] bg-white/[0.025] p-5">
             <div className="text-[10px] font-semibold uppercase tracking-[0.16em] text-white/30">Date created</div>
-            <p className="mt-2 text-[20px] font-semibold tracking-[-0.02em] text-white">{DATE_CREATED}</p>
-            <p className="mt-1.5 text-[12px] leading-relaxed text-white/40">
+            <p className="mt-1.5 text-[18px] font-semibold tracking-[-0.01em] text-white">{DATE_CREATED}</p>
+            <p className="mt-1 text-[12px] leading-relaxed text-white/40">
               When the first build of Mino went live.
             </p>
           </div>
-          <div className="rounded-[20px] border border-white/[0.07] bg-white/[0.03] p-5 sm:col-span-2">
+          <div className="rounded-xl border border-white/[0.06] bg-white/[0.025] p-5 sm:col-span-2">
             <div className="text-[10px] font-semibold uppercase tracking-[0.16em] text-white/30">AI name</div>
-            <p className="mt-2 text-[20px] font-semibold tracking-[-0.02em] text-white">Mino</p>
+            <p className="mt-1.5 text-[18px] font-semibold tracking-[-0.01em] text-white">Mino</p>
           </div>
         </section>
 
-        <section className="mt-12">
-          <div className="mb-4 flex items-baseline justify-between gap-4">
+        <section className="mt-14">
+          <div className="mb-5 flex items-baseline justify-between gap-4">
             <h2 className="text-[10px] font-semibold uppercase tracking-[0.16em] text-white/30">Progress</h2>
             <span className="text-[11px] text-white/25">
               {PROGRESS.filter((item) => item.state === "done").length} shipped
             </span>
           </div>
           <ol className="relative">
-            {/* One continuous rail behind the markers, inset to sit on the arrow. */}
-            <span
-              className="absolute bottom-4 left-[13px] top-4 w-px bg-white/[0.08]"
-              aria-hidden
-            />
+            <span className="absolute bottom-4 left-[13px] top-4 w-px bg-white/[0.06]" aria-hidden />
             {PROGRESS.map((item) => {
               const style = STATE_STYLES[item.state];
               return (
-                <li key={item.label} className="relative flex items-center gap-3.5 py-2.5">
+                <li key={item.label} className="relative flex items-center gap-3 py-2">
                   <span
-                    className={`relative z-10 flex h-[27px] w-[27px] shrink-0 items-center justify-center rounded-full border border-white/[0.08] bg-[#0b1312] ${style.ring}`}
+                    className={`relative z-10 flex h-[24px] w-[24px] shrink-0 items-center justify-center rounded-full border border-white/[0.07] bg-[#0b1312] ${style.ring}`}
                   >
                     <svg
-                      width="12"
-                      height="12"
+                      width="11"
+                      height="11"
                       viewBox="0 0 24 24"
                       fill="none"
                       stroke="currentColor"
@@ -153,7 +149,7 @@ function AboutContent() {
                       <path d="M5 12h13M13 6l6 6-6 6" />
                     </svg>
                   </span>
-                  <span className="min-w-0 flex-1 text-[14px] font-medium text-white/90">{item.label}</span>
+                  <span className="min-w-0 flex-1 text-[13.5px] font-medium text-white/85">{item.label}</span>
                   {item.state !== "done" && (
                     <span
                       className={`shrink-0 rounded-full px-2 py-0.5 text-[9px] font-semibold uppercase tracking-[0.1em] ${style.chip}`}
@@ -167,9 +163,9 @@ function AboutContent() {
           </ol>
         </section>
 
-        <footer className="mt-12 border-t border-white/[0.07] pt-6 text-center">
-          <p className="text-[12px] text-white/35">
-            Mino · created by <span className="text-white/60">Minetallest</span>
+        <footer className="mt-14 border-t border-white/[0.06] pt-6 text-center">
+          <p className="text-[12px] text-white/30">
+            Mino · created by <span className="text-white/55">Minetallest</span>
           </p>
           <Link
             href="/"

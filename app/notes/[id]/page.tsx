@@ -25,34 +25,34 @@ export default function NotePage() {
           <BackButton href="/notes" />
 
           {loading ? (
-            <p className="mt-6 text-[14px] text-white/35">Loading…</p>
+            <p className="mt-6 text-[13px] text-white/30">Loading…</p>
           ) : !note ? (
             <>
-              <h1 className="mt-8 text-[clamp(1.6rem,6.5vw,2.2rem)] font-semibold tracking-tight">
+              <h1 className="mt-7 text-[clamp(1.5rem,6vw,2rem)] font-semibold tracking-tight">
                 Note not found
               </h1>
-              <p className="mt-3 text-[15px] leading-relaxed text-white/45">
+              <p className="mt-2 text-[13px] leading-relaxed text-white/40">
                 This note may have been unpublished by the developer.
               </p>
             </>
           ) : (
-            <article className="animate-rise">
-              <h1 className="mt-8 text-[clamp(1.9rem,7.5vw,2.9rem)] font-semibold leading-[1.1] tracking-tight">
+            <article className="animate-enter">
+              <h1 className="mt-7 text-[clamp(1.7rem,6.5vw,2.5rem)] font-semibold leading-[1.1] tracking-tight">
                 {note.title}
               </h1>
 
-              <div className="mt-6 flex flex-wrap items-center gap-2">
+              <div className="mt-4 flex flex-wrap items-center gap-2">
                 <NoteBadge note={note} />
                 <NoteByline note={note} />
               </div>
 
               {/* Markdown, so links and lists render like the screenshot. The
                   wrapper reuses the chat's typography instead of restyling. */}
-              <div className="prose-chat mt-7 text-[clamp(0.98rem,3.6vw,1.1rem)] leading-relaxed">
+              <div className="prose-chat mt-5 text-[clamp(0.95rem,3.4vw,1.05rem)] leading-relaxed">
                 <Markdown content={note.body || note.summary} />
               </div>
 
-              <p className="mt-10 border-t border-white/[0.07] pt-5 text-[13px] text-white/25">
+              <p className="mt-8 border-t border-white/[0.05] pt-4 text-[12px] text-white/25">
                 Published {formatNoteDate(note.publishedAt)}
               </p>
             </article>

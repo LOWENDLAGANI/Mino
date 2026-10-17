@@ -86,28 +86,28 @@ export default function DonatePage() {
             </svg>
           </Link>
 
-          <div className="relative mt-7 flex h-14 w-14 items-center justify-center">
+          <div className="relative mt-6 flex h-12 w-12 items-center justify-center">
             <span
               aria-hidden
-              className="animate-halo absolute inset-0 rounded-full bg-rose-400/45 blur-xl"
+              className="animate-halo absolute inset-0 rounded-full bg-rose-400/40 blur-xl"
             />
-            <span className="relative flex h-14 w-14 items-center justify-center rounded-2xl border border-rose-300/25 bg-rose-400/10 text-rose-200 shadow-[0_0_28px_-8px_rgba(251,113,133,0.9)]">
-              <Heart className="h-6 w-6" />
+            <span className="relative flex h-12 w-12 items-center justify-center rounded-xl border border-rose-300/20 bg-rose-400/8 text-rose-200 shadow-[0_0_20px_-6px_rgba(251,113,133,0.8)]">
+              <Heart className="h-5 w-5" />
             </span>
           </div>
 
-          <h1 className="mt-5 text-[clamp(1.9rem,7.5vw,2.9rem)] font-semibold leading-[1.08] tracking-tight">
+          <h1 className="mt-5 text-[clamp(1.8rem,7vw,2.7rem)] font-semibold leading-[1.08] tracking-tight">
             Support Mino
           </h1>
-          <p className="mt-3 max-w-md text-[clamp(0.98rem,3.4vw,1.1rem)] leading-relaxed text-white/60">
+          <p className="mt-3 max-w-sm text-[clamp(0.95rem,3.2vw,1.05rem)] leading-relaxed text-white/55">
             Mino stays free for everyone, with no ads and no account wall. If it
             saved you time, a little help keeps the models and the servers paid
             for.
           </p>
 
           {/* Amount */}
-          <section className="mt-7">
-            <h2 className="text-[13px] font-medium uppercase tracking-[0.14em] text-white/40">
+          <section className="mt-8">
+            <h2 className="text-[11px] font-semibold uppercase tracking-[0.14em] text-white/30">
               Pick an amount
             </h2>
             <div className="mt-3 grid grid-cols-4 gap-2">
@@ -120,10 +120,10 @@ export default function DonatePage() {
                     setCustom("");
                   }}
                   aria-pressed={!custom.trim() && amount === preset}
-                  className={`rounded-2xl border px-2 py-3 text-[15px] font-semibold transition-all ${
+                  className={`rounded-xl border px-2 py-2.5 text-[14px] font-semibold transition-all ${
                     !custom.trim() && amount === preset
-                      ? "border-rose-300/50 bg-rose-400/15 text-white shadow-[0_0_24px_-8px_rgba(251,113,133,0.9)]"
-                      : "border-white/[0.09] bg-white/[0.04] text-white/65 hover:border-white/20 hover:text-white"
+                      ? "border-rose-300/40 bg-rose-400/12 text-white shadow-[0_0_18px_-6px_rgba(251,113,133,0.8)]"
+                      : "border-white/[0.07] bg-white/[0.03] text-white/60 hover:border-white/15 hover:text-white/80"
                   }`}
                 >
                   {preset}
@@ -131,7 +131,7 @@ export default function DonatePage() {
               ))}
             </div>
 
-            <div className="mt-2 flex items-center gap-2 rounded-2xl border border-white/[0.09] bg-white/[0.04] px-4 py-3 transition-colors focus-within:border-white/20">
+            <div className="mt-2 flex items-center gap-2 rounded-xl border border-white/[0.07] bg-white/[0.03] px-4 py-2.5 transition-colors focus-within:border-white/15">
               <span className="text-[15px] text-white/45">RM</span>
               <input
                 inputMode="decimal"
@@ -146,26 +146,24 @@ export default function DonatePage() {
           </section>
 
           {/* QR */}
-          <section className="mt-7 rounded-[26px] border border-white/[0.08] bg-white/[0.035] p-5 text-center sm:p-6">
-            <h2 className="text-[13px] font-medium uppercase tracking-[0.14em] text-white/40">
+          <section className="mt-8 rounded-xl border border-white/[0.06] bg-white/[0.025] p-5 text-center sm:p-6">
+            <h2 className="text-[11px] font-semibold uppercase tracking-[0.14em] text-white/30">
               Scan to donate
             </h2>
 
             {qrBroken ? (
-              <div className="mt-4 rounded-2xl border border-dashed border-white/[0.14] px-5 py-10">
-                <p className="text-[15px] font-medium text-white/85">QR not added yet</p>
-                <p className="mx-auto mt-2 max-w-xs text-[13px] leading-relaxed text-white/45">
-                  Put your bank QR in <code className="text-white/70">public/</code> named{" "}
-                  <code className="text-white/70">{DONATE_QR.replace("/", "")}</code>, or set{" "}
-                  <code className="text-white/70">DONATE_QR</code> in{" "}
-                  <code className="text-white/70">lib/donate.ts</code>.
+              <div className="mt-4 rounded-xl border border-dashed border-white/[0.12] px-5 py-8">
+                <p className="text-[14px] font-medium text-white/80">QR not added yet</p>
+                <p className="mx-auto mt-2 max-w-xs text-[12px] leading-relaxed text-white/40">
+                  Put your bank QR in <code className="text-white/65">public/</code> named{" "}
+                  <code className="text-white/65">{DONATE_QR.replace("/", "")}</code>, or set{" "}
+                  <code className="text-white/65">DONATE_QR</code> in{" "}
+                  <code className="text-white/65">lib/donate.ts</code>.
                 </p>
               </div>
             ) : (
               <>
-                <div className="mx-auto mt-4 w-fit rounded-2xl bg-white p-3">
-                  {/* A fixed square box so the code always scans at the same
-                      size and never gets letterboxed by its own aspect ratio. */}
+                <div className="mx-auto mt-4 w-fit rounded-xl bg-white p-2.5">
                   {/* eslint-disable-next-line @next/next/no-img-element */}
                   <img
                     src={DONATE_QR}
@@ -173,23 +171,23 @@ export default function DonatePage() {
                     onError={() => setQrBroken(true)}
                     width={208}
                     height={208}
-                    className="h-[168px] w-[168px] object-contain sm:h-[208px] sm:w-[208px]"
+                    className="h-[156px] w-[156px] object-contain sm:h-[196px] sm:w-[196px]"
                   />
                 </div>
-                <p className="mt-3 text-[13px] text-white/45">{DONATE_QR_CAPTION}</p>
+                <p className="mt-2 text-[12px] text-white/40">{DONATE_QR_CAPTION}</p>
               </>
             )}
 
             {rows.length > 0 && (
-              <dl className="mt-5 space-y-2 border-t border-white/[0.07] pt-4 text-left">
+              <dl className="mt-4 space-y-1.5 border-t border-white/[0.05] pt-3.5 text-left">
                 {rows.map((row) => (
                   <div
                     key={row.label}
-                    className="flex items-center justify-between gap-3 rounded-xl bg-white/[0.03] px-3 py-2"
+                    className="flex items-center justify-between gap-3 rounded-lg bg-white/[0.025] px-3 py-2"
                   >
-                    <dt className="shrink-0 text-[12.5px] text-white/45">{row.label}</dt>
+                    <dt className="shrink-0 text-[11.5px] text-white/40">{row.label}</dt>
                     <dd className="flex min-w-0 items-center gap-2">
-                      <span className="truncate text-[13.5px] font-medium text-white/90">
+                      <span className="truncate text-[12.5px] font-medium text-white/85">
                         {row.value}
                       </span>
                       <CopyButton value={row.value} label={row.label} />
@@ -200,7 +198,7 @@ export default function DonatePage() {
             )}
           </section>
 
-          <p className="mt-6 text-center text-[13px] leading-relaxed text-white/35">
+          <p className="mt-6 text-center text-[12px] leading-relaxed text-white/30">
             Every ringgit goes straight back into Mino. Thank you.
           </p>
         </div>

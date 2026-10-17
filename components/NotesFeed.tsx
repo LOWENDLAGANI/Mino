@@ -40,7 +40,7 @@ export function NoteBadge({ note }: { note: DevNote }) {
   if (!note.badge) return null;
   return (
     <span
-      className={`shrink-0 rounded-full px-3.5 py-1.5 text-[15px] font-semibold ${BADGE_TONE_CLASS[note.badgeTone]}`}
+      className={`shrink-0 rounded-full px-3 py-1 text-[13px] font-semibold ${BADGE_TONE_CLASS[note.badgeTone]}`}
     >
       {note.badge}
     </span>
@@ -52,7 +52,7 @@ export function NoteByline({ note }: { note: DevNote }) {
   const parts = [note.author, note.dateLabel || formatNoteDate(note.publishedAt)].filter(Boolean);
   if (parts.length === 0) return null;
   return (
-    <span className="min-w-0 truncate rounded-full bg-white/[0.09] px-3.5 py-1.5 text-[14px] text-white/70">
+    <span className="min-w-0 truncate rounded-full bg-white/[0.075] px-3 py-1 text-[12px] text-white/65">
       {parts.join(" · ")}
     </span>
   );
@@ -85,28 +85,28 @@ export function BackButton({ href = "/" }: { href?: string }) {
 export function NoteCard({ note, href }: { note: DevNote; href: string }) {
   const summary = clamp(note.summary || note.body, 150);
   return (
-    <article className="rounded-[26px] bg-white/[0.055] p-5 transition-colors hover:bg-white/[0.075]">
+    <article className="rounded-xl bg-white/[0.04] p-5 transition-colors hover:bg-white/[0.06]">
       <div className="flex flex-wrap items-center gap-2">
         <NoteBadge note={note} />
         <NoteByline note={note} />
       </div>
 
-      <h3 className="mt-5 text-[clamp(1.15rem,4.4vw,1.5rem)] font-semibold leading-tight tracking-[-0.01em] text-white">
+      <h3 className="mt-4 text-[clamp(1.1rem,4.2vw,1.4rem)] font-semibold leading-tight tracking-[-0.01em] text-white">
         <Link href={href} className="transition-opacity hover:opacity-80">
           {note.title}
         </Link>
       </h3>
 
       {summary && (
-        <p className="mt-3 text-[clamp(0.95rem,3.6vw,1.15rem)] leading-relaxed text-white/60">
+        <p className="mt-2.5 text-[clamp(0.92rem,3.4vw,1.1rem)] leading-relaxed text-white/55">
           {summary}
         </p>
       )}
 
-      <div className="mt-5 flex justify-end">
+      <div className="mt-4 flex justify-end">
         <Link
           href={href}
-          className="lift rounded-full bg-white/[0.12] px-6 py-2.5 text-[15px] font-medium text-white/85 transition-colors hover:bg-white/[0.2]"
+          className="lift rounded-full bg-white/[0.1] px-5 py-2 text-[13px] font-medium text-white/80 transition-colors hover:bg-white/[0.18]"
         >
           more
         </Link>
@@ -132,7 +132,7 @@ export function NotesShell({
           <BackButton />
           {action}
         </div>
-        <h1 className="mt-8 text-[clamp(1.9rem,7.5vw,2.9rem)] font-semibold leading-[1.1] tracking-tight">
+        <h1 className="mt-7 text-[clamp(1.8rem,7vw,2.7rem)] font-semibold leading-[1.1] tracking-tight">
           {title}
         </h1>
         {children}

@@ -716,7 +716,14 @@ export default function Sidebar({
                       />
                     ) : (
                       <>
-                        {chat.pinned && <span className="shrink-0 text-[10px] text-[#a9d8bb]" title="Pinned">◆</span>}
+                        {chat.pinned && (
+                          <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" className="shrink-0 text-[#a9d8bb]" aria-hidden="true">
+                            <title>Pinned</title>
+                            <path d="M12 2 2 7l10 5 10-5-10-5z" />
+                            <path d="M2 17l10 5 10-5" />
+                            <path d="M2 12l10 5 10-5" />
+                          </svg>
+                        )}
                         <span className="min-w-0 flex-1 truncate text-[13px] text-white/75">{chat.title}</span>
                         <span className={`shrink-0 text-[10px] text-white/25 transition-opacity ${active ? "opacity-100" : "opacity-0 group-hover:opacity-100"}`}>
                           {timeAgo(chat.updatedAt)}

@@ -26,12 +26,12 @@ type ViewState =
 function Notice({ title, body }: { title: string; body: string }) {
   return (
     <div className="flex min-h-[100dvh] flex-col items-center justify-center bg-[#060a08] px-6 text-center">
-      <MinoMark className="mb-6 h-12 w-12" />
-      <h1 className="text-[22px] font-semibold tracking-[-0.03em] text-white">{title}</h1>
-      <p className="mt-2 max-w-sm text-[13.5px] leading-relaxed text-white/50">{body}</p>
+      <MinoMark className="mb-5 h-10 w-10" />
+      <h1 className="text-[19px] font-semibold tracking-[-0.02em] text-white">{title}</h1>
+      <p className="mt-2 max-w-sm text-[12.5px] leading-relaxed text-white/45">{body}</p>
       <Link
         href="/"
-        className="mt-6 rounded-full bg-[#2f6b48] px-5 py-2.5 text-[13px] font-semibold text-black transition-colors hover:bg-[#3a7d55]"
+        className="mt-5 rounded-full bg-[#2f6b48] px-4 py-2 text-[12px] font-semibold text-black transition-colors hover:bg-[#3a7d55]"
       >
         Open Mino
       </Link>
@@ -93,38 +93,37 @@ export default function ShareView() {
   return (
     <div className="min-h-[100dvh] bg-[#060a08] text-white">
       <header className="hairline-b sticky top-0 z-10 bg-[#060a08]/92 backdrop-blur-md">
-        <div className="mx-auto flex max-w-3xl items-center gap-3 px-4 py-4 md:px-7">
-          <MinoMark className="h-8 w-8" />
+        <div className="mx-auto flex max-w-3xl items-center gap-3 px-4 py-3.5 md:px-7">
+          <MinoMark className="h-7 w-7" />
           <div className="min-w-0 flex-1">
-            <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-[#a9d8bb]/70">
+            <p className="text-[9.5px] font-semibold uppercase tracking-[0.16em] text-[#a9d8bb]/60">
               Shared from Mino
             </p>
-            <h1 className="truncate text-[15px] font-semibold tracking-[-0.02em] text-white">
+            <h1 className="truncate text-[13.5px] font-semibold tracking-[-0.01em] text-white">
               {chat.t || "A conversation"}
             </h1>
           </div>
           <Link
             href="/"
-            className="shrink-0 rounded-full bg-[#2f6b48] px-4 py-2 text-[12.5px] font-semibold text-black transition-colors hover:bg-[#3a7d55]"
+            className="shrink-0 rounded-full bg-[#2f6b48] px-3.5 py-1.5 text-[11px] font-semibold text-black transition-colors hover:bg-[#3a7d55]"
           >
             Open Mino
           </Link>
         </div>
       </header>
 
-      <main className="mx-auto max-w-3xl space-y-7 px-4 pb-20 pt-6 md:px-7">
+      <main className="mx-auto max-w-3xl space-y-5 px-4 pb-16 pt-5 md:px-7">
         {chat.m.map((message, index) =>
-          message.r === "u" ? (
-            <div key={index} className="flex justify-end animate-rise">
-              <div className="max-w-[88%] rounded-[22px] rounded-br-md bg-white/[0.075] px-4 py-2.5 text-[15px] leading-relaxed text-white/90">
+          message.r === "u" ? (              <div key={index} className="flex justify-end animate-enter">
+              <div className="max-w-[88%] rounded-xl bg-white/[0.07] px-4 py-2.5 text-[13.5px] leading-relaxed text-white/85">
                 <p className="whitespace-pre-wrap break-words">{message.c}</p>
               </div>
             </div>
           ) : (
-            <div key={index} className="animate-rise">
-              <div className="mb-2 flex items-center gap-2">
-                <MinoMark className="h-5 w-5" />
-                <span className="text-[12px] font-medium text-white/55">Mino</span>
+            <div key={index} className="animate-enter">
+              <div className="mb-1.5 flex items-center gap-2">
+                <MinoMark className="h-4 w-4" />
+                <span className="text-[11px] font-medium text-white/50">Mino</span>
               </div>
               <Markdown content={message.c} />
             </div>
@@ -134,7 +133,7 @@ export default function ShareView() {
         {chat.cut && (
           <p
             role="status"
-            className="rounded-xl border border-white/[0.07] bg-white/[0.03] px-3 py-2.5 text-center text-[12px] leading-relaxed text-white/45"
+            className="rounded-lg border border-white/[0.05] bg-white/[0.025] px-3 py-2 text-center text-[11px] leading-relaxed text-white/40"
           >
             This link carries the most recent part of the conversation — links have a length
             limit, so older messages were left behind.
@@ -142,8 +141,8 @@ export default function ShareView() {
         )}
       </main>
 
-      <footer className="border-t border-white/[0.06] px-4 py-6 md:px-7">
-        <p className="mx-auto max-w-3xl text-[11.5px] leading-relaxed text-white/35">
+      <footer className="border-t border-white/[0.05] px-4 py-5 md:px-7">
+        <p className="mx-auto max-w-3xl text-[11px] leading-relaxed text-white/30">
           This conversation travelled inside the link itself — the fragment of a URL is never
           sent to a server, so Mino holds no copy of it and nobody needs an account to read it.
           Start your own at <Link href="/" className="text-[#a9d8bb] hover:underline">mino</Link>.

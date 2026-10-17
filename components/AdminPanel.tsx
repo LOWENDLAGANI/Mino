@@ -299,7 +299,7 @@ export default function AdminPanel({
         ...(topUpNote.trim() ? { note: topUpNote.trim().slice(0, 120) } : {}),
       });
       setDewBalances((current) => ({ ...(current ?? {}), [grant.uid]: grant.balance }));
-      setTopUpDone(`${grant.dew} Dew credited to ${topUp.label} — balance 💧 ${formatDew(grant.balance)}`);
+      setTopUpDone(`${grant.dew} Dew credited to ${topUp.label} — balance ${formatDew(grant.balance)}`);
       setTopUpNote("");
       setTopUp(null);
     } catch (e: unknown) {
@@ -489,8 +489,11 @@ export default function AdminPanel({
                             <span className="block truncate text-[13px] font-semibold text-white/90">
                             {user.name ?? "Unnamed visitor"}
                             {dewBalances !== null && dewBalances[user.uid] !== undefined && (
-                              <span className="ml-1.5 text-[11px] font-medium text-[#a9d8bb]/80" title="Dew balance">
-                                💧 {formatDew(dewBalances[user.uid])}
+                              <span className="ml-1.5 flex items-center gap-1 text-[11px] font-medium text-[#a9d8bb]/80" title="Dew balance">
+                                <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                                  <path d="M12 2.7s6.6 7.1 6.6 11.6a6.6 6.6 0 1 1-13.2 0C5.4 9.8 12 2.7 12 2.7Z" />
+                                </svg>
+                                {formatDew(dewBalances[user.uid])}
                               </span>
                             )}
                           </span>
@@ -915,7 +918,12 @@ function CodesSection({
                     {code.code}
                     {!code.active ? <span className="ml-2 text-[10px] font-normal text-red-300/80">off</span> : null}
                   </p>
-                  <p className="text-[10px] text-white/35">💧 {code.dew} Dew</p>
+                  <p className="text-[10px] text-white/35 flex items-center gap-1">
+                    <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                      <path d="M12 2.7s6.6 7.1 6.6 11.6a6.6 6.6 0 1 1-13.2 0C5.4 9.8 12 2.7 12 2.7Z" />
+                    </svg>
+                    {code.dew} Dew
+                  </p>
                 </div>
                 <div className="flex shrink-0 gap-1">
                   <button
@@ -1125,7 +1133,7 @@ function AuditSection({
                     {entry.code ?? (entry.uid ? `…${entry.uid.slice(-8)}` : "—")}
                   </span>
                   <span className="block text-[10px] leading-relaxed text-white/35">
-                    {entry.dew ? `💧 ${entry.dew} Dew` : ""}
+                    {entry.dew ? ` ${entry.dew} Dew` : ""}
                     {entry.note ? ` · ${entry.note}` : ""}
                     {` · ${when(entry.at)}`}
                   </span>

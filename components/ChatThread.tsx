@@ -226,7 +226,15 @@ function MessageRow({ msg, streaming, drawing, onRegenerate, onEditMessage, onSw
           )}
           {msg.documents && msg.documents.length > 0 && (
             <div className="mb-2 flex flex-wrap justify-end gap-1.5">
-              {msg.documents.map((document) => <span key={document.name} className="rounded-lg border border-white/10 bg-white/[0.06] px-2 py-1 text-[10px] text-white/55">📄 {document.name}</span>)}
+              {msg.documents.map((document) => (
+                <span key={document.name} className="rounded-lg border border-white/10 bg-white/[0.06] px-2 py-1 text-[10px] text-white/55 flex items-center gap-1.5">
+                  <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="shrink-0" aria-hidden="true">
+                    <path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z" />
+                    <path d="M14 2v6h6" />
+                  </svg>
+                  {document.name}
+                </span>
+              ))}
             </div>
           )}
           {msg.content && !editing && (
