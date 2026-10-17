@@ -86,7 +86,14 @@ function CopyButton({ text }: { text: string }) {
 
   return (
     <button onClick={handleCopy} className="copy-btn" type="button" aria-label="Copy code">
-      {copied ? "✓ Copied" : "Copy"}
+      {copied ? (
+        <span className="inline-flex items-center gap-1.5">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+            <path d="M5 12l4 4L19 6" />
+          </svg>
+          Copied
+        </span>
+      ) : "Copy"}
     </button>
   );
 }
