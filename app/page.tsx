@@ -1170,7 +1170,7 @@ export default function HomePage() {
         displayName={displayName}
       />
 
-      <main className="app-surface relative flex min-w-0 flex-1 flex-col overflow-hidden">
+      <main className="app-surface relative flex min-w-0 flex-1 flex-col overflow-hidden animate-view-in">
         <div className="surface-glow pointer-events-none absolute inset-0" aria-hidden />
 
         <header className="safe-top relative z-20 flex h-16 shrink-0 items-center gap-3 px-4 md:px-6">

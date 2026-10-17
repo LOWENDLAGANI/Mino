@@ -359,7 +359,7 @@ export default function Sidebar({
 
       <aside
         className={`hairline-r fixed inset-y-0 left-0 z-40 flex w-[292px] shrink-0 flex-col bg-[#080d0a] transition-transform duration-300 ease-out md:static md:translate-x-0 ${
-          open ? "translate-x-0" : "-translate-x-full"
+          open ? "translate-x-0 md:animate-view-in" : "-translate-x-full"
         }`}
       >
         <div className="safe-top flex items-center justify-between px-5 pb-4 pt-6">
@@ -649,13 +649,14 @@ export default function Sidebar({
             </div>
           )}
 
-          <ul className="space-y-1">
+          <ul className="space-y-1 stagger-children">
             {visibleChats.map((chat, index) => {
+              const _stagger = index;
               const active = chat.id === activeChatId;
               // The last rows open upward so the menu never leaves the rail.
               const menuFlip = index >= visibleChats.length - 2;
               return (
-                <li key={chat.id} className="relative">
+                <li key={chat.id} className="relative" style={{ ['--stagger' as string]: _stagger }}>
                   <div
                     role="button"
                     tabIndex={0}
@@ -690,7 +691,7 @@ export default function Sidebar({
                         setMenuChatId(chat.id);
                       }
                     }}
-                    className={`group flex cursor-pointer items-center gap-2 rounded-xl px-3 py-2.5 transition-colors ${active ? "bg-white/[0.09]" : "hover:bg-white/[0.05]"}`}
+                    className={`group flex cursor-pointer items-center gap-2 rounded-xl px-3 py-2.5 transition-colors ${active ? "bg-white/[0.09]" : "hover:bg-white/[0.05]"} animate-enter`}
                   >
                     {editingId === chat.id ? (
                       <input

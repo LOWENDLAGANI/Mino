@@ -9,47 +9,9 @@ interface ModeSelectorProps {
   available: ModeId[];
 }
 
-const MODEL_ICONS = {
-  auto: (
-    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden="true">
-      <path d="M12 3c.132 0 .263 0 .393 0a7.5 7.5 0 0 0 7.92 12.446a9 9 0 1 1-9.123-12.776" />
-      <path d="M15 15.5a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z" />
-    </svg>
-  ),
-  code: (
-    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden="true">
-      <path d="M16 18l6-6-6-6M8 6l-6 6 6 6" />
-    </svg>
-  ),
-  self: (
-    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden="true">
-      <circle cx="12" cy="12" r="3" />
-      <path d="M12 2v4M12 18v4M2 12h4M18 12h4" />
-    </svg>
-  ),
-};
-
-const MODEL_DESCRIPTIONS = {
-  auto: {
-    tagline: "Best for everyday tasks",
-    features: ["Smart model selection", "Balanced speed & quality", "Great for general questions"],
-    color: "emerald",
-  },
-  code: {
-    tagline: "Built for developers",
-    features: ["File-aware code blocks", "Technical precision", "Fresh session per task"],
-    color: "orange",
-  },
-  self: {
-    tagline: "Mino's own model",
-    features: ["Independent AI assistant", "Created by Minetallest", "Exclusive to Mino"],
-    color: "azure",
-  },
-};
-
 export default function ModeSelector({ selected, onChange, available }: ModeSelectorProps) {
-  const [probeDone, setProbeDone] = useState(false);
-  const detailsRef = useRef<HTMLDetailsElement>(null);
+  const [open, setOpen] = useState(false);
+  const containerRef = useRef<HTMLDivElement>(null);
   const activeMode = MINO_MODES.find((mode) => mode.id === selected) ?? MINO_MODES[0];
 
   useEffect(() => {
@@ -65,124 +27,74 @@ export default function ModeSelector({ selected, onChange, available }: ModeSele
           }));
         }
       })
-      .catch(() => undefined)
-      .finally(() => setProbeDone(true));
+      .catch(() => undefined);
   }, []);
 
   const selectMode = (mode: ModeId) => {
     onChange(mode);
-    detailsRef.current?.removeAttribute("open");
-  };
-
-  const getColorClass = (modeId: ModeId, active: boolean) => {
-    const desc = MODEL_DESCRIPTIONS[modeId];
-    if (active) {
-      switch (desc.color) {
-        case "azure": return "bg-[#5b9bd5]/20 text-[#5b9bd5]";
-        case "orange": return "bg-[#e08e6b]/20 text-[#e08e6b]";
-        default: return "bg-[#2a6142] text-white";
-      }
-    }
-    switch (desc.color) {
-      case "azure": return "bg-white/[0.05] text-[#5b9bd5]/60";
-      case "orange": return "bg-white/[0.05] text-[#e08e6b]/60";
-      default: return "bg-white/[0.05] text-white/55";
-    }
-  };
-
-  const getBorderClass = (modeId: ModeId, active: boolean) => {
-    if (active) {
-      switch (MODEL_DESCRIPTIONS[modeId].color) {
-        case "azure": return "border-[#5b9bd5]/30";
-        case "orange": return "border-[#e08e6b]/30";
-        default: return "border-[#3f7d5c]/30";
-      }
-    }
-    return "border-transparent";
+    setOpen(false);
   };
 
   return (
-    <details ref={detailsRef} className="group relative" data-tutorial="model-selector">
-      <summary className="flex h-10 cursor-pointer list-none items-center gap-2 rounded-full px-2.5 text-[14px] font-medium text-white/85 transition-colors hover:bg-white/[0.06] [&::-webkit-details-marker]:hidden">
-        <span className="max-w-[120px] truncate sm:max-w-none">{activeMode.display}</span>
+    <div
+      ref={containerRef}
+      className="relative"
+      data-tutorial="model-selector"
+    >
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        className="group flex h-9 cursor-pointer items-center gap-1.5 rounded-full px-2.5 text-[13px] font-medium text-white/80 transition-colors hover:bg-white/[0.06] active:scale-[0.985]"
+        aria-label="Switch model"
+        aria-expanded={open}
+      >
+        <span className="max-w-[140px] truncate sm:max-w-none">{activeMode.display}</span>
         <svg
-          width="15"
-          height="15"
+          width="12"
+          height="12"
           viewBox="0 0 24 24"
           fill="none"
           stroke="currentColor"
-          strokeWidth="1.8"
+          strokeWidth="2"
           strokeLinecap="round"
           strokeLinejoin="round"
-          className="text-white/45 transition-transform group-open:rotate-180"
+          className="text-white/40 transition-transform group-open:rotate-180"
         >
           <path d="m7 10 5 5 5-5" />
         </svg>
-      </summary>
+      </button>
 
-      <div
-        role="radiogroup"
-        aria-label="Mino model"
-        className="absolute right-0 top-full z-50 mt-2 w-80 origin-top-right overflow-hidden rounded-2xl border border-white/[0.08] bg-[#121c18]/95 p-2 shadow-2xl shadow-black/60 backdrop-blur-xl animate-rise"
-      >
-        {MINO_MODES.map((mode) => {
-          const active = selected === mode.id;
-          const usable = available.includes(mode.id);
-          const desc = MODEL_DESCRIPTIONS[mode.id];
-          const colorClass = getColorClass(mode.id, active);
-          const borderClass = getBorderClass(mode.id, active);
-          
-          return (
-            <button
-              key={mode.id}
-              role="radio"
-              aria-checked={active}
-              onClick={() => selectMode(mode.id)}
-              className={`flex w-full items-start gap-3 rounded-xl px-3 py-3 text-left transition-all duration-200 ${active ? colorClass : "hover:bg-white/[0.04]"} ${borderClass} border`}
-              type="button"
-            >
-              <div className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-xl transition-colors ${active ? "bg-white/10" : "bg-white/[0.03]"}`}>
-                <span className={colorClass}>
-                  {MODEL_ICONS[mode.id]}
+      {open && (
+        <div
+          role="radiogroup"
+          aria-label="Mino model"
+          className="animate-pop absolute right-0 top-full z-50 mt-1.5 w-56 origin-top-right overflow-hidden rounded-xl border border-white/[0.08] bg-[#121c18]/98 p-1 shadow-2xl shadow-black/60 backdrop-blur-xl"
+        >
+          {MINO_MODES.map((mode) => {
+            const active = selected === mode.id;
+            return (
+              <button
+                key={mode.id}
+                role="radio"
+                aria-checked={active}
+                onClick={() => selectMode(mode.id)}
+                className={`flex w-full cursor-pointer items-center gap-2 rounded-lg px-2.5 py-1.5 text-left text-[13px] transition-colors ${active ? "bg-[#2f6b48]/20 text-white" : "text-white/75 hover:bg-white/[0.04]"}`}
+                type="button"
+              >
+                <span className={`font-medium ${active ? "text-white" : "text-white/90"}`}>
+                  {mode.display}
                 </span>
-              </div>
-              <div className="min-w-0 flex-1">
-                <div className="flex items-center gap-2">
-                  <span className={`text-[15px] font-semibold ${active ? "text-white" : "text-white/90"}`}>
-                    {mode.display}
-                  </span>
-                  {desc.color === "azure" && active && (
-                    <span className="h-2 w-2 rounded-full bg-[#5b9bd5] animate-pulse" title="Mino Azure is active" />
-                  )}
-                  {probeDone && !usable && (
-                    <span
-                      className="h-1.5 w-1.5 rounded-full bg-amber-300/80"
-                      title={mode.id === "code" ? "This mode has no model configured yet" : "This mode will use the other configured provider"}
-                    />
-                  )}
-                </div>
-                <p className="mt-0.5 text-[12px] text-white/50 font-medium">{desc.tagline}</p>
-                <ul className="mt-1.5 space-y-0.5">
-                  {desc.features.map((feature) => (
-                    <li key={feature} className="flex items-center gap-1.5 text-[11px] text-white/40">
-                      <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" className="shrink-0 text-white/30" aria-hidden="true">
-                        <path d="M4.5 12.5 5.5 13.5 7.5 11.5" />
-                      </svg>
-                      {feature}
-                    </li>
-                  ))}
-                </ul>
-              </div>
-              {active ? (
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" className="text-white ml-auto">
-                  <path d="m5 12 4 4L19 6" />
-                </svg>
-              ) : null}
-            </button>
-          );
-        })}
-      </div>
-    </details>
+                {active && (
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" className="text-[#a9d8bb]">
+                    <path d="m5 12 4 4L19 6" />
+                  </svg>
+                )}
+              </button>
+            );
+          })}
+        </div>
+      )}
+    </div>
   );
 }
 

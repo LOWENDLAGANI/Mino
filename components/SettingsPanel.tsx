@@ -113,7 +113,7 @@ export default function SettingsPanel({
   return (
     <div className="fixed inset-0 z-[60] flex items-end justify-center p-0 sm:items-center sm:p-6">
       <div
-        className="absolute inset-0 bg-black/70"
+        className="absolute inset-0 bg-black/70 animate-fade"
         style={{ backdropFilter: "blur(8px)" }}
         onClick={onClose}
         aria-hidden
@@ -123,7 +123,7 @@ export default function SettingsPanel({
         role="dialog"
         aria-modal="true"
         aria-label="Mino settings"
-        className="relative flex max-h-[92dvh] w-full max-w-lg flex-col overflow-hidden rounded-t-[28px] border border-white/[0.09] bg-[#141f1a] shadow-2xl shadow-black/80 animate-rise sm:rounded-[28px]"
+        className="relative flex max-h-[92dvh] w-full max-w-lg flex-col overflow-hidden rounded-t-[28px] border border-white/[0.09] bg-[#141f1a] shadow-2xl shadow-black/80 animate-view-in sm:rounded-[28px]"
       >
         <header className="flex items-center justify-between gap-3 border-b border-white/[0.07] px-5 py-4">
           <h2 className="text-[18px] font-semibold tracking-[-0.02em] text-white">Settings</h2>
@@ -139,13 +139,13 @@ export default function SettingsPanel({
           </button>
         </header>
 
-        <div className="min-h-0 flex-1 space-y-6 overflow-y-auto px-5 py-5">
+        <div className="min-h-0 flex-1 space-y-6 overflow-y-auto px-5 py-5 stagger-children">
           <AccountSection displayName={displayName} />
           <DataControls />
           <MemoryPanel syncAvailable={firebaseConfigured} />
 
-          <div className="grid grid-cols-1 gap-4">
-            <section className="rounded-xl bg-white/[0.03] border border-white/[0.06] p-4 card-hover">
+          <div className="grid grid-cols-1 gap-4" style={{ ['--stagger' as string]: 3 }}>
+            <section className="rounded-xl bg-white/[0.03] border border-white/[0.06] p-4 card-hover animate-enter">
               <div className="mb-3 flex items-center justify-between">
                 <h3 className="flex items-center gap-1.5 text-[14px] font-semibold text-white">
                   <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" className="text-[#a9d8bb]" aria-hidden="true">
@@ -174,7 +174,7 @@ export default function SettingsPanel({
               </div>
             </section>
 
-            <section className="rounded-xl bg-white/[0.03] border border-white/[0.06] p-4 card-hover">
+            <section className="rounded-xl bg-white/[0.03] border border-white/[0.06] p-4 card-hover animate-enter" style={{ ['--stagger' as string]: 4 }}>
               <h3 className="mb-3 flex items-center gap-1.5 text-[14px] font-semibold text-white">
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" className="text-[#a9d8bb]" aria-hidden="true">
                   <path d="M11 4h10M11 4l3 3M11 4v16" />
@@ -201,7 +201,7 @@ export default function SettingsPanel({
               </div>
             </section>
 
-            <section className="rounded-xl bg-white/[0.03] border border-white/[0.06] p-4 card-hover">
+            <section className="rounded-xl bg-white/[0.03] border border-white/[0.06] p-4 card-hover animate-enter" style={{ ['--stagger' as string]: 5 }}>
               <h3 className="mb-3 flex items-center gap-1.5 text-[14px] font-semibold text-white">
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" className="text-[#a9d8bb]" aria-hidden="true">
                   <path d="M12 20h9" /><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4Z" />
@@ -229,7 +229,7 @@ export default function SettingsPanel({
               </div>
             </section>
 
-            <section className="rounded-xl bg-white/[0.03] border border-white/[0.06] p-4 card-hover">
+            <section className="rounded-xl bg-white/[0.03] border border-white/[0.06] p-4 card-hover animate-enter" style={{ ['--stagger' as string]: 6 }}>
               <h3 className="mb-3 flex items-center gap-1.5 text-[14px] font-semibold text-white">
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" className="text-[#a9d8bb]" aria-hidden="true">
                   <circle cx="12" cy="12" r="5" /><path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42" />
