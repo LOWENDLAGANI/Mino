@@ -109,10 +109,7 @@ export default function MinoPlusPage() {
           <h1 className="text-[clamp(2.1rem,8vw,3.2rem)] font-semibold leading-[1.05] tracking-tight">
             Mino <span className="bg-gradient-to-r from-[#2f6b48] via-[#a9d8bb] to-[#2f6b48] bg-clip-text text-transparent">Dew</span>
           </h1>
-          <p className="mt-3 max-w-xl text-[clamp(1rem,3.6vw,1.2rem)] leading-snug text-white/60">
-            Pay for what you use. Every message, picture and thought is billed in Dew — no plan, no
-            renewal, no lock.
-          </p>
+
 
           {canShowWallet && <DewPanel />}
 
@@ -126,10 +123,7 @@ export default function MinoPlusPage() {
           {canShowWallet && (
             <section className="mt-5">
               <h2 className="text-[15px] font-semibold text-white">Top up Dew</h2>
-              <p className="mt-1 text-[13px] leading-snug text-white/45">
-                Pick an amount, scan the QR with your banking app, and your balance updates once
-                the payment lands.
-              </p>
+
               <div className="mt-3 grid grid-cols-2 gap-2">
                 {DEW_PACKS.map((pack) => (
                   <button
@@ -153,7 +147,27 @@ export default function MinoPlusPage() {
             </section>
           )}
 
-          <HowBillingWorks />
+          <ul className="mt-5 space-y-2.5 text-[13px] leading-relaxed text-white/60">
+            <li>
+              Every message is charged for the tokens it uses —{" "}
+              <span className="font-medium text-white/85">
+                {DEW_PRICING.fast.input} Dew in / {DEW_PRICING.fast.output} Dew out per 1,000 tokens
+              </span>{" "}
+              on Auto and Code, and{" "}
+              <span className="font-medium text-white/85">
+                {DEW_PRICING.pro.input} / {DEW_PRICING.pro.output}
+              </span>{" "}
+              when Mino Azure or heavier reasoning is asked for.
+            </li>
+            <li>
+              One generated picture costs <span className="font-medium text-white/85">{IMAGE_DEW_COST} Dew</span>.
+            </li>
+            <li>
+              A new account starts with <span className="font-medium text-white/85">{TRIAL_DEW} welcome Dew</span>, and
+              nothing is charged until it runs out.
+            </li>
+            <li>Nothing renews and nothing expires: a balance is simply spent as you chat.</li>
+          </ul>
 
           <div className="mt-5">
             <RedeemCodeBox />
