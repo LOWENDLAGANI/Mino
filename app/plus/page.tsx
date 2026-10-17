@@ -18,24 +18,8 @@ import {
   type DewPack,
 } from "@/lib/dew";
 
-// ── Mino top-ups ─────────────────────────────────────────────────────────────
-// Pay as you go. There are no plans, no terms and no renewal dates left on this
-// page: every message and every picture is billed in Dew for what it actually
-// uses, and this page exists to answer three things, in this order — what the
-// balance is, how to make it bigger, and what the numbers mean.
-//
-// The wallet is behind a sign-in, because Dew is keyed on the uid and a browser
-// nobody can identify has nowhere to put a balance. The QR is the shared DuitNow
-// transfer the rest of the product already uses: the pack decides the amount to
-// enter, and the credit lands when the owner matches the transfer — or sooner,
-// if the buyer hands over a code instead.
-
-/** The balance, and the sentence that explains why it moves. */
 function DewPanel() {
   const { ready, balance, low, refresh } = useDew();
-  // The trial is claimed on the first visit signed in, which is also the first
-  // time anybody can have one. A failed ensure is silent: the rules refused,
-  // and re-asking changes nothing.
   useEffect(() => {
     void (async () => {
       try {
@@ -62,7 +46,6 @@ function DewPanel() {
   );
 }
 
-/** What one Dew buys, so the number next to the balance is not a mystery. */
 function HowBillingWorks() {
   return (
     <section className="mt-5 rounded-[22px] border border-white/[0.08] bg-white/[0.03] p-5">
@@ -93,24 +76,10 @@ function HowBillingWorks() {
 }
 
 export default function MinoPlusPage() {
-  // The pack whose top-up QR is open, or null when the dialog is closed.
   const [dewTopUp, setDewTopUp] = useState<DewPack | null>(null);
-  // null means the account service has not answered yet, which is treated the
-  // same as signed out: the wallet stays hidden until an account is real.
   const [account, setAccount] = useState<AccountView | null>(null);
   useEffect(() => watchAccount((view) => setAccount(view)), []);
 
-  // "Signed in" means a verified Firebase identity — anonymous or Google-linked.
-  // Dew is keyed on the uid, which every identity has, so the wallet shows for
-  // all of them.
-  //
-  // It is deliberately *not* `account !== null`. `watchAccount` answers for
-  // every deployment, including one where Firebase is not configured or cannot
-  // be reached — reporting "unconfigured" rather than "nobody". Treating any
-  // answer as signed in put a wallet reading "0 Dew" and four top-up packs in
-  // front of a browser that can never hold a balance, which is exactly the
-  // broken-looking page this section is here to avoid. The sidebar chip reads
-  // the same question and must not disagree with it.
   const signedIn = account?.status === "guest" || account?.status === "linked";
   const canShowWallet = signedIn;
 
@@ -145,9 +114,6 @@ export default function MinoPlusPage() {
             renewal, no lock.
           </p>
 
-          {/* What you have comes first. A pricing page that opens by asking for
-              money from somebody who already paid is a page that has not read
-              who is reading it. */}
           {canShowWallet && <DewPanel />}
 
           {!canShowWallet && (
@@ -157,8 +123,6 @@ export default function MinoPlusPage() {
             </p>
           )}
 
-          {/* Dew top-up: the product. The pack selector and the QR are the
-              whole of this page's commerce now. */}
           {canShowWallet && (
             <section className="mt-5">
               <h2 className="text-[15px] font-semibold text-white">Top up Dew</h2>
@@ -191,15 +155,12 @@ export default function MinoPlusPage() {
 
           <HowBillingWorks />
 
-          {/* Somebody who was handed a word rather than asked to pay: the
-              owner's code is how a manual sale finishes at a distance. */}
           <div className="mt-5">
             <RedeemCodeBox />
           </div>
         </div>
       </main>
 
-      {/* The Dew top-up QR for the pack that was pressed. */}
       {dewTopUp && <DewQrDialog key={dewTopUp.id} pack={dewTopUp} onClose={() => setDewTopUp(null)} />}
     </MaintenanceGate>
   );

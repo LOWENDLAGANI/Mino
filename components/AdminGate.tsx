@@ -104,10 +104,18 @@ export default function AdminGate({ open, onClose, onUnlocked }: AdminGateProps)
   const signIn = useCallback(async () => {
     setBusy(true);
     setError(null);
+    setDetail(null);
     try {
       await signInAsAdmin();
-      if (await verifyAdminAccess()) onUnlocked();
-      else setMode("denied");
+      try {
+        if (await verifyAdminAccess()) onUnlocked();
+        else setMode("denied");
+      } catch (cause: unknown) {
+        console.error("[mino admin] verify after sign-in", cause);
+        setDetail(describe(cause));
+        setError(describe(cause).message);
+        setMode("signin");
+      }
     } catch (cause: unknown) {
       const code = (cause as { code?: string })?.code ?? "";
       if (code === "auth/popup-closed-by-user" || code === "auth/cancelled-popup-request") {

@@ -24,6 +24,25 @@ import {
   type RedeemCode,
 } from "./redeemState";
 
+function withTimeout<T>(promise: Promise<T>, milliseconds: number): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(
+      () => reject(new Error(`timed out after ${milliseconds}ms`)),
+      milliseconds
+    );
+    promise.then(
+      (value) => {
+        clearTimeout(timer);
+        resolve(value);
+      },
+      (error) => {
+        clearTimeout(timer);
+        reject(error);
+      }
+    );
+  });
+}
+
 /** Maps Firebase's permission failure onto a message worth showing. */
 function isPermissionDenied(cause: unknown): boolean {
   const error = cause as { code?: string; name?: string } | null;
@@ -32,11 +51,18 @@ function isPermissionDenied(cause: unknown): boolean {
   return code === "PERMISSION_DENIED" || /permission[ _-]?denied/i.test(message);
 }
 
+const VERIFY_TIMEOUT_MS = 10_000;
+
 export async function verifyAdminAccess(): Promise<boolean> {
   const current = await getServices();
   if (!current) throw notConfigured();
   try {
-    await get(ref(current.database, "admin/registry"));
+    const restored = current.auth.currentUser
+      ? Promise.resolve(current.auth.currentUser)
+      : current.auth.authStateReady().then(() => current.auth.currentUser);
+    const user = await withTimeout(restored, VERIFY_TIMEOUT_MS);
+    if (!user) throw new Error("No signed-in user");
+    await withTimeout(get(ref(current.database, "admin/registry")), VERIFY_TIMEOUT_MS);
     return true;
   } catch (cause: unknown) {
     if (isPermissionDenied(cause)) return false;
