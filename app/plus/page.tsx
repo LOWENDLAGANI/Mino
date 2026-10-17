@@ -10,9 +10,6 @@ import type { AccountView } from "@/lib/accountState";
 import { useDew } from "@/lib/useDew";
 import {
   DEW_PACKS,
-  DEW_PRICING,
-  IMAGE_DEW_COST,
-  TRIAL_DEW,
   formatDew,
   formatRinggit,
   type DewPack,
@@ -38,39 +35,6 @@ function DewPanel() {
       <h2 className="mt-1 text-[30px] font-semibold leading-tight tracking-tight">
         💧 {ready ? formatDew(balance) : "…"} <span className="text-[15px] font-normal text-white/50">Dew</span>
       </h2>
-      <p className="mt-1 text-[14px] leading-snug text-white/55">
-        1 Dew ≈ US$0.01 of model use.{" "}
-        {low ? "Running low — top up below." : "Every message is billed for the tokens it actually uses."}
-      </p>
-    </section>
-  );
-}
-
-function HowBillingWorks() {
-  return (
-    <section className="mt-5 rounded-[22px] border border-white/[0.08] bg-white/[0.03] p-5">
-      <h2 className="text-[13px] font-semibold text-white/90">How billing works</h2>
-      <ul className="mt-3 space-y-2.5 text-[13px] leading-relaxed text-white/60">
-        <li>
-          Every message is charged for the tokens it uses —{" "}
-          <span className="font-medium text-white/85">
-            {DEW_PRICING.fast.input} Dew in / {DEW_PRICING.fast.output} Dew out per 1,000 tokens
-          </span>{" "}
-          on Auto and Code, and{" "}
-          <span className="font-medium text-white/85">
-            {DEW_PRICING.pro.input} / {DEW_PRICING.pro.output}
-          </span>{" "}
-          when Mino Azure or heavier reasoning is asked for.
-        </li>
-        <li>
-          One generated picture costs <span className="font-medium text-white/85">{IMAGE_DEW_COST} Dew</span>.
-        </li>
-        <li>
-          A new account starts with <span className="font-medium text-white/85">{TRIAL_DEW} welcome Dew</span>, and
-          nothing is charged until it runs out.
-        </li>
-        <li>Nothing renews and nothing expires: a balance is simply spent as you chat.</li>
-      </ul>
     </section>
   );
 }
@@ -123,7 +87,6 @@ export default function MinoPlusPage() {
           {canShowWallet && (
             <section className="mt-5">
               <h2 className="text-[15px] font-semibold text-white">Top up Dew</h2>
-
               <div className="mt-3 grid grid-cols-2 gap-2">
                 {DEW_PACKS.map((pack) => (
                   <button
@@ -147,27 +110,7 @@ export default function MinoPlusPage() {
             </section>
           )}
 
-          <ul className="mt-5 space-y-2.5 text-[13px] leading-relaxed text-white/60">
-            <li>
-              Every message is charged for the tokens it uses —{" "}
-              <span className="font-medium text-white/85">
-                {DEW_PRICING.fast.input} Dew in / {DEW_PRICING.fast.output} Dew out per 1,000 tokens
-              </span>{" "}
-              on Auto and Code, and{" "}
-              <span className="font-medium text-white/85">
-                {DEW_PRICING.pro.input} / {DEW_PRICING.pro.output}
-              </span>{" "}
-              when Mino Azure or heavier reasoning is asked for.
-            </li>
-            <li>
-              One generated picture costs <span className="font-medium text-white/85">{IMAGE_DEW_COST} Dew</span>.
-            </li>
-            <li>
-              A new account starts with <span className="font-medium text-white/85">{TRIAL_DEW} welcome Dew</span>, and
-              nothing is charged until it runs out.
-            </li>
-            <li>Nothing renews and nothing expires: a balance is simply spent as you chat.</li>
-          </ul>
+
 
           <div className="mt-5">
             <RedeemCodeBox />
