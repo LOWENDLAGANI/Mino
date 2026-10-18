@@ -9,7 +9,7 @@
 // identity stance is that Mino is Mino, and a name that reaches a user's
 // downloads is a name the user can see.
 
-export type ModeId = "auto" | "code" | "self";
+export type ModeId = "auto" | "code" | "self" | "opus";
 
 export interface ModeOption {
   id: ModeId;
@@ -47,6 +47,13 @@ export const MINO_MODES: ModeOption[] = [
     separateSession: true,
     blurb: "Mino's own model",
   },
+  {
+    id: "opus",
+    name: "Opus",
+    display: "~Claude Opus 5.5",
+    separateSession: true,
+    blurb: "Qwen 72B · Opus persona",
+  },
 ];
 
 export const DEFAULT_MODE_ID: ModeId = "auto";
@@ -67,7 +74,9 @@ export function getMode(id: string): ModeOption {
  * is what was written into every message stored before the rename, and dropping
  * it would blank out the model name on a year of existing conversations.
  */
-const MINO_NAME = /^Mino(?: Auto| Self| Azure| Canvas| V\d+)?$/;
+// "~Claude Opus 5.5" is allowed through verbatim: it is the product name for
+// the Opus mode, not a vendor leak. Everything else is still normalised.
+const MINO_NAME = /^(?:Mino(?: Auto| Self| Azure| Canvas| V\d+)?|~Claude Opus 5\.5)$/;
 
 /**
  * Normalises whatever a message carries into a name safe to show.
