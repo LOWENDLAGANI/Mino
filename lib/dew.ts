@@ -15,6 +15,8 @@ export const TRIAL_DEW = 25; // granted once at account creation
 export const DUST_THRESHOLD = 0.05;
 /** Mino Azure's smallest plausible answer; refuse below this rather than burning a slot. */
 export const AZURE_FLOOR = 0.25;
+/** ~Claude Opus 5.5 runs the 72B model, so its floor is double Azure's. */
+export const OPUS_FLOOR = 0.5;
 /** The balance at which the UI chip turns amber, warning of a top-up. */
 export const LOW_BALANCE_THRESHOLD = 10;
 /** A pack somebody can transfer for, in Dew and ringgit. */
@@ -70,8 +72,8 @@ export function toMillidew(value: number): number {
 }
 
 /** The fast/premium distinction is about how expensive the model is to serve. */
-export function tierForRequest(mode: "auto" | "code" | "self", effort: string | null): DewTier {
-  if (mode === "self") return "pro";
+export function tierForRequest(mode: "auto" | "code" | "self" | "opus", effort: string | null): DewTier {
+  if (mode === "self" || mode === "opus") return "pro";
   if (effort === "medium" || effort === "high") return "pro";
   return "fast";
 }

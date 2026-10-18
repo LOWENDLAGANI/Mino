@@ -6,7 +6,7 @@
 
 import type { ModeId } from "./models";
 import { AUTO_ENGINE, CODE_ENGINE, CODE_FALLBACKS, toMinoName } from "./modelEngines";
-import { isSpaceConfigured, SPACE_MODEL } from "./gradioSpace";
+import { isSpaceConfigured, SPACE_MODEL, SPACE_MODEL_OPUS, SPACE_CHOICE_AZURE, SPACE_CHOICE_OPUS } from "./gradioSpace";
 
 export type ProviderFamily = "openrouter" | "gemini" | "groq" | "space";
 
@@ -25,6 +25,12 @@ export interface ProviderConfig {
    * one (Llama) behind the same API — so it is tracked per configuration.
    */
   supportsReasoning: boolean;
+  /**
+   * Space-family only: the exact Radio string sent to the Gradio Space's
+   * `model_choice` input. Undefined elsewhere; the Space adapter falls back
+   * to the 7B (Azure) default when it is missing.
+   */
+  spaceModelChoice?: string;
 }
 
 /** Which Mino mode a provider family belongs to, for user-facing error copy. */
@@ -32,7 +38,7 @@ export const FAMILY_MODE: Record<ProviderFamily, string> = {
   openrouter: "Mino Auto",
   gemini: "Mino Code",
   groq: "the Mino fallback",
-  space: "Mino Azure",
+  space: "Mino's own model",
 };
 
 export function getProviders(requested: ModeId): ProviderConfig[] {
@@ -112,15 +118,27 @@ export function getProviders(requested: ModeId): ProviderConfig[] {
   // the config shape stays uniform.
   const space: ProviderConfig[] = isSpaceConfigured()
     ? [
-        {
-          id: requested,
-          family: "space" as const,
-          label: "Mino Azure",
-          url: "",
-          key: "",
-          model: SPACE_MODEL,
-          supportsReasoning: false,
-        },
+        requested === "opus"
+          ? {
+              id: "opus" as const,
+              family: "space" as const,
+              label: "~Claude Opus 5.5",
+              url: "",
+              key: "",
+              model: SPACE_MODEL_OPUS,
+              supportsReasoning: false,
+              spaceModelChoice: SPACE_CHOICE_OPUS,
+            }
+          : {
+              id: requested,
+              family: "space" as const,
+              label: "Mino Azure",
+              url: "",
+              key: "",
+              model: SPACE_MODEL,
+              supportsReasoning: false,
+              spaceModelChoice: SPACE_CHOICE_AZURE,
+            },
       ]
     : [];
 
@@ -132,6 +150,9 @@ export function getProviders(requested: ModeId): ProviderConfig[] {
   // Azure mode is the Space and nothing else: a user who picked Mino's own
   // model did not agree to be answered by a vendor model if it is down.
   if (requested === "self") return [...space];
+  // Opus mode is the same Space on the 72B weights, and nothing else — for the
+  // same reason as Azure: the user picked Mino's own model, not a vendor.
+  if (requested === "opus") return [...space];
 
   // Auto prefers the router, then the Code family, then Groq, and treats the
   // Space as the very last resort — it is the one model guaranteed to belong

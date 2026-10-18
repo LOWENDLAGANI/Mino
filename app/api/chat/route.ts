@@ -1,6 +1,6 @@
 import { NextRequest } from "next/server";
 import { MINO_SYSTEM_PROMPT } from "@/lib/systemPrompt";
-import { AZURE_SYSTEM_PROMPT } from "@/lib/systemPrompt";
+import { AZURE_SYSTEM_PROMPT, OPUS_SYSTEM_PROMPT } from "@/lib/systemPrompt";
 import { formatMemories, sanitizeMemoryPayload } from "@/lib/memory";
 import type { ReasoningEffort } from "@/lib/settings";
 import type { ApiMessage, SearchMode, SearchSource } from "@/lib/types";
@@ -15,6 +15,7 @@ import { checkRateLimit, identityGate, isAdmin, readConfig, verifyCaller, writeA
 import { resolveDew } from "@/lib/serverRedeem";
 import {
   AZURE_FLOOR,
+  OPUS_FLOOR,
   DUST_THRESHOLD,
   calcDewCost,
   estimateTokenUsage,
@@ -183,7 +184,7 @@ function canStartRequest(state: DewState, mode: ModeId): boolean {
   // Mino Azure is the pro tier, whose smallest plausible answer is roughly a
   // tenth of a Dew; refusing a fraction above zero there still burns request
   // slots on callers who could never afford the output anyway.
-  const floor = mode === "self" ? AZURE_FLOOR : DUST_THRESHOLD;
+  const floor = mode === "self" ? AZURE_FLOOR : mode === "opus" ? OPUS_FLOOR : DUST_THRESHOLD;
   return state.balance >= floor;
 }
 
@@ -232,7 +233,7 @@ function explainProviderError(error: unknown): string {
   // free of provider detail, so it is passed through rather than re-explained
   // with the key/quota wording that only applies to a vendor API key.
   if (error instanceof SpaceError) {
-    return `Mino Azure: ${error.message}`;
+    return `Mino's own model: ${error.message}`;
   }
   if (!(error instanceof ProviderError)) {
     return "Mino could not reach either AI service. Check your network connection and try again.";
@@ -274,7 +275,11 @@ async function callProvider(
   googleContext: string
 ): Promise<Response> {
   const system = [
-    provider.family === "space" ? AZURE_SYSTEM_PROMPT : MINO_SYSTEM_PROMPT,
+    provider.family === "space"
+      ? provider.id === "opus"
+        ? OPUS_SYSTEM_PROMPT
+        : AZURE_SYSTEM_PROMPT
+      : MINO_SYSTEM_PROMPT,
     // The Code grammar only applies in Code mode. Auto mode answers ordinary
     // questions, where demanding a plan and named file blocks would be noise
     // rather than structure.
@@ -290,7 +295,7 @@ async function callProvider(
   // through the Space adapter rather than fetched — the adapter returns the
   // same SSE shape, which is why nothing below this branch changes.
   if (provider.family === "space") {
-    return callSpace(system, messages, signal);
+    return callSpace(system, messages, signal, provider.spaceModelChoice);
   }
 
   const body: Record<string, unknown> = {
@@ -422,7 +427,7 @@ export async function POST(req: NextRequest): Promise<Response> {
     return errorStream(gate.error ?? "Mino is not available to this device.");
   }
   const requested: ModeId =
-    body.mode === "code" ? "code" : body.mode === "self" ? "self" : "auto";
+    body.mode === "code" ? "code" : body.mode === "self" ? "self" : body.mode === "opus" ? "opus" : "auto";
   const searchMode: SearchMode = body.searchMode === "always" || body.searchMode === "off" ? body.searchMode : "auto";
 
   // ── The Dew ledger ────────────────────────────────────────────────────────
@@ -493,9 +498,11 @@ export async function POST(req: NextRequest): Promise<Response> {
     return textStream(
       requested === "code"
         ? "**Mino Code isn't connected to a model yet.** The person who runs this deployment needs to add a model key before Code mode can answer — it uses Mino V3, V2, and V1 only, and never substitutes another model. Your conversations are already saved safely on this device."
-        : requested === "self"
-          ? "**Mino Azure isn't available on this deployment.** The person who runs this deployment needs to enable Mino's own model before Azure mode can answer. Your conversations are already saved safely on this device."
-          : "**Mino isn't connected to a model yet.** The person who runs this deployment needs to add a model key before Auto can answer. Your conversations are already saved safely on this device."
+        : requested === "opus"
+          ? "**~Claude Opus 5.5 isn't available on this deployment.** The person who runs this deployment needs to enable Mino's own model before Opus can answer. Your conversations are already saved safely on this device."
+          : requested === "self"
+            ? "**Mino Azure isn't available on this deployment.** The person who runs this deployment needs to enable Mino's own model before Azure mode can answer. Your conversations are already saved safely on this device."
+            : "**Mino isn't connected to a model yet.** The person who runs this deployment needs to add a model key before Auto can answer. Your conversations are already saved safely on this device."
     );
   }
 
@@ -569,6 +576,9 @@ export async function POST(req: NextRequest): Promise<Response> {
     .join("\n\n");
 
   const isCodeMode = requested === "code";
+  // Opus mode identifies as ~Claude Opus 5.5, so the identity rewrite filter
+  // (which would turn "I'm Claude" into "I'm Mino") is bypassed for it.
+  const opusMode = requested === "opus";
 
   // Reasoning effort is a preference, not a promise. Not every model on every
   // route accepts it, so it is only sent where the provider is known to, and
@@ -701,7 +711,7 @@ export async function POST(req: NextRequest): Promise<Response> {
         }
 
         const reader = source.getReader();
-        const identityFilter = new IdentityFilter();
+        const identityFilter = opusMode ? null : new IdentityFilter();
         let buffer = "";
         let text = "";
         let truncated = false;
@@ -747,7 +757,7 @@ export async function POST(req: NextRequest): Promise<Response> {
 
           const delta = chunk.choices?.[0]?.delta?.content;
           if (delta) {
-            const safeDelta = identityFilter.push(delta);
+            const safeDelta = identityFilter ? identityFilter.push(delta) : delta;
             if (safeDelta) {
               text += safeDelta;
               controller.enqueue(encodeEvent({ content: safeDelta }));
@@ -793,7 +803,7 @@ export async function POST(req: NextRequest): Promise<Response> {
             encodeEvent({ error: `${provider.label} stream interrupted: ${sanitizeProviderDetail(message)}` })
           );
         }
-        const tail = identityFilter.flush();
+        const tail = identityFilter ? identityFilter.flush() : "";
         if (tail) {
           text += tail;
           controller.enqueue(encodeEvent({ content: tail }));
@@ -952,7 +962,7 @@ export async function POST(req: NextRequest): Promise<Response> {
             );
             if (followUp.ok && followUp.body) {
               const followReader = followUp.body.getReader();
-              const followFilter = new IdentityFilter();
+              const followFilter = opusMode ? null : new IdentityFilter();
               let followBuffer = "";
               let followText = "";
               for (;;) {
@@ -970,7 +980,7 @@ export async function POST(req: NextRequest): Promise<Response> {
                     const chunk = JSON.parse(data) as { choices?: { delta?: { content?: string | null } }[] };
                     const delta = chunk.choices?.[0]?.delta?.content;
                     if (delta) {
-                      const safe = followFilter.push(delta);
+                      const safe = followFilter ? followFilter.push(delta) : delta;
                       if (safe) followText += safe;
                     }
                   } catch {
@@ -978,7 +988,7 @@ export async function POST(req: NextRequest): Promise<Response> {
                   }
                 }
               }
-              const tail = followFilter.flush();
+              const tail = followFilter ? followFilter.flush() : "";
               if (tail) followText += tail;
               if (followText.trim()) {
                 controller.enqueue(encodeEvent({ content: `\n${followText.trim()}` }));
@@ -1017,8 +1027,11 @@ export async function GET(): Promise<Response> {
     available.push("auto");
   }
   // Mino's own model needs no key, so it is available whenever it is not
-  // explicitly switched off.
-  if (isSpaceConfigured()) available.push("self");
+  // explicitly switched off. Both Azure (7B) and Opus (72B) run on it.
+  if (isSpaceConfigured()) {
+    available.push("self");
+    available.push("opus");
+  }
   return Response.json({
     available,
     searchAvailable: Boolean(process.env.TAVILY_API_KEY?.trim()),

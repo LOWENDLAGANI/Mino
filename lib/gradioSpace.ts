@@ -69,6 +69,15 @@ function promptBudget(): number {
 
 /** The wire id used for this model in provider lists and stored messages. */
 export const SPACE_MODEL = "mino-self";
+/** Wire id for the ~Claude Opus 5.5 persona — same Space, 72B weights. */
+export const SPACE_MODEL_OPUS = "mino-opus";
+/**
+ * Exact Radio strings the Space's `app.py` branches on. These are matched
+ * literally — a typo silently falls into the else branch (72B weights) — so
+ * they are defined once here and reused by every caller.
+ */
+export const SPACE_CHOICE_AZURE = "Qwen 7B Abliterated (Original)";
+export const SPACE_CHOICE_OPUS = "~Claude Opus 5.5";
 
 export function isSpaceConfigured(): boolean {
   return spaceEnabled();
@@ -317,7 +326,11 @@ async function readCompletion(url: string, signal: AbortSignal): Promise<string>
  * reveals text smoothly as it arrives, so this still reads as a streamed
  * reply without pretending to be a token stream.
  */
-async function askSpace(prompt: string, signal: AbortSignal): Promise<string> {
+async function askSpace(
+  prompt: string,
+  signal: AbortSignal,
+  modelChoice: string = SPACE_CHOICE_AZURE
+): Promise<string> {
   const headers: Record<string, string> = { "Content-Type": "application/json" };
   const token = spaceToken();
   if (token) headers.Authorization = `Bearer ${token}`;
@@ -330,7 +343,12 @@ async function askSpace(prompt: string, signal: AbortSignal): Promise<string> {
     opened = await fetch(`${HOST}/gradio_api/call/v2${ENDPOINT}`, {
       method: "POST",
       headers,
-      body: JSON.stringify({ prompt }),
+      // Both inputs named exactly as in the Space's `generate_response(prompt,
+      // model_choice)` signature. Gradio accepts named parameters here (the
+      // historical single-key `{ prompt }` body worked because model_choice
+      // fell back to the Radio default). If the Space ever moves to positional
+      // inputs, switch to `{ data: [prompt, modelChoice] }`.
+      body: JSON.stringify({ prompt, model_choice: modelChoice }),
       signal: AbortSignal.any([signal, budget]),
     });
   } catch (error) {
@@ -357,13 +375,14 @@ async function askSpace(prompt: string, signal: AbortSignal): Promise<string> {
 export async function callSpace(
   system: string,
   messages: ChatTurn[],
-  signal: AbortSignal
+  signal: AbortSignal,
+  modelChoice?: string
 ): Promise<Response> {
   const prompt = toSpacePrompt(system, messages);
   if (!prompt.trim()) {
     throw new SpaceError("There was nothing to send.", 400);
   }
-  const text = await askSpace(prompt, signal);
+  const text = await askSpace(prompt, signal, modelChoice ?? SPACE_CHOICE_AZURE);
 
   // `length` is the one finish reason the chat route reads as "this answer is
   // incomplete", and it is the only thing standing between a reply stopped at
