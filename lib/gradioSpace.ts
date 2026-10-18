@@ -50,7 +50,7 @@ function spaceToken(): string {
  */
 function readTimeoutMs(): number {
   const configured = Number(process.env.MINO_HF_TIMEOUT_MS);
-  return Number.isFinite(configured) && configured > 0 ? configured : 120_000;
+  return Number.isFinite(configured) && configured > 0 ? configured : 600_000;
 }
 
 /**
