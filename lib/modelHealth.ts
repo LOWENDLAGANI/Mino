@@ -163,7 +163,7 @@ function findProvider(id: string): ProviderConfig | null {
   // Both mode lists are searched so an id from either resolves. In practice
   // "auto" is a superset of "code", but a model being reachable from only one
   // mode is exactly the sort of thing this panel exists to reveal.
-  for (const mode of ["auto", "code", "self"] as const) {
+  for (const mode of ["auto", "code", "self", "fable"] as const) {
     const match = getProviders(mode).find((provider) => modelTargetId(provider.model) === id);
     if (match) return match;
   }

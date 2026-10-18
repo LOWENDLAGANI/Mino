@@ -5,7 +5,7 @@
 // these strings carry provider names and, via `key`, credentials.
 
 import type { ModeId } from "./models";
-import { AUTO_ENGINE, CODE_ENGINE, CODE_FALLBACKS, toMinoName } from "./modelEngines";
+import { AUTO_ENGINE, CODE_ENGINE, CODE_FALLBACKS, FABLE_ENGINE, toMinoName } from "./modelEngines";
 import { isSpaceConfigured, SPACE_MODEL, SPACE_MODEL_OPUS, SPACE_CHOICE_AZURE, SPACE_CHOICE_OPUS } from "./gradioSpace";
 
 export type ProviderFamily = "openrouter" | "gemini" | "groq" | "space";
@@ -153,6 +153,30 @@ export function getProviders(requested: ModeId): ProviderConfig[] {
   // Opus mode is the same Space on the 72B weights, and nothing else — for the
   // same reason as Azure: the user picked Mino's own model, not a vendor.
   if (requested === "opus") return [...space];
+  // ~Claude Fable 5.1 is a single named OpenRouter model and nothing else. A
+  // user who picked it did not agree to be answered by another model if it is
+  // down, so allow_fallbacks is off and the chain holds exactly one provider:
+  // an outage produces a clear error instead of a silent substitution.
+  if (requested === "fable") {
+    return openrouterKey
+      ? [
+          {
+            id: "fable" as const,
+            family: "openrouter" as const,
+            label: "~Claude Fable 5.1",
+            url: "https://openrouter.ai/api/v1/chat/completions",
+            key: openrouterKey,
+            model: FABLE_ENGINE,
+            supportsReasoning: false,
+            headers: {
+              "HTTP-Referer": "https://mino-ai.vercel.app",
+              "X-Title": "Mino",
+            },
+            extraBody: { stream_options: { include_usage: true } },
+          },
+        ]
+      : [];
+  }
 
   // Auto prefers the router, then the Code family, then Groq, and treats the
   // Space as the very last resort — it is the one model guaranteed to belong

@@ -20,6 +20,8 @@ const VERSION_NAMES: Record<string, string> = {
 
 /** The OpenAI-compatible router, which picks a model per message. */
 export const AUTO_ENGINE = "openrouter/auto";
+/** The wire id behind ~Claude Fable 5.1 — a free OpenRouter model. */
+export const FABLE_ENGINE = "xingchen-agi/xing4.0-29b-a4b:free";
 
 /** The wire id Code mode prefers, and the ordered fallbacks behind it. */
 export const CODE_ENGINE = CODE_MODELS[0];
@@ -29,6 +31,7 @@ export const CODE_FALLBACKS = CODE_MODELS.slice(1);
 export const MODE_ENV_VARS: Record<string, string> = {
   auto: "OPENROUTER_API_KEY",
   code: "GEMINI_API_KEY",
+  fable: "OPENROUTER_API_KEY",
 };
 
 /**
@@ -47,6 +50,7 @@ export function toMinoName(model?: string): string {
   // is imported by the client through models.ts.
   if (model === "mino-self") return "Mino Azure";
   if (model === "mino-opus") return "~Claude Opus 5.5";
+  if (model === FABLE_ENGINE) return "~Claude Fable 5.1";
 
   const version = model.match(/gemini-(\d+\.\d+)/)?.[1];
   if (version && VERSION_NAMES[version]) return VERSION_NAMES[version]!;

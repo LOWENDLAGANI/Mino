@@ -72,7 +72,7 @@ export function toMillidew(value: number): number {
 }
 
 /** The fast/premium distinction is about how expensive the model is to serve. */
-export function tierForRequest(mode: "auto" | "code" | "self" | "opus", effort: string | null): DewTier {
+export function tierForRequest(mode: "auto" | "code" | "self" | "opus" | "fable", effort: string | null): DewTier {
   if (mode === "self" || mode === "opus") return "pro";
   if (effort === "medium" || effort === "high") return "pro";
   return "fast";

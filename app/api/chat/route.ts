@@ -1,6 +1,6 @@
 import { NextRequest } from "next/server";
 import { MINO_SYSTEM_PROMPT } from "@/lib/systemPrompt";
-import { AZURE_SYSTEM_PROMPT, OPUS_SYSTEM_PROMPT } from "@/lib/systemPrompt";
+import { AZURE_SYSTEM_PROMPT, FABLE_SYSTEM_PROMPT, OPUS_SYSTEM_PROMPT } from "@/lib/systemPrompt";
 import { formatMemories, sanitizeMemoryPayload } from "@/lib/memory";
 import type { ReasoningEffort } from "@/lib/settings";
 import type { ApiMessage, SearchMode, SearchSource } from "@/lib/types";
@@ -274,12 +274,18 @@ async function callProvider(
   codeMode: boolean,
   googleContext: string
 ): Promise<Response> {
+  // Fable runs its own Claude-Fable persona; the Space runs Azure or Opus;
+  // everything else runs the base Mino identity.
+  const basePrompt =
+    provider.id === "fable"
+      ? FABLE_SYSTEM_PROMPT
+      : provider.family === "space"
+        ? provider.id === "opus"
+          ? OPUS_SYSTEM_PROMPT
+          : AZURE_SYSTEM_PROMPT
+        : MINO_SYSTEM_PROMPT;
   const system = [
-    provider.family === "space"
-      ? provider.id === "opus"
-        ? OPUS_SYSTEM_PROMPT
-        : AZURE_SYSTEM_PROMPT
-      : MINO_SYSTEM_PROMPT,
+    basePrompt,
     // The Code grammar only applies in Code mode. Auto mode answers ordinary
     // questions, where demanding a plan and named file blocks would be noise
     // rather than structure.
@@ -304,7 +310,7 @@ async function callProvider(
       {
         role: "system",
         content: [
-          MINO_SYSTEM_PROMPT,
+          basePrompt,
           // The Code grammar only applies in Code mode. Auto mode answers
           // ordinary questions, where demanding a plan and named file blocks
           // would be noise rather than structure.
@@ -427,7 +433,7 @@ export async function POST(req: NextRequest): Promise<Response> {
     return errorStream(gate.error ?? "Mino is not available to this device.");
   }
   const requested: ModeId =
-    body.mode === "code" ? "code" : body.mode === "self" ? "self" : body.mode === "opus" ? "opus" : "auto";
+    body.mode === "code" ? "code" : body.mode === "self" ? "self" : body.mode === "opus" ? "opus" : body.mode === "fable" ? "fable" : "auto";
   const searchMode: SearchMode = body.searchMode === "always" || body.searchMode === "off" ? body.searchMode : "auto";
 
   // ── The Dew ledger ────────────────────────────────────────────────────────
@@ -500,6 +506,8 @@ export async function POST(req: NextRequest): Promise<Response> {
         ? "**Mino Code isn't connected to a model yet.** The person who runs this deployment needs to add a model key before Code mode can answer — it uses Mino V3, V2, and V1 only, and never substitutes another model. Your conversations are already saved safely on this device."
         : requested === "opus"
           ? "**~Claude Opus 5.5 isn't available on this deployment.** The person who runs this deployment needs to enable Mino's own model before Opus can answer. Your conversations are already saved safely on this device."
+        : requested === "fable"
+          ? "**~Claude Fable 5.1 isn't available on this deployment.** The person who runs this deployment needs to add an OpenRouter key before Fable can answer. Your conversations are already saved safely on this device."
           : requested === "self"
             ? "**Mino Azure isn't available on this deployment.** The person who runs this deployment needs to enable Mino's own model before Azure mode can answer. Your conversations are already saved safely on this device."
             : "**Mino isn't connected to a model yet.** The person who runs this deployment needs to add a model key before Auto can answer. Your conversations are already saved safely on this device."
@@ -576,9 +584,10 @@ export async function POST(req: NextRequest): Promise<Response> {
     .join("\n\n");
 
   const isCodeMode = requested === "code";
-  // Opus mode identifies as ~Claude Opus 5.5, so the identity rewrite filter
-  // (which would turn "I'm Claude" into "I'm Mino") is bypassed for it.
-  const opusMode = requested === "opus";
+  // Opus and Fable modes identify under their own product names (~Claude ...),
+  // so the identity rewrite filter — which would turn "I'm Claude" into "I'm
+  // Mino" — is bypassed for them.
+  const bypassIdentity = requested === "opus" || requested === "fable";
 
   // Reasoning effort is a preference, not a promise. Not every model on every
   // route accepts it, so it is only sent where the provider is known to, and
@@ -711,7 +720,7 @@ export async function POST(req: NextRequest): Promise<Response> {
         }
 
         const reader = source.getReader();
-        const identityFilter = opusMode ? null : new IdentityFilter();
+        const identityFilter = bypassIdentity ? null : new IdentityFilter();
         let buffer = "";
         let text = "";
         let truncated = false;
@@ -962,7 +971,7 @@ export async function POST(req: NextRequest): Promise<Response> {
             );
             if (followUp.ok && followUp.body) {
               const followReader = followUp.body.getReader();
-              const followFilter = opusMode ? null : new IdentityFilter();
+              const followFilter = bypassIdentity ? null : new IdentityFilter();
               let followBuffer = "";
               let followText = "";
               for (;;) {
@@ -1017,7 +1026,11 @@ export async function POST(req: NextRequest): Promise<Response> {
 /** Reports which provider keys exist without exposing their values. */
 export async function GET(): Promise<Response> {
   const available: ModeId[] = [];
-  if (process.env.OPENROUTER_API_KEY?.trim()) available.push("auto");
+  if (process.env.OPENROUTER_API_KEY?.trim()) {
+    available.push("auto");
+    // ~Claude Fable 5.1 rides on the same OpenRouter key as Auto.
+    available.push("fable");
+  }
   // Code mode is single-family, so Groq cannot make it available — reporting it
   // as usable would promise a fallback the route will not actually take.
   if (process.env.GEMINI_API_KEY?.trim()) available.push("code");
