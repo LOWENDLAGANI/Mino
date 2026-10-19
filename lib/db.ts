@@ -277,19 +277,24 @@ export async function searchMessages(query: string): Promise<MessageSearchHit[]>
 
 // ── Mode preference (persisted outside Dexie to survive before DB open) ─────
 
-import type { ModeId } from "./models";
+import { DEFAULT_MODE_ID, MINO_MODES, type ModeId } from "./models";
 
 const MODE_KEY = "mino:selected-mode";
 
 export function loadSelectedMode(): ModeId {
-  if (typeof window === "undefined") return "auto";
+  if (typeof window === "undefined") return DEFAULT_MODE_ID;
   try {
-    const v = window.localStorage.getItem(MODE_KEY);
+    let v = window.localStorage.getItem(MODE_KEY);
     // "dev" is the pre-rename id of Code mode, so an existing browser that
     // selected it before the rename keeps its choice.
-    return v === "code" || v === "dev" ? "code" : "auto";
+    if (v === "dev") v = "code";
+    // Any mode currently in the catalog is a valid stored choice — including
+    // Azure, Opus and Fable. An older build only recognised "auto" and "code",
+    // which dropped every other selection on reload.
+    if (v && MINO_MODES.some((m) => m.id === v)) return v as ModeId;
+    return DEFAULT_MODE_ID;
   } catch {
-    return "auto";
+    return DEFAULT_MODE_ID;
   }
 }
 

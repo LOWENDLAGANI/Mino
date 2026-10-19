@@ -459,6 +459,18 @@ export default function HomePage() {
   // one thread. So picking a mode that declares `separateSession` starts a fresh
   // session instead of reinterpreting the current one.
   const handleModeChange = (mode: ModeId) => {
+    // A mode this deployment cannot serve must not be selectable. Before this
+    // guard, picking one was silently clamped back to the first available mode
+    // by the availability effect below — which read as a broken dropdown
+    // ("it snaps to Code") with no hint why. Now the user is told exactly what
+    // is missing so the site owner can add the key.
+    if (!available.includes(mode)) {
+      const name = getMode(mode).display;
+      setModelNotice(
+        `${name} isn't available on this deployment yet. It needs an OpenRouter API key (OPENROUTER_API_KEY) configured by the site owner. Once added, it becomes selectable automatically.`
+      );
+      return;
+    }
     setSelectedMode(mode);
     setModelNotice(null);
     saveSelectedMode(mode);
