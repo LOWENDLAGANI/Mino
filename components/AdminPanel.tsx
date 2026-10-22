@@ -203,6 +203,10 @@ export default function AdminPanel({
       .catch((e: unknown) => {
         console.error("[mino] Failed to read Dew balances", e);
         setDewBalances({});
+        // An empty map and a map that could not be read look identical on
+        // screen, and "0 Dew" for everybody is the wrong thing to show when
+        // the read failed.
+        setError(`Dew balances: ${e instanceof Error ? e.message : "could not be read."}`);
       });
     void fetch("/api/chat")
       .then((response) => response.json())
@@ -216,12 +220,14 @@ export default function AdminPanel({
       .catch((e: unknown) => {
         console.error("[mino] Failed to fetch visitor registry", e);
         setNamed([]);
+        setError(`Visitor names: ${e instanceof Error ? e.message : "could not be read."}`);
       });
     void listAdminAudit()
       .then(setAudit)
       .catch((e: unknown) => {
         console.error("[mino] Failed to list admin audit", e);
         setAudit([]);
+        setError(`History: ${e instanceof Error ? e.message : "could not be read."}`);
       });
 
     const onKey = (event: KeyboardEvent) => {

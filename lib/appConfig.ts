@@ -1,5 +1,6 @@
 import { onValue, ref } from "firebase/database";
 import { getServices } from "./firebaseHistory";
+import { databaseRequest, userSession } from "./firebaseRest";
 import { normalizeNotes, type DevNote } from "./notes";
 
 // ── Runtime controls, read by the server on every request ───────────────────
@@ -183,8 +184,29 @@ export function subscribeAppConfig(onChange: (config: AppConfig) => void): () =>
   let cancelled = false;
 
   void getServices()
-    .then((services) => {
+    .then(async (services) => {
       if (!services || cancelled) return;
+
+      // One request before the listener, because a request cannot hang: a
+      // socket that never connects used to leave the banner, the maintenance
+      // notice and the console's controls all sitting on the permissive
+      // defaults, which is indistinguishable from a deployment that configured
+      // nothing. The live listener below still delivers every later change.
+      const user = services.auth.currentUser;
+      if (user) {
+        try {
+          const value = await databaseRequest<Record<string, unknown>>(
+            userSession(services.databaseUrl, user),
+            "config"
+          );
+          if (!cancelled) onChange(normalizeConfig(value));
+        } catch {
+          // Refused or unreachable: the listener below may still deliver, and
+          // the defaults are the safe answer in the meantime.
+        }
+      }
+      if (cancelled) return;
+
       unsubscribe = onValue(ref(services.database, "config"), (snapshot) => {
         onChange(normalizeConfig(snapshot.val()));
       });

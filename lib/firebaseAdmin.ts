@@ -13,8 +13,15 @@
 // this file would gain an attacker nothing.
 
 import { GoogleAuthProvider, signInWithPopup, signInWithRedirect, signOut } from "firebase/auth";
-import { get, push, ref, remove, set } from "firebase/database";
 import { getServices } from "./firebaseHistory";
+import {
+  databaseRequest,
+  notConfigured,
+  unauthorized,
+  userSession,
+  withTimeout,
+  type DatabaseSession,
+} from "./firebaseRest";
 import { dewBalanceFrom, roundDew } from "./dew";
 import type { AppConfig } from "./appConfig";
 import {
@@ -24,67 +31,7 @@ import {
   type RedeemCode,
 } from "./redeemState";
 
-function withTimeout<T>(promise: Promise<T>, milliseconds: number): Promise<T> {
-  return new Promise<T>((resolve, reject) => {
-    const timer = setTimeout(
-      () => reject(new Error(`timed out after ${milliseconds}ms`)),
-      milliseconds
-    );
-    promise.then(
-      (value) => {
-        clearTimeout(timer);
-        resolve(value);
-      },
-      (error) => {
-        clearTimeout(timer);
-        reject(error);
-      }
-    );
-  });
-}
-
-/** Maps Firebase's permission failure onto a message worth showing. */
-function isPermissionDenied(cause: unknown): boolean {
-  const error = cause as { code?: string; name?: string } | null;
-  const code = error?.code ?? error?.name ?? "";
-  const message = cause instanceof Error ? cause.message : String(cause ?? "");
-  return code === "PERMISSION_DENIED" || /permission[ _-]?denied/i.test(message);
-}
-
-/** A database that answered with something other than yes or no. */
-function databaseAnswered(url: string, status: number): Error & { code?: string } {
-  const error = new Error(
-    status === 404
-      ? `There is no Realtime Database at ${url}. Copy the address shown in Firebase → Realtime Database into NEXT_PUBLIC_FIREBASE_DATABASE_URL.`
-      : `The database answered HTTP ${status} instead of allowing or refusing the read.`
-  ) as Error & { code?: string };
-  error.code = status === 404 ? "database/not-found" : `database/http-${status}`;
-  return error;
-}
-
-/** A database that never answered at all. */
-function databaseUnreachable(url: string, cause: unknown): Error & { code?: string } {
-  const reason = cause instanceof Error ? cause.message : String(cause);
-  const error = new Error(
-    `No answer from ${url} (${reason}). The database cannot be reached from this browser — a proxy, an ad blocker, a firewall or a captive portal can do that.`
-  ) as Error & { code?: string };
-  error.code = "database/unreachable";
-  return error;
-}
-
-/** A browser that could not be given a token. */
-function tokenUnavailable(cause: unknown): Error & { code?: string } {
-  const reason = cause instanceof Error ? cause.message : String(cause);
-  const error = new Error(
-    `Firebase did not issue a sign-in token (${reason}). A proxy, an ad blocker or a captive network can hold the token service open.`
-  ) as Error & { code?: string };
-  error.code = "auth/token-unavailable";
-  return error;
-}
-
 const VERIFY_TIMEOUT_MS = 10_000;
-/** How long a freshly signed-in account is given to reach the database. */
-const VERIFY_RETRY_DELAY_MS = 600;
 
 /**
  * Whether the account signed in right now is the administrator.
@@ -113,48 +60,22 @@ export async function verifyAdminAccess(): Promise<boolean> {
   const user = await withTimeout(restored, VERIFY_TIMEOUT_MS);
   if (!user) return false;
 
-  const url = current.databaseUrl;
+  const session = userSession(current.databaseUrl, user, VERIFY_TIMEOUT_MS);
 
-  const readToken = async (fresh: boolean): Promise<string> => {
-    try {
-      return await withTimeout(user.getIdToken(fresh), VERIFY_TIMEOUT_MS);
-    } catch (cause: unknown) {
-      throw tokenUnavailable(cause);
-    }
-  };
-
-  const ask = async (token: string): Promise<Response> => {
-    try {
-      return await withTimeout(
-        fetch(`${url}/admin/registry.json?auth=${encodeURIComponent(token)}`, { cache: "no-store" }),
-        VERIFY_TIMEOUT_MS
-      );
-    } catch (cause: unknown) {
-      throw databaseUnreachable(url, cause);
-    }
-  };
-
-  // The token this browser already holds. Asking for it without a forced
+  // The token this browser already holds: asking for one without a forced
   // refresh keeps a slow or blocked token endpoint off the path that decides
-  // whether the console opens at all.
-  let response = await ask(await readToken(false));
-
-  if (response.status === 401 || response.status === 403) {
-    // A refusal right after sign-in is usually still the anonymous visitor's
-    // token. An anonymous visitor is refused on purpose and asking again would
-    // be refused the same way; a real account gets a fresh token and one more
-    // read. Nothing is granted by the retry — Firebase evaluates the same rule
-    // against the new token.
-    if (user.isAnonymous) return false;
-    await new Promise((resolve) => setTimeout(resolve, VERIFY_RETRY_DELAY_MS));
-    response = await ask(await readToken(true));
-    if (response.status === 401 || response.status === 403) return false;
+  // whether the console opens at all. A refusal is retried once on a fresh
+  // token inside `databaseRequest`, and an unknown address or an unreachable
+  // host comes back as an error that names itself.
+  try {
+    await databaseRequest(session, "admin/registry", { timeoutMs: VERIFY_TIMEOUT_MS });
+    return true;
+  } catch (cause: unknown) {
+    // The rules refusing this account is the answer the gate draws the Google
+    // button for, not a failure worth reporting.
+    if ((cause as { code?: string })?.code === "app/permission-denied") return false;
+    throw cause;
   }
-
-  // A 404 is not a refusal: it is a database that is not there, which the gate
-  // has to say out loud rather than blaming the rules.
-  if (!response.ok) throw databaseAnswered(url, response.status);
-  return true;
 }
 
 export interface AdminUser {
@@ -182,28 +103,24 @@ export interface AdminMessage {
   error: string | null;
 }
 
-function notConfigured(): Error & { code?: string } {
-  const error = new Error("Firebase is not configured") as Error & { code?: string };
-  error.code = "app/not-configured";
-  return error;
-}
-
-function unauthorized(): Error & { code?: string } {
-  const error = new Error("This account is not the Mino administrator.") as Error & { code?: string };
-  error.code = "app/permission-denied";
-  return error;
-}
-
 async function requireAdmin() {
   const current = await getServices();
   if (!current) throw notConfigured();
   return current;
 }
 
-/** Maps Firebase's permission failure onto a message worth showing. */
-function rethrow(cause: unknown): never {
-  if (isPermissionDenied(cause)) throw unauthorized();
-  throw cause;
+/**
+ * The session every console request is made with.
+ *
+ * Its address is the one the database was actually bound to (see
+ * lib/databaseUrl.ts), so an address that had to be repaired is repaired here
+ * as well rather than only for the gate.
+ */
+async function adminSession(): Promise<DatabaseSession> {
+  const current = await requireAdmin();
+  const user = current.auth.currentUser;
+  if (!user) throw unauthorized();
+  return userSession(current.databaseUrl, user);
 }
 
 /** Signs in with Google, returning the resulting UID. */
@@ -243,17 +160,17 @@ export async function currentUid(): Promise<string | null> {
 }
 
 export async function listUsers(): Promise<AdminUser[]> {
-  const { database } = await requireAdmin();
-  const [registrySnapshot, usersSnapshot] = await Promise.all([
-    get(ref(database, "admin/registry")),
-    get(ref(database, "users")),
-  ]).catch(rethrow);
+  const session = await adminSession();
+  const [registry, users] = await Promise.all([
+    databaseRequest<Record<string, { name?: string; firstSeen?: number; lastSeen?: number }>>(
+      session,
+      "admin/registry"
+    ),
+    databaseRequest<Record<string, { chats?: Record<string, unknown> }>>(session, "users"),
+  ]);
 
-  const names = (registrySnapshot.val() ?? {}) as Record<
-    string,
-    { name?: string; firstSeen?: number; lastSeen?: number }
-  >;
-  const chats = (usersSnapshot.val() ?? {}) as Record<string, { chats?: Record<string, unknown> }>;
+  const names = registry ?? {};
+  const chats = users ?? {};
 
   // Everyone who has been here at all, not only everyone who has talked.
   const uids = new Set([...Object.keys(names), ...Object.keys(chats)]);
@@ -286,12 +203,10 @@ export async function listUsers(): Promise<AdminUser[]> {
 }
 
 export async function listChats(uid: string): Promise<AdminChat[]> {
-  const { database } = await requireAdmin();
-  const snapshot = await get(ref(database, `users/${uid}/chats`)).catch(rethrow);
-  const value = (snapshot.val() ?? {}) as Record<
-    string,
-    { id?: string; title?: string; createdAt?: number; updatedAt?: number }
-  >;
+  const value =
+    (await databaseRequest<
+      Record<string, { id?: string; title?: string; createdAt?: number; updatedAt?: number }>
+    >(await adminSession(), `users/${uid}/chats`)) ?? {};
   return Object.entries(value)
     .map(([chatId, chat]) => ({
       chatId,
@@ -304,11 +219,13 @@ export async function listChats(uid: string): Promise<AdminChat[]> {
 }
 
 export async function getChat(uid: string, chatId: string): Promise<{ title: string; messages: AdminMessage[] }> {
-  const { database } = await requireAdmin();
-  const snapshot = await get(ref(database, `users/${uid}/chats/${chatId}`)).catch(rethrow);
-  const chat = snapshot.val() as
-    | { title?: string; messages?: Record<string, { role?: string; content?: string; model?: string; createdAt?: number; error?: string }> }
-    | null;
+  const chat = await databaseRequest<{
+    title?: string;
+    messages?: Record<
+      string,
+      { role?: string; content?: string; model?: string; createdAt?: number; error?: string }
+    >;
+  }>(await adminSession(), `users/${uid}/chats/${chatId}`);
   if (!chat) throw new Error("Chat not found.");
 
   const messages = Object.values(chat.messages ?? {})
@@ -326,14 +243,13 @@ export async function getChat(uid: string, chatId: string): Promise<{ title: str
 }
 
 export async function wipeUser(uid: string): Promise<void> {
-  const { database } = await requireAdmin();
-  await remove(ref(database, `users/${uid}`)).catch(rethrow);
+  await databaseRequest(await adminSession(), `users/${uid}`, { method: "DELETE" });
 }
 
 export async function wipeAll(): Promise<void> {
-  const { database } = await requireAdmin();
-  await remove(ref(database, "users")).catch(rethrow);
-  await remove(ref(database, "admin/registry")).catch(rethrow);
+  const session = await adminSession();
+  await databaseRequest(session, "users", { method: "DELETE" });
+  await databaseRequest(session, "admin/registry", { method: "DELETE" });
 }
 
 // ── Dew top-ups ────────────────────────────────────────────────────────────
@@ -357,11 +273,11 @@ export interface DewGrant {
 
 /** One visitor's Dew, derived the same way the server derives it. */
 export async function readDewBalance(uid: string): Promise<number> {
-  const { database } = await requireAdmin();
-  const snapshot = await get(ref(database, `dew/${uid}`)).catch(rethrow);
-  return dewBalanceFrom(
-    snapshot.val() as { credits?: Record<string, number>; spent?: number } | null
+  const wallet = await databaseRequest<{ credits?: Record<string, number>; spent?: number }>(
+    await adminSession(),
+    `dew/${uid}`
   );
+  return dewBalanceFrom(wallet ?? null);
 }
 
 /**
@@ -371,12 +287,10 @@ export async function readDewBalance(uid: string): Promise<number> {
  * every row without a request per person.
  */
 export async function readDewBalances(): Promise<Record<string, number>> {
-  const { database } = await requireAdmin();
-  const snapshot = await get(ref(database, "dew")).catch(rethrow);
-  const value = (snapshot.val() ?? {}) as Record<
-    string,
-    { credits?: Record<string, number>; spent?: number } | null
-  >;
+  const value =
+    (await databaseRequest<
+      Record<string, { credits?: Record<string, number>; spent?: number } | null>
+    >(await adminSession(), "dew")) ?? {};
   const balances: Record<string, number> = {};
   for (const [uid, node] of Object.entries(value)) {
     balances[uid] = dewBalanceFrom(node ?? null);
@@ -396,7 +310,7 @@ export async function grantDew(
   uid: string,
   dew: number
 ): Promise<DewGrant> {
-  const { database } = await requireAdmin();
+  const session = await adminSession();
   const visitor = uid.replace(/[^A-Za-z0-9]/g, "");
   if (!visitor) throw new Error("Enter the visitor id first.");
 
@@ -408,7 +322,7 @@ export async function grantDew(
   // Timestamp plus a short random tail, so two grants issued in the same
   // millisecond add up rather than silently overwrite each other.
   const key = `TOPUP-${Date.now().toString(36).toUpperCase()}${Math.random().toString(36).slice(2, 6).toUpperCase()}`;
-  await set(ref(database, `dew/${visitor}/credits/${key}`), amount).catch(rethrow);
+  await databaseRequest(session, `dew/${visitor}/credits/${key}`, { method: "PUT", body: amount });
   const balance = await readDewBalance(visitor);
   return { uid: visitor, dew: amount, balance };
 }
@@ -429,7 +343,7 @@ export async function createRedeemCode(input: {
   dew: number;
   note?: string;
 }): Promise<RedeemCode> {
-  const { database } = await requireAdmin();
+  const session = await adminSession();
   const code = normalizeCode(input.code);
   if (!isValidCode(code)) throw new Error("A code needs at least 4 letters or numbers.");
 
@@ -446,15 +360,13 @@ export async function createRedeemCode(input: {
     createdAt,
     note,
   };
-  await set(ref(database, `codes/${code}`), record).catch(rethrow);
+  await databaseRequest(session, `codes/${code}`, { method: "PUT", body: record });
   return record;
 }
 
 /** Every code the owner has made, newest first. */
 export async function listRedeemCodes(): Promise<RedeemCode[]> {
-  const { database } = await requireAdmin();
-  const snapshot = await get(ref(database, "codes")).catch(rethrow);
-  const value = (snapshot.val() ?? {}) as Record<string, unknown>;
+  const value = (await databaseRequest<Record<string, unknown>>(await adminSession(), "codes")) ?? {};
   return Object.values(value)
     .map(parseRedeemCode)
     .filter((code): code is RedeemCode => code !== null)
@@ -472,18 +384,16 @@ export async function listRedeemCodes(): Promise<RedeemCode[]> {
  * used it, not only for people who have not got round to it yet.
  */
 export async function setRedeemCodeActive(code: string, active: boolean): Promise<void> {
-  const { database } = await requireAdmin();
+  const session = await adminSession();
   const word = normalizeCode(code);
-  const snapshot = await get(ref(database, `codes/${word}`)).catch(rethrow);
-  const existing = parseRedeemCode(snapshot.val());
+  const existing = parseRedeemCode(await databaseRequest<unknown>(session, `codes/${word}`));
   if (!existing) throw new Error("That code no longer exists.");
-  await set(ref(database, `codes/${word}`), { ...existing, active }).catch(rethrow);
+  await databaseRequest(session, `codes/${word}`, { method: "PUT", body: { ...existing, active } });
 }
 
 /** Deletes a code entirely. */
 export async function deleteRedeemCode(code: string): Promise<void> {
-  const { database } = await requireAdmin();
-  await remove(ref(database, `codes/${normalizeCode(code)}`)).catch(rethrow);
+  await databaseRequest(await adminSession(), `codes/${normalizeCode(code)}`, { method: "DELETE" });
 }
 
 /** Saves the runtime controls. */
@@ -495,12 +405,11 @@ export interface AdminUsage {
 }
 
 export async function listUsage(): Promise<AdminUsage[]> {
-  const { database } = await requireAdmin();
-  const snapshot = await get(ref(database, "usage")).catch(rethrow);
-  const value = (snapshot.val() ?? {}) as Record<
-    string,
-    Record<string, { chat?: number; image?: number }>
-  >;
+  const value =
+    (await databaseRequest<Record<string, Record<string, { chat?: number; image?: number }>>>(
+      await adminSession(),
+      "usage"
+    )) ?? {};
   const today = new Date().toISOString().slice(0, 10);
   const rows: AdminUsage[] = [];
   for (const [uid, days] of Object.entries(value)) {
@@ -528,12 +437,10 @@ export interface UsageHistoryDay {
 }
 
 export async function listUsageHistory(limitDays = 60): Promise<UsageHistoryDay[]> {
-  const { database } = await requireAdmin();
-  const snapshot = await get(ref(database, "usage")).catch(rethrow);
-  const value = (snapshot.val() ?? {}) as Record<
-    string,
-    Record<string, { chat?: number; image?: number; auto?: number; code?: number; self?: number }>
-  >;
+  const value =
+    (await databaseRequest<
+      Record<string, Record<string, { chat?: number; image?: number; auto?: number; code?: number; self?: number }>>
+    >(await adminSession(), "usage")) ?? {};
   const byDay = new Map<string, UsageHistoryDay>();
   for (const [uid, days] of Object.entries(value)) {
     for (const [day, entry] of Object.entries(days ?? {})) {
@@ -554,10 +461,10 @@ export async function listUsageHistory(limitDays = 60): Promise<UsageHistoryDay[
 }
 
 export async function saveAppConfig(config: AppConfig): Promise<void> {
-  const current = await requireAdmin();
-  const user = current.auth.currentUser;
-  await user?.getIdToken(true);
-  await set(ref(current.database, "config"), config).catch(rethrow);
+  // `fresh` because a controls write must not race the identity that signed in
+  // a moment ago: the rules read the token, and the one this browser still holds
+  // may belong to another account.
+  await databaseRequest(await adminSession(), "config", { method: "PUT", body: config, fresh: true });
 }
 
 export interface AdminAuditEntry {
@@ -578,18 +485,23 @@ export interface AdminAuditEntry {
 export async function appendAdminAudit(
   entry: Omit<AdminAuditEntry, "id">
 ): Promise<AdminAuditEntry> {
-  const { database } = await requireAdmin();
-  const key = push(ref(database, "admin/audit")).key;
+  // A POST lets the database allocate the key, which is what `push` used to do.
+  const created = await databaseRequest<{ name?: string }>(await adminSession(), "admin/audit", {
+    method: "POST",
+    body: entry,
+  });
+  const key = created?.name;
   if (!key) throw new Error("Could not allocate a history entry");
-  await set(ref(database, `admin/audit/${key}`), entry).catch(rethrow);
   return { ...entry, id: key };
 }
 
 /** Newest first, capped: the console shows the recent ledger, not all of it. */
 export async function listAdminAudit(limit = 50): Promise<AdminAuditEntry[]> {
-  const { database } = await requireAdmin();
-  const snapshot = await get(ref(database, "admin/audit")).catch(rethrow);
-  const value = (snapshot.val() ?? {}) as Record<string, Omit<AdminAuditEntry, "id">>;
+  const value =
+    (await databaseRequest<Record<string, Omit<AdminAuditEntry, "id">>>(
+      await adminSession(),
+      "admin/audit"
+    )) ?? {};
   return Object.entries(value)
     .map(([id, entry]) => ({ ...entry, id }))
     .sort((a, b) => (b.at ?? 0) - (a.at ?? 0))

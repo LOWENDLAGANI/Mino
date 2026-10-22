@@ -16,6 +16,7 @@ import {
   type Database,
 } from "firebase/database";
 import { db } from "./db";
+import { databaseRequest, userSession } from "./firebaseRest";
 import { resolveDatabaseUrl } from "./databaseUrl";
 import { parseRemoteChat, planChatMerge } from "./chatSync";
 import { firstSeen } from "./visitorName";
@@ -532,8 +533,15 @@ export async function syncVisitorProfile(name: string): Promise<void> {
 export async function fetchVisitorRegistry(): Promise<Array<VisitorProfile & { uid: string }>> {
   const current = await getServices();
   if (!current) return [];
-  const snapshot = await get(ref(current.database, "admin/registry"));
-  const value = snapshot.val() as Record<string, VisitorProfile> | null;
+  const user = current.auth.currentUser;
+  if (!user) return [];
+  // A request rather than a socket read: the console has to show either the
+  // registry or the reason it could not be read, never an empty list that is
+  // really a connection that never came up.
+  const value = await databaseRequest<Record<string, VisitorProfile>>(
+    userSession(current.databaseUrl, user),
+    "admin/registry"
+  );
   if (!value) return [];
   return Object.entries(value)
     .map(([uid, profile]) => ({ uid, ...profile }))
