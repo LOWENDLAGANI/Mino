@@ -52,21 +52,59 @@ function isPermissionDenied(cause: unknown): boolean {
 }
 
 const VERIFY_TIMEOUT_MS = 10_000;
+/** How long a freshly signed-in account is given to reach the database. */
+const VERIFY_RETRY_DELAY_MS = 600;
 
+/**
+ * Whether the account signed in right now is the administrator.
+ *
+ * `false` is an answer: Firebase refused the read, so this account is not the
+ * administrator. A browser with *nobody* signed in is that same answer, not a
+ * failure — the gate needs it to put up the Google button, and reporting it as
+ * an error is what used to turn "signed out" into a dead end with no way to
+ * sign back in. Only a failure to *ask* (an unreachable database, an auth state
+ * that never settles) is thrown, so the gate can say what actually went wrong.
+ */
 export async function verifyAdminAccess(): Promise<boolean> {
   const current = await getServices();
   if (!current) throw notConfigured();
-  try {
-    const restored = current.auth.currentUser
-      ? Promise.resolve(current.auth.currentUser)
-      : current.auth.authStateReady().then(() => current.auth.currentUser);
-    const user = await withTimeout(restored, VERIFY_TIMEOUT_MS);
-    if (!user) throw new Error("No signed-in user");
-    await withTimeout(get(ref(current.database, "admin/registry")), VERIFY_TIMEOUT_MS);
-    return true;
-  } catch (cause: unknown) {
-    if (isPermissionDenied(cause)) return false;
-    throw cause;
+
+  const restored = current.auth.currentUser
+    ? Promise.resolve(current.auth.currentUser)
+    : current.auth.authStateReady().then(() => current.auth.currentUser);
+  const user = await withTimeout(restored, VERIFY_TIMEOUT_MS);
+  if (!user) return false;
+
+  // Put this account's token on the connection before the rules are asked.
+  // Right after `signInWithPopup` the Realtime Database can still be carrying
+  // the anonymous visitor's token the browser held a moment ago, and the first
+  // read made in that window is refused — for the real administrator too. The
+  // refresh is what closes that gap; the read below is still the only thing
+  // that decides access.
+  if (!user.isAnonymous) {
+    try {
+      await withTimeout(user.getIdToken(true), VERIFY_TIMEOUT_MS);
+    } catch {
+      // A token that cannot be refreshed will fail the read, and that failure
+      // is the honest one to report.
+    }
+  }
+
+  for (let attempt = 0; ; attempt += 1) {
+    try {
+      await withTimeout(get(ref(current.database, "admin/registry")), VERIFY_TIMEOUT_MS);
+      return true;
+    } catch (cause: unknown) {
+      if (!isPermissionDenied(cause)) throw cause;
+      // An anonymous visitor is refused on purpose, and asking again would be
+      // refused the same way.
+      if (user.isAnonymous || attempt > 0) return false;
+      // A Google account refused once is *usually* the connection still
+      // carrying the previous identity. Wait for the switch, then ask again —
+      // nothing is granted by the retry, because Firebase evaluates the same
+      // rule on it.
+      await new Promise((resolve) => setTimeout(resolve, VERIFY_RETRY_DELAY_MS));
+    }
   }
 }
 

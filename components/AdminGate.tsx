@@ -14,6 +14,11 @@ interface AdminGateProps {
 
 type Mode = "checking" | "signin" | "denied" | "unavailable" | "notconfigured";
 
+/** The longest the initial check may sit on "Checking this browser…". */
+const CHECK_DEADLINE_MS = 20_000;
+/** A sign-in window that never reports back must not spin forever. */
+const SIGN_IN_DEADLINE_MS = 120_000;
+
 /** Turns a Firebase error into something worth reading on a phone. */
 function describe(cause: unknown): { code: string; message: string } {
   const error = cause as { code?: string; name?: string } | null;
@@ -49,6 +54,8 @@ export default function AdminGate({ open, onClose, onUnlocked }: AdminGateProps)
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [detail, setDetail] = useState<{ code: string; message: string } | null>(null);
+  // Bumped by "Try again"; re-runs the check below against a fresh deadline.
+  const [retry, setRetry] = useState(0);
 
   // Ask Firebase on every account change, so signing out drops back to the
   // sign-in screen instead of leaving a stale console open.
@@ -59,52 +66,104 @@ export default function AdminGate({ open, onClose, onUnlocked }: AdminGateProps)
       return;
     }
 
+    setMode("checking");
+    setError(null);
+    setDetail(null);
+
     let unsubscribe: (() => void) | undefined;
     let cancelled = false;
+    // Once *any* answer exists there is nothing left to time out.
+    let answered = false;
+
+    // An unanswered check must never look like one that is still asking.
+    // Firebase can hold the auth state open indefinitely behind a proxy, an ad
+    // blocker or a captive portal, and nothing used to bound this side of the
+    // check — so the gate sat on "Checking this browser…" for as long as the
+    // tab stayed open. `verifyAdminAccess` bounds each request it makes; this
+    // is the backstop for everything around them.
+    const deadline = window.setTimeout(() => {
+      if (cancelled || answered) return;
+      answered = true;
+      setDetail({
+        code: "auth/timeout",
+        message:
+          "Firebase did not answer in time. A proxy, an ad blocker or a captive network can hold the sign-in service open.",
+      });
+      setMode("unavailable");
+    }, CHECK_DEADLINE_MS);
+
+    const answer = (next: Mode) => {
+      if (cancelled) return;
+      answered = true;
+      window.clearTimeout(deadline);
+      setMode(next);
+    };
 
     const fail = (cause: unknown) => {
       if (cancelled) return;
       console.error("[mino admin]", cause);
       setDetail(describe(cause));
-      setMode("unavailable");
+      answer("unavailable");
+    };
+
+    const check = async () => {
+      try {
+        const allowed = await verifyAdminAccess();
+        if (cancelled) return;
+        // Not being the administrator (including nobody being signed in) is a
+        // real answer, and the answer that shows the Google button.
+        if (allowed) onUnlocked();
+        else answer("signin");
+      } catch (cause: unknown) {
+        fail(cause);
+      }
     };
 
     void getServices()
-      .then(async (services) => {
+      .then((services) => {
+        if (cancelled) return;
         if (!services) {
-          if (!cancelled) setMode("notconfigured");
+          // The env values are present (checked above), so this is the SDK
+          // failing to start — not a deployment that never configured it.
+          fail(new Error("Firebase could not be initialised in this browser."));
           return;
         }
-        const check = async () => {
-          try {
-            const allowed = await verifyAdminAccess();
-            if (cancelled) return;
-            if (allowed) onUnlocked();
-            else setMode("signin");
-          } catch (cause: unknown) {
-            fail(cause);
-          }
-        };
-        await services.auth.authStateReady();
-        await check();
-        if (cancelled) return;
-        // Cleanup: unsubscribe on unmount or re-run
+        // `getServices` has already waited for the initial auth state, with a
+        // deadline of its own. Asking `authStateReady` again here would only
+        // add a second place for the gate to hang.
+        void check();
         unsubscribe = onAuthStateChanged(services.auth, () => {
-          if (!cancelled) check();
+          if (!cancelled) void check();
         });
       })
       .catch(fail);
 
     return () => {
       cancelled = true;
+      answered = true;
+      window.clearTimeout(deadline);
       unsubscribe?.();
     };
-  }, [open, onUnlocked]);
+  }, [open, onUnlocked, retry]);
 
   const signIn = useCallback(async () => {
     setBusy(true);
     setError(null);
     setDetail(null);
+
+    // The popup reports its own failures; the one failure it cannot report is
+    // never reporting at all. A window that cannot talk back to this tab —
+    // third-party storage blocked, a strict extension, an embedded view —
+    // leaves `signInWithPopup` pending for good, and the button used to stay on
+    // "Opening Google…" indefinitely. This only stops the spinner and says so;
+    // a sign-in that still completes afterwards opens the console as normal.
+    const timer = window.setTimeout(() => {
+      setBusy(false);
+      setError(
+        "The sign-in window never finished. Close it and try again — if this browser blocks third-party cookies or pop-ups, allow them for this site."
+      );
+    }, SIGN_IN_DEADLINE_MS);
+
     try {
       await signInAsAdmin();
       try {
@@ -126,6 +185,7 @@ export default function AdminGate({ open, onClose, onUnlocked }: AdminGateProps)
         setError(describe(cause).message);
       }
     } finally {
+      window.clearTimeout(timer);
       setBusy(false);
     }
   }, [onUnlocked]);
@@ -191,6 +251,18 @@ export default function AdminGate({ open, onClose, onUnlocked }: AdminGateProps)
                 {detail.message ? ` — ${detail.message}` : ""}
               </p>
             )}
+            <button
+              type="button"
+              onClick={() => {
+                setError(null);
+                setDetail(null);
+                setMode("checking");
+                setRetry((count) => count + 1);
+              }}
+              className="w-full rounded-xl bg-white/[0.08] py-2.5 text-[13px] font-medium text-white transition hover:bg-white/[0.12]"
+            >
+              Try again
+            </button>
           </div>
         )}
 
