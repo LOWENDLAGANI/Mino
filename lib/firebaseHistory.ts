@@ -16,6 +16,7 @@ import {
   type Database,
 } from "firebase/database";
 import { db } from "./db";
+import { resolveDatabaseUrl } from "./databaseUrl";
 import { parseRemoteChat, planChatMerge } from "./chatSync";
 import { firstSeen } from "./visitorName";
 import type { Chat, ChatMessage, Memory } from "./types";
@@ -47,6 +48,8 @@ export const firebaseConfigured = Boolean(
 type FirebaseServices = {
   auth: Auth;
   database: Database;
+  /** The address `database` is bound to, after the legacy-alias repair below. */
+  databaseUrl: string;
   /** Whoever is signed in right now, or null between a sign-out and a sign-in. */
   user: User | null;
   /** The signed-in user, signing in anonymously first if the browser has none. */
@@ -55,6 +58,7 @@ type FirebaseServices = {
 
 let services: FirebaseServices | null = null;
 let servicesPromise: Promise<FirebaseServices | null> | null = null;
+let resolvedDatabaseUrl: string | null = null;
 
 /** The most the first Firebase call may hold the app hostage.
  *
@@ -132,9 +136,17 @@ export async function getServices(): Promise<FirebaseServices | null> {
         }
       }
 
+      // Resolved once per page load, and only paid for when the configured
+      // address is in the legacy form.
+      if (!resolvedDatabaseUrl) {
+        resolvedDatabaseUrl = await resolveDatabaseUrl(config.databaseURL ?? "", config.projectId);
+      }
+      const databaseUrl = resolvedDatabaseUrl;
+
       services = {
         auth,
-        database: getDatabase(app),
+        database: getDatabase(app, databaseUrl),
+        databaseUrl,
         get user() {
           return auth.currentUser;
         },

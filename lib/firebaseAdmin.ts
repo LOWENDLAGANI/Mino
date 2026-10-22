@@ -51,6 +51,37 @@ function isPermissionDenied(cause: unknown): boolean {
   return code === "PERMISSION_DENIED" || /permission[ _-]?denied/i.test(message);
 }
 
+/** A database that answered with something other than yes or no. */
+function databaseAnswered(url: string, status: number): Error & { code?: string } {
+  const error = new Error(
+    status === 404
+      ? `There is no Realtime Database at ${url}. Copy the address shown in Firebase → Realtime Database into NEXT_PUBLIC_FIREBASE_DATABASE_URL.`
+      : `The database answered HTTP ${status} instead of allowing or refusing the read.`
+  ) as Error & { code?: string };
+  error.code = status === 404 ? "database/not-found" : `database/http-${status}`;
+  return error;
+}
+
+/** A database that never answered at all. */
+function databaseUnreachable(url: string, cause: unknown): Error & { code?: string } {
+  const reason = cause instanceof Error ? cause.message : String(cause);
+  const error = new Error(
+    `No answer from ${url} (${reason}). The database cannot be reached from this browser — a proxy, an ad blocker, a firewall or a captive portal can do that.`
+  ) as Error & { code?: string };
+  error.code = "database/unreachable";
+  return error;
+}
+
+/** A browser that could not be given a token. */
+function tokenUnavailable(cause: unknown): Error & { code?: string } {
+  const reason = cause instanceof Error ? cause.message : String(cause);
+  const error = new Error(
+    `Firebase did not issue a sign-in token (${reason}). A proxy, an ad blocker or a captive network can hold the token service open.`
+  ) as Error & { code?: string };
+  error.code = "auth/token-unavailable";
+  return error;
+}
+
 const VERIFY_TIMEOUT_MS = 10_000;
 /** How long a freshly signed-in account is given to reach the database. */
 const VERIFY_RETRY_DELAY_MS = 600;
@@ -64,6 +95,13 @@ const VERIFY_RETRY_DELAY_MS = 600;
  * an error is what used to turn "signed out" into a dead end with no way to
  * sign back in. Only a failure to *ask* (an unreachable database, an auth state
  * that never settles) is thrown, so the gate can say what actually went wrong.
+ *
+ * The question is asked over REST instead of through the database socket for
+ * one reason: a socket read on a handle bound to a host that does not exist
+ * never settles at all, so "refused", "no such database" and "unreachable"
+ * were indistinguishable and the gate waited on all three. An HTTP request
+ * reports a status for each. The rules judge it exactly as they judge the
+ * socket, because the `?auth=` token is the account's own.
  */
 export async function verifyAdminAccess(): Promise<boolean> {
   const current = await getServices();
@@ -75,37 +113,48 @@ export async function verifyAdminAccess(): Promise<boolean> {
   const user = await withTimeout(restored, VERIFY_TIMEOUT_MS);
   if (!user) return false;
 
-  // Put this account's token on the connection before the rules are asked.
-  // Right after `signInWithPopup` the Realtime Database can still be carrying
-  // the anonymous visitor's token the browser held a moment ago, and the first
-  // read made in that window is refused — for the real administrator too. The
-  // refresh is what closes that gap; the read below is still the only thing
-  // that decides access.
-  if (!user.isAnonymous) {
+  const url = current.databaseUrl;
+
+  const readToken = async (fresh: boolean): Promise<string> => {
     try {
-      await withTimeout(user.getIdToken(true), VERIFY_TIMEOUT_MS);
-    } catch {
-      // A token that cannot be refreshed will fail the read, and that failure
-      // is the honest one to report.
+      return await withTimeout(user.getIdToken(fresh), VERIFY_TIMEOUT_MS);
+    } catch (cause: unknown) {
+      throw tokenUnavailable(cause);
     }
+  };
+
+  const ask = async (token: string): Promise<Response> => {
+    try {
+      return await withTimeout(
+        fetch(`${url}/admin/registry.json?auth=${encodeURIComponent(token)}`, { cache: "no-store" }),
+        VERIFY_TIMEOUT_MS
+      );
+    } catch (cause: unknown) {
+      throw databaseUnreachable(url, cause);
+    }
+  };
+
+  // The token this browser already holds. Asking for it without a forced
+  // refresh keeps a slow or blocked token endpoint off the path that decides
+  // whether the console opens at all.
+  let response = await ask(await readToken(false));
+
+  if (response.status === 401 || response.status === 403) {
+    // A refusal right after sign-in is usually still the anonymous visitor's
+    // token. An anonymous visitor is refused on purpose and asking again would
+    // be refused the same way; a real account gets a fresh token and one more
+    // read. Nothing is granted by the retry — Firebase evaluates the same rule
+    // against the new token.
+    if (user.isAnonymous) return false;
+    await new Promise((resolve) => setTimeout(resolve, VERIFY_RETRY_DELAY_MS));
+    response = await ask(await readToken(true));
+    if (response.status === 401 || response.status === 403) return false;
   }
 
-  for (let attempt = 0; ; attempt += 1) {
-    try {
-      await withTimeout(get(ref(current.database, "admin/registry")), VERIFY_TIMEOUT_MS);
-      return true;
-    } catch (cause: unknown) {
-      if (!isPermissionDenied(cause)) throw cause;
-      // An anonymous visitor is refused on purpose, and asking again would be
-      // refused the same way.
-      if (user.isAnonymous || attempt > 0) return false;
-      // A Google account refused once is *usually* the connection still
-      // carrying the previous identity. Wait for the switch, then ask again —
-      // nothing is granted by the retry, because Firebase evaluates the same
-      // rule on it.
-      await new Promise((resolve) => setTimeout(resolve, VERIFY_RETRY_DELAY_MS));
-    }
-  }
+  // A 404 is not a refusal: it is a database that is not there, which the gate
+  // has to say out loud rather than blaming the rules.
+  if (!response.ok) throw databaseAnswered(url, response.status);
+  return true;
 }
 
 export interface AdminUser {
