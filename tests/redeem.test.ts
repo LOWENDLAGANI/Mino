@@ -304,7 +304,9 @@ for (const file of scanned) {
 // ── The client helper writes the claim and nothing else ──────────────────────
 
 const claimSource = readFileSync(join(process.cwd(), "lib", "redeem.ts"), "utf8");
-const claimWrite = claimSource.slice(claimSource.indexOf("await set(claimRef"));
+const claimWriteAt = claimSource.indexOf("`redeems/${uid}/${code}`, {");
+assert.ok(claimWriteAt > 0, "the claim is written to the claimant's own node");
+const claimWrite = claimSource.slice(claimWriteAt);
 assert.ok(claimWrite.includes("code,") && claimWrite.includes("claimedAt:"), "the client writes the word and the time");
 assert.ok(!/dew:|plan:|days:|expiresAt:/.test(claimWrite), "and nothing that would decide what it is worth");
 
@@ -313,7 +315,7 @@ assert.ok(!/dew:|plan:|days:|expiresAt:/.test(claimWrite), "and nothing that wou
 // way to make somebody ask for a replacement they do not need.
 assert.ok(claimSource.includes("alreadyClaimed"), "re-using a code must be reported as success, with the reason");
 assert.ok(
-  /existing\.val\(\)\?\.claimedAt/.test(claimSource) || /Number\(existing\.val\(\)/.test(claimSource),
+  /Number\(existing\??\.(?:val\(\)\??\.)?claimedAt\)/.test(claimSource),
   "the client must read the claim before writing it, so it does not reset the clock"
 );
 

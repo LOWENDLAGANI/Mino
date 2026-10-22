@@ -16,7 +16,7 @@ import {
   type Database,
 } from "firebase/database";
 import { db } from "./db";
-import { databaseRequest, userSession } from "./firebaseRest";
+import { databaseRequest, userSession, type DatabaseSession } from "./firebaseRest";
 import { resolveDatabaseUrl } from "./databaseUrl";
 import { parseRemoteChat, planChatMerge } from "./chatSync";
 import { firstSeen } from "./visitorName";
@@ -171,8 +171,22 @@ export async function getServices(): Promise<FirebaseServices | null> {
   return servicesPromise;
 }
 
-function chatRef(database: Database, uid: string, chatId: string) {
-  return ref(database, `users/${uid}/chats/${chatId}`);
+/**
+ * The signed-in visitor's address book for one-shot requests.
+ *
+ * Chat history and code claims go over requests rather than the socket for the
+ * same reason the console does: a socket read that never connects never
+ * settles, so a sync that wrote nothing looked exactly like one that worked.
+ */
+async function visitorSession(): Promise<{ session: DatabaseSession; uid: string } | null> {
+  const current = await getServices();
+  if (!current) return null;
+  try {
+    const user = await current.ensureUser();
+    return { session: userSession(current.databaseUrl, user), uid: user.uid };
+  } catch {
+    return null;
+  }
 }
 
 /**
@@ -241,14 +255,15 @@ export async function syncFirebaseHistory(): Promise<{ synced: boolean; reason?:
   const current = await getServices();
   if (!current) return { synced: false, reason: "not-configured" };
   const user = await current.ensureUser();
+  const session = userSession(current.databaseUrl, user);
 
   for (const chat of uploadable) {
     const messages = await db.messages.where("chatId").equals(chat.id).sortBy("createdAt");
     const nextMessages: Record<string, Record<string, unknown>> = {};
     for (const message of messages) nextMessages[message.id] = serializableMessage(message);
-    await set(chatRef(current.database, user.uid, chat.id), {
-      ...serializableChat(chat),
-      messages: nextMessages,
+    await databaseRequest(session, `users/${user.uid}/chats/${chat.id}`, {
+      method: "PUT",
+      body: { ...serializableChat(chat), messages: nextMessages },
     });
   }
   return { synced: true };
@@ -313,11 +328,11 @@ export async function loadChatsFromAccount(): Promise<{ chats: number; messages:
   const current = await getServices();
   if (!current) return null;
   const user = await current.ensureUser();
+  const session = userSession(current.databaseUrl, user);
 
   let remote: Record<string, unknown> | null;
   try {
-    const snapshot = await get(ref(current.database, `users/${user.uid}/chats`));
-    remote = (snapshot.val() as Record<string, unknown> | null) ?? null;
+    remote = await databaseRequest<Record<string, unknown>>(session, `users/${user.uid}/chats`);
   } catch {
     // No read rule published yet, or offline. Nothing is changed locally.
     return null;
@@ -360,10 +375,10 @@ export async function loadChatsFromAccount(): Promise<{ chats: number; messages:
 
 /** Removes one chat from the account, so deleting here deletes everywhere. */
 export async function syncChatDelete(chatId: string): Promise<void> {
-  const current = await getServices();
-  if (!current) return;
+  const visitor = await visitorSession();
+  if (!visitor) return;
   try {
-    await remove(chatRef(current.database, (await current.ensureUser()).uid, chatId));
+    await databaseRequest(visitor.session, `users/${visitor.uid}/chats/${chatId}`, { method: "DELETE" });
   } catch {
     // The local delete stands; the remote copy is cleaned up on a later write.
   }
@@ -378,17 +393,16 @@ export async function syncChatDelete(chatId: string): Promise<void> {
  * would make the next sign-in restore everything someone had just erased.
  */
 export async function syncChatWipe(): Promise<void> {
-  const current = await getServices();
-  if (!current) return;
-  const uid = (await current.ensureUser()).uid;
+  const visitor = await visitorSession();
+  if (!visitor) return;
+  const { session, uid } = visitor;
   try {
-    const snapshot = await get(ref(current.database, `users/${uid}/chats`));
-    const value = snapshot.val() as Record<string, unknown> | null;
+    const value = await databaseRequest<Record<string, unknown>>(session, `users/${uid}/chats`);
     const ids = value ? Object.keys(value) : [];
     // Recorded before the network call, so an interrupted wipe still cannot
     // bring the chats back on the next pull.
     for (const id of ids) markChatDeleted(id);
-    if (ids.length > 0) await remove(ref(current.database, `users/${uid}/chats`));
+    if (ids.length > 0) await databaseRequest(session, `users/${uid}/chats`, { method: "DELETE" });
   } catch {
     // Nothing to do — see syncChatDelete.
   }
