@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from "next";
 import AuthWarmup from "@/components/AuthWarmup";
 import ServiceWorker from "@/components/ServiceWorker";
+import AdsterraPompadour from "@/components/AdsterraPompadour";
 import "./globals.css";
 
 const DESCRIPTION =
@@ -83,6 +84,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
             popup can open inside the click that asks for it. See the component. */}
         <AuthWarmup />
         {children}
+        <AdsterraPompadour />
         <ServiceWorker />
       </body>
     </html>

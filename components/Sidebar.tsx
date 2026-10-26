@@ -19,7 +19,6 @@ import { markChatDeleted, syncChatDelete, syncChatWipe } from "@/lib/firebaseHis
 import { nameInitial } from "@/lib/visitorName";
 import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent, type ReactNode } from "react";
 import MinoMark from "@/components/MinoMark";
-import AdsterraPompadour from "@/components/AdsterraPompadour";
 import SearchOverlay from "@/components/SearchOverlay";
 import TrashOverlay from "@/components/TrashOverlay";
 import GalleryOverlay from "@/components/GalleryOverlay";
@@ -536,8 +535,6 @@ export default function Sidebar({
             </span>
             <span className="relative truncate">Support Mino</span>
           </Link>
-
-          <AdsterraPompadour />
         </div>
 
         {(folders?.length ?? 0) > 0 && (
